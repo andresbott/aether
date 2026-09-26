@@ -1,6 +1,7 @@
 package metadataedit_test
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/andresbott/aether/internal/metadataedit"
+	"github.com/andresbott/aether/internal/tags"
 	"go.senan.xyz/taglib"
 )
 
@@ -80,12 +82,16 @@ func TestBuildTagMap_GenresEmptyListClears(t *testing.T) {
 	}
 }
 
-func TestBuildTagMap_ReleaseTypesWritesAlbumTypeKey(t *testing.T) {
-	// Release types must be written to the MusicBrainz key the readers prefer,
-	// NOT RELEASETYPE (which the ffprobe reader ignores).
+func TestBuildTagMap_ReleaseTypesWritesStandardKey(t *testing.T) {
+	// Release types go to RELEASETYPE, the standard key other taggers read, and
+	// the MUSICBRAINZ_ALBUMTYPE alias is deleted in the same write so a file
+	// never carries two competing lists.
 	patch := metadataedit.Patch{ReleaseTypes: &[]string{"Album", "Compilation"}}
 	got, _ := metadataedit.BuildTagMap(patch, metadataedit.CurrentTags{})
-	want := map[string][]string{"MUSICBRAINZ_ALBUMTYPE": {"Album", "Compilation"}}
+	want := map[string][]string{
+		"RELEASETYPE":           {"Album", "Compilation"},
+		"MUSICBRAINZ_ALBUMTYPE": {},
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
@@ -94,7 +100,7 @@ func TestBuildTagMap_ReleaseTypesWritesAlbumTypeKey(t *testing.T) {
 func TestBuildTagMap_ReleaseTypesEmptyListClears(t *testing.T) {
 	patch := metadataedit.Patch{ReleaseTypes: &[]string{}}
 	got, _ := metadataedit.BuildTagMap(patch, metadataedit.CurrentTags{})
-	want := map[string][]string{"MUSICBRAINZ_ALBUMTYPE": {}}
+	want := map[string][]string{"RELEASETYPE": {}, "MUSICBRAINZ_ALBUMTYPE": {}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
@@ -319,6 +325,85 @@ func TestWriteMetadata_RoundTripFLAC(t *testing.T) {
 	}
 	if got["MUSICBRAINZ_RELEASEGROUPID"][0] != "rg-uuid" {
 		t.Fatalf("release-group id round-trip failed: %v", got["MUSICBRAINZ_RELEASEGROUPID"])
+	}
+}
+
+func TestWriteMetadata_NonUTF8TagsFLAC(t *testing.T) {
+	// latin1.flac stores its album and title as Latin-1 bytes, as old taggers
+	// wrote them, which is invalid in Vorbis comments. taglib used to fail the
+	// whole write on such a file.
+	src := "testdata/latin1.flac"
+	if _, err := os.Stat(src); err != nil {
+		t.Skipf("no fixture at %s: %v", src, err)
+	}
+	dst := filepath.Join(t.TempDir(), "copy.flac")
+	copyFileForWriter(t, src, dst)
+
+	patch := metadataedit.Patch{Album: strPtr("Fijación Oral Vol. 1")}
+	if err := metadataedit.WriteMetadata(dst, patch, metadataedit.CurrentTags{}); err != nil {
+		t.Fatalf("WriteMetadata: %v", err)
+	}
+
+	got, err := taglib.ReadTags(dst)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if !reflect.DeepEqual(got["ALBUM"], []string{"Fijación Oral Vol. 1"}) {
+		t.Fatalf("album not written: %v", got["ALBUM"])
+	}
+	// the untouched title is decoded, not lost
+	if !reflect.DeepEqual(got["TITLE"], []string{"Obtener Un Sí"}) {
+		t.Fatalf("title not preserved: %v", got["TITLE"])
+	}
+}
+
+// A file tagged by Picard (RELEASETYPE) and then edited by an older aether
+// (MUSICBRAINZ_ALBUMTYPE) carries both keys. An edit must leave one list under
+// the standard key, and a clear must stick: the readers fall back from one key
+// to the other, so a leftover would bring the cleared types back on rescan.
+func TestWriteMetadata_ReleaseTypesReplaceBothKeys(t *testing.T) {
+	for _, src := range []string{"testdata/empty.flac", "testdata/hidden.mp3"} {
+		t.Run(filepath.Ext(src), func(t *testing.T) {
+			if _, err := os.Stat(src); err != nil {
+				t.Skipf("no fixture at %s: %v", src, err)
+			}
+			dst := filepath.Join(t.TempDir(), "copy"+filepath.Ext(src))
+			copyFileForWriter(t, src, dst)
+			seed := map[string][]string{
+				"RELEASETYPE":           {"album", "soundtrack"},
+				"MUSICBRAINZ_ALBUMTYPE": {"Album"},
+			}
+			if err := taglib.WriteTags(dst, seed, 0); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+
+			edit := metadataedit.Patch{ReleaseTypes: &[]string{"Album", "Live"}}
+			if err := metadataedit.WriteMetadata(dst, edit, metadataedit.CurrentTags{}); err != nil {
+				t.Fatalf("WriteMetadata: %v", err)
+			}
+			got, err := taglib.ReadTags(dst)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got["RELEASETYPE"], []string{"Album", "Live"}) {
+				t.Fatalf("RELEASETYPE = %v, want [Album Live]", got["RELEASETYPE"])
+			}
+			if v, ok := got["MUSICBRAINZ_ALBUMTYPE"]; ok {
+				t.Fatalf("MUSICBRAINZ_ALBUMTYPE survived the edit: %v", v)
+			}
+
+			cleared := metadataedit.Patch{ReleaseTypes: &[]string{}}
+			if err := metadataedit.WriteMetadata(dst, cleared, metadataedit.CurrentTags{}); err != nil {
+				t.Fatalf("WriteMetadata clear: %v", err)
+			}
+			m, err := tags.TaglibReader{}.Read(context.Background(), dst)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(m.ReleaseTypes) != 0 {
+				t.Fatalf("cleared release types read back as %v", m.ReleaseTypes)
+			}
+		})
 	}
 }
 

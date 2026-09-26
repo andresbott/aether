@@ -74,8 +74,11 @@ const mkTrack = (over: Partial<Track> = {}): Track => ({
     ...over
 })
 
-function mountRaw(selection: Track[], results: RawTagsResult[]) {
-    rawTagsData.current = ref(results)
+// The server's managed-key list, as the raw-tags response carries it.
+const MANAGED = ['ARTIST', 'TITLE']
+
+function mountRaw(selection: Track[], results: RawTagsResult[], managedKeys: string[] = MANAGED) {
+    rawTagsData.current = ref({ results, managed_keys: managedKeys })
     const session = useEditSession(
         () => selection,
         () => 'Main'
@@ -125,6 +128,25 @@ describe('RawEditPanel', () => {
         const customRow = wrapper.find('[data-test="raw-row-CUSTOM"]')
         expect(customRow.find('textarea').attributes('disabled')).toBeUndefined()
         expect(customRow.find('[data-test="raw-delete-CUSTOM"]').exists()).toBe(true)
+    })
+
+    it('locks exactly the keys the server lists as managed', async () => {
+        const { wrapper } = mountRaw(
+            [track],
+            [{ path: 'a.mp3', tags: { RELEASETYPE: ['Album', 'Live'], TITLE: ['Song'] }, unsupported: [] }],
+            ['RELEASETYPE']
+        )
+        const managed = wrapper.find('[data-test="raw-row-RELEASETYPE"]')
+        expect(managed.find('[data-test="raw-managed"]').exists()).toBe(true)
+        expect(managed.find('textarea').attributes('disabled')).toBeDefined()
+        expect(managed.find('[data-test="raw-delete-RELEASETYPE"]').exists()).toBe(false)
+        // No client-side list: a key the server does not list stays editable.
+        const title = wrapper.find('[data-test="raw-row-TITLE"]')
+        expect(title.find('[data-test="raw-managed"]').exists()).toBe(false)
+        expect(title.find('textarea').attributes('disabled')).toBeUndefined()
+        // Adding a managed key is refused, case-insensitively.
+        await wrapper.find('[data-test="raw-add-key"]').setValue('releasetype')
+        expect(wrapper.find('[data-test="raw-add-error"]').text()).toContain('managed')
     })
 
     it('shows multi-values one per line and stages edits', async () => {

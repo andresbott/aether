@@ -59,7 +59,7 @@ export async function updateTracks(body: UpdateTracksRequest): Promise<UpdateTra
 }
 
 // getRawTags reads the complete tag map of the given files, including keys
-// the structured editor does not manage.
+// the structured editor does not manage, plus the list of keys it does manage.
 //
 // The selection travels in the POST body rather than the URL: a large
 // multi-disc selection as a repeated ?paths= query param overflowed a
@@ -70,7 +70,7 @@ export async function getRawTags(scanFolder: string, paths: string[]) {
         scan_folder: scanFolder,
         paths
     })
-    return data.results
+    return data
 }
 
 export async function getMetadataCapabilities() {

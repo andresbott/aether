@@ -20,11 +20,14 @@ type rawTagsResultDTO struct {
 
 // rawTags serves the complete tag map of the requested files, unfiltered —
 // including keys the structured editor does not manage (legacy frames,
-// ReplayGain, encoder tags, custom fields). The selection travels in the POST
-// body (scan_folder + paths[]), decoded the same way as the picture-selection
-// endpoints: this was one of the endpoints the production 431 was reported
-// against (a large multi-disc selection as a repeated ?paths= query param
-// overflowed a reverse proxy's header buffer). See
+// ReplayGain, encoder tags, custom fields) — plus the managed keys the raw
+// editor must show read-only (metadataedit.ManagedTagKeys, the same list the
+// update endpoint enforces, so the client keeps no copy that can drift).
+//
+// The selection travels in the POST body (scan_folder + paths[]), decoded the
+// same way as the picture-selection endpoints: this was one of the endpoints
+// the production 431 was reported against (a large multi-disc selection as a
+// repeated ?paths= query param overflowed a reverse proxy's header buffer). See
 // docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md.
 func (h *TagsHandler) rawTags(w http.ResponseWriter, r *http.Request) {
 	folder, sel, ok := decodeSelection(h.Folders, w, r, h.Problems)
@@ -68,5 +71,8 @@ func (h *TagsHandler) rawTags(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, rawTagsResultDTO{Path: p, Tags: tagMap, Unsupported: filtered})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"results": results})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results":      results,
+		"managed_keys": metadataedit.ManagedTagKeys(),
+	})
 }

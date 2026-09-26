@@ -109,6 +109,22 @@ func TestTaglibReader_Read(t *testing.T) {
 	}
 }
 
+// RELEASETYPE is the standard key (what Picard writes and the editor now
+// writes); MUSICBRAINZ_ALBUMTYPE is only a fallback for files without it.
+func TestTaglibReader_ReleaseTypePrefersStandardKey(t *testing.T) {
+	dst := writeTaggedFLAC(t)
+	if err := taglib.WriteTags(dst, map[string][]string{"RELEASETYPE": {"single"}}, 0); err != nil {
+		t.Fatalf("WriteTags: %v", err)
+	}
+	m, err := tags.TaglibReader{}.Read(context.Background(), dst)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(m.ReleaseTypes) != 1 || m.ReleaseTypes[0] != "single" {
+		t.Errorf("ReleaseTypes = %v, want [single]", m.ReleaseTypes)
+	}
+}
+
 func TestTaglibReader_ReadMissingFile(t *testing.T) {
 	_, err := tags.TaglibReader{}.Read(context.Background(), filepath.Join(t.TempDir(), "nope.flac"))
 	if err == nil {

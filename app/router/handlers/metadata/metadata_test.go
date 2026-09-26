@@ -616,14 +616,17 @@ func TestUpdateTracks_ReleaseTypesWritten(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Written to the MusicBrainz key the readers prefer, not RELEASETYPE.
+	// Written to the standard key other taggers read, not the alias.
 	got, err := taglibReadTags(dst)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt := got["MUSICBRAINZ_ALBUMTYPE"]
+	rt := got["RELEASETYPE"]
 	if len(rt) != 2 || rt[0] != "Album" || rt[1] != "Compilation" {
 		t.Fatalf("release types unexpected: %v", rt)
+	}
+	if v, ok := got["MUSICBRAINZ_ALBUMTYPE"]; ok {
+		t.Fatalf("alias MUSICBRAINZ_ALBUMTYPE written: %v", v)
 	}
 }
 

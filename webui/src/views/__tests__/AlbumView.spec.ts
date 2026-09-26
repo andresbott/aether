@@ -135,6 +135,21 @@ beforeEach(() => {
     mockGetGeneratedCoverPreviewUrl.mockReturnValue('generated:preview')
 })
 
+describe('AlbumView hero eyebrow', () => {
+    const eyebrow = (w: ReturnType<typeof mountView>) => w.find('.detail-hero .eyebrow').text()
+
+    it('falls back to "Album" when no release type is set', () => {
+        expect(eyebrow(mountView())).toBe('Album')
+    })
+
+    it('shows the release types when set', () => {
+        albumData.value = markRaw({ ...album, releaseTypes: ['album', 'soundtrack'] })
+        expect(eyebrow(mountView())).toBe('Album · Soundtrack')
+        albumData.value = markRaw({ ...album, releaseTypes: ['EP'] })
+        expect(eyebrow(mountView())).toBe('EP')
+    })
+})
+
 describe('AlbumView album drag', () => {
     it('makes the hero cover a drag source', () => {
         const w = mountView()

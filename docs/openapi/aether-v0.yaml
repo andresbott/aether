@@ -288,7 +288,8 @@ paths:
       description: >
         Serves the complete tag map of the requested files, unfiltered —
         including keys the structured editor does not manage (legacy frames,
-        ReplayGain, encoder tags, custom fields). The selection travels in
+        ReplayGain, encoder tags, custom fields) — plus `managed_keys`, the
+        keys a raw editor must show read-only. The selection travels in
         the POST body, decoded the same way as the picture-selection
         endpoints: this was one of the endpoints the production 431 was
         reported against (a repeated `?paths=` query param overflowing a
@@ -305,7 +306,7 @@ paths:
             schema: { $ref: '#/components/schemas/RawTagsRequest' }
       responses:
         '200':
-          description: Per-file tag maps; row-level `error` for an unreadable file.
+          description: Per-file tag maps (row-level `error` for an unreadable file) and the managed keys.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RawTagsResponse' }
@@ -2437,7 +2438,14 @@ components:
         results:
           type: array
           items: { $ref: '#/components/schemas/RawTagsResult' }
-      required: [results]
+        managed_keys:
+          type: array
+          items: { type: string }
+          description: >
+            Upper-cased, sorted tag keys the structured editor owns. A raw
+            editor shows them read-only: an update's `raw_tags` naming one
+            (compared case-insensitively) is rejected.
+      required: [results, managed_keys]
 
     PictureRemovalRequest:
       description: >

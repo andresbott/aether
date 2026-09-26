@@ -119,10 +119,14 @@ func BuildTagMap(p Patch, cur CurrentTags) (map[string][]string, error) {
 		out[taglib.Genre] = *p.Genres
 	}
 	if p.ReleaseTypes != nil {
-		// Raw key on purpose: the readers prefer MUSICBRAINZ_ALBUMTYPE, and taglib
-		// has no constant for it — taglib.ReleaseType is RELEASETYPE, which the
-		// ffprobe reader ignores, so writing that would vanish on the next rescan.
-		out["MUSICBRAINZ_ALBUMTYPE"] = *p.ReleaseTypes
+		// RELEASETYPE is taglib's name for the MusicBrainz album type and maps to
+		// each format's native frame (TXXX:MusicBrainz Album Type on MP3, the
+		// iTunes freeform atom on MP4) — what Picard and other taggers read. The
+		// MUSICBRAINZ_ALBUMTYPE alias, which the readers fall back to, is deleted
+		// in the same write: a leftover would compete with the edit and bring a
+		// cleared list back on the next rescan.
+		out[taglib.ReleaseType] = *p.ReleaseTypes
+		out["MUSICBRAINZ_ALBUMTYPE"] = []string{}
 	}
 	if p.Year != nil {
 		out[taglib.Date] = []string{strconv.Itoa(*p.Year)}

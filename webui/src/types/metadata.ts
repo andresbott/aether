@@ -87,38 +87,10 @@ export interface RawTagsResult {
 
 export interface RawTagsResponse {
     results: RawTagsResult[]
-}
-
-// Raw tag keys owned by the structured editor (upper-cased) — read-only in
-// the raw editor, which shows them with a "managed" indicator. Mirrors
-// internal/metadataedit.IsManagedTag on the server.
-export const MANAGED_TAG_KEYS: ReadonlySet<string> = new Set([
-    'TITLE',
-    'ALBUM',
-    'ARTIST',
-    'ALBUMARTIST',
-    'ALBUM_ARTIST',
-    'GENRE',
-    'DATE',
-    'YEAR',
-    'ORIGINALDATE',
-    'TRACKNUMBER',
-    'TRACK',
-    'DISCNUMBER',
-    'DISC',
-    'DISCSUBTITLE',
-    'TSST',
-    'COMPILATION',
-    'TCMP',
-    'MUSICBRAINZ_TRACKID',
-    'MUSICBRAINZ_ALBUMID',
-    'MUSICBRAINZ_RELEASEGROUPID',
-    'MUSICBRAINZ_ARTISTID',
-    'MUSICBRAINZ_ALBUMARTISTID'
-])
-
-export function isManagedTag(key: string): boolean {
-    return MANAGED_TAG_KEYS.has(key.trim().toUpperCase())
+    // Tag keys owned by the structured editor (upper-cased) — read-only in the
+    // raw editor, which shows them with a "managed" indicator. Sent by the
+    // server so the client keeps no copy of the list.
+    managed_keys: string[]
 }
 
 // One credited artist: the credited-as name and the artist's MusicBrainz ID.
