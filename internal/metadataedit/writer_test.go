@@ -322,6 +322,35 @@ func TestWriteMetadata_RoundTripFLAC(t *testing.T) {
 	}
 }
 
+func TestWriteMetadata_NonUTF8TagsFLAC(t *testing.T) {
+	// latin1.flac stores its album and title as Latin-1 bytes, as old taggers
+	// wrote them, which is invalid in Vorbis comments. taglib used to fail the
+	// whole write on such a file.
+	src := "testdata/latin1.flac"
+	if _, err := os.Stat(src); err != nil {
+		t.Skipf("no fixture at %s: %v", src, err)
+	}
+	dst := filepath.Join(t.TempDir(), "copy.flac")
+	copyFileForWriter(t, src, dst)
+
+	patch := metadataedit.Patch{Album: strPtr("Fijación Oral Vol. 1")}
+	if err := metadataedit.WriteMetadata(dst, patch, metadataedit.CurrentTags{}); err != nil {
+		t.Fatalf("WriteMetadata: %v", err)
+	}
+
+	got, err := taglib.ReadTags(dst)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if !reflect.DeepEqual(got["ALBUM"], []string{"Fijación Oral Vol. 1"}) {
+		t.Fatalf("album not written: %v", got["ALBUM"])
+	}
+	// the untouched title is decoded, not lost
+	if !reflect.DeepEqual(got["TITLE"], []string{"Obtener Un Sí"}) {
+		t.Fatalf("title not preserved: %v", got["TITLE"])
+	}
+}
+
 func TestWriteMetadata_RemoveUnsupportedFrames(t *testing.T) {
 	// hidden.mp3 carries PRIV and GEOB frames, invisible to the tag map.
 	src := "testdata/hidden.mp3"
