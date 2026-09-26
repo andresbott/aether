@@ -127,6 +127,25 @@ describe('RawEditPanel', () => {
         expect(customRow.find('[data-test="raw-delete-CUSTOM"]').exists()).toBe(true)
     })
 
+    it('locks both release-type keys the form writes and reads', () => {
+        const { wrapper } = mountRaw(
+            [track],
+            [
+                {
+                    path: 'a.mp3',
+                    tags: { MUSICBRAINZ_ALBUMTYPE: ['Album', 'Live'], RELEASETYPE: ['album'] },
+                    unsupported: []
+                }
+            ]
+        )
+        for (const key of ['MUSICBRAINZ_ALBUMTYPE', 'RELEASETYPE']) {
+            const row = wrapper.find(`[data-test="raw-row-${key}"]`)
+            expect(row.find('[data-test="raw-managed"]').exists()).toBe(true)
+            expect(row.find('textarea').attributes('disabled')).toBeDefined()
+            expect(row.find(`[data-test="raw-delete-${key}"]`).exists()).toBe(false)
+        }
+    })
+
     it('shows multi-values one per line and stages edits', async () => {
         const { wrapper, session } = mountRaw([track], singleResult)
         const textarea = wrapper.find('[data-test="raw-row-CUSTOM"] textarea')

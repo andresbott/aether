@@ -114,7 +114,9 @@ export const MANAGED_TAG_KEYS: ReadonlySet<string> = new Set([
     'MUSICBRAINZ_ALBUMID',
     'MUSICBRAINZ_RELEASEGROUPID',
     'MUSICBRAINZ_ARTISTID',
-    'MUSICBRAINZ_ALBUMARTISTID'
+    'MUSICBRAINZ_ALBUMARTISTID',
+    'MUSICBRAINZ_ALBUMTYPE',
+    'RELEASETYPE'
 ])
 
 export function isManagedTag(key: string): boolean {
