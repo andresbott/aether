@@ -6,11 +6,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/app/router/handlers/problems"
+	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/gorilla/mux"
 )
@@ -87,6 +89,27 @@ func TestRawTags_ReturnsFullTagMap(t *testing.T) {
 	}
 	if got := body.Results[0].Tags["CUSTOM"]; len(got) != 2 || got[0] != "a" {
 		t.Fatalf("unexpected tags: %s", w.Body.String())
+	}
+}
+
+// The raw editor locks the keys the structured editor owns; the response
+// carries that list so the client never keeps a copy that can drift.
+func TestRawTags_ListsManagedKeys(t *testing.T) {
+	r, folder := newRawHandler(t, t.TempDir(), func(string) (map[string][]string, error) {
+		return map[string][]string{}, nil
+	})
+	w := postRaw(t, r, folder.Name, "song.mp3")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		ManagedKeys []string `json:"managed_keys"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(body.ManagedKeys, metadataedit.ManagedTagKeys()) {
+		t.Fatalf("managed_keys = %v, want %v", body.ManagedKeys, metadataedit.ManagedTagKeys())
 	}
 }
 

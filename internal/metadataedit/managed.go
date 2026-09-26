@@ -1,6 +1,10 @@
 package metadataedit
 
-import "strings"
+import (
+	"maps"
+	"slices"
+	"strings"
+)
 
 // managedTagKeys are the raw tag keys (upper-cased) that the structured
 // metadata editor owns: every alias the tag readers recognize for a field the
@@ -38,6 +42,12 @@ var managedTagKeys = map[string]bool{
 // editor. Comparison is case-insensitive.
 func IsManagedTag(key string) bool {
 	return managedTagKeys[strings.ToUpper(strings.TrimSpace(key))]
+}
+
+// ManagedTagKeys lists the managed keys (upper-cased, sorted) so the raw
+// editor can lock them without keeping its own copy of the list.
+func ManagedTagKeys() []string {
+	return slices.Sorted(maps.Keys(managedTagKeys))
 }
 
 // coverFrameIDs are the leading segments of unsupported-data descriptors that

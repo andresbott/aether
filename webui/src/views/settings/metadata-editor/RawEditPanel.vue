@@ -5,7 +5,6 @@ import Textarea from 'primevue/textarea'
 import Button from 'primevue/button'
 import { useRawTags } from '@/composables/useMetadataEditor'
 import type { EditSession } from '@/composables/useEditSession'
-import { isManagedTag } from '@/types/metadata'
 import type { Track } from '@/types/metadata'
 
 const props = defineProps<{
@@ -28,8 +27,15 @@ const rawQuery = useRawTags(
     () => true
 )
 
-const results = computed(() => rawQuery.data.value ?? [])
+const results = computed(() => rawQuery.data.value?.results ?? [])
 const readErrors = computed(() => results.value.filter((r) => r.error))
+
+// Keys the structured editor owns, as the server lists them: read-only here.
+const managedKeys = computed(() => new Set(rawQuery.data.value?.managed_keys ?? []))
+
+function isManagedTag(key: string): boolean {
+    return managedKeys.value.has(key.trim().toUpperCase())
+}
 
 // originalsFor collects each track's on-disk values for one key (absent key =
 // empty list), the reference stageRawKey normalizes against.
