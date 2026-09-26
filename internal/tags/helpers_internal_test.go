@@ -186,6 +186,32 @@ func TestParseFFProbeJSONReleaseTypes(t *testing.T) {
 	}
 }
 
+// ffprobe names the release-type tag by the file's native frame: RELEASETYPE
+// in Vorbis comments, the TXXX description on MP3 (Picard's casing, or the
+// upper-cased one taglib writes) and the iTunes freeform name on MP4. The
+// standard key wins over the MUSICBRAINZ_ALBUMTYPE alias.
+func TestParseFFProbeJSONReleaseTypeKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		tags string
+	}{
+		{"vorbis", `"RELEASETYPE":"single","MUSICBRAINZ_ALBUMTYPE":"Album"`},
+		{"mp3 picard", `"MusicBrainz Album Type":"single"`},
+		{"mp3 taglib", `"MUSICBRAINZ ALBUM TYPE":"single"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := parseFFProbeJSON([]byte(`{"format":{"tags":{` + tc.tags + `}}}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(m.ReleaseTypes) != 1 || m.ReleaseTypes[0] != "single" {
+				t.Errorf("ReleaseTypes = %v, want [single]", m.ReleaseTypes)
+			}
+		})
+	}
+}
+
 // ffprobe exposes an attached picture's type in the video stream's "comment"
 // tag ("Cover (front)", "Cover (back)", "Other", ...). Only a front cover
 // counts as the album cover.
