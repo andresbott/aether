@@ -1,0 +1,94 @@
+# Builds the Hugo site in site/ and deploys it to GitHub Pages.
+#
+# release.yml calls this once a stable release is published. Whatever ref it
+# runs on, it builds the latest stable tag (v1.2.3, not v1.2.3-rc1), so the
+# live site tracks the latest release and main can be ahead of it: a patch tag
+# on an older line does not roll the site back, and a manual run
+# (Actions → Site → Run workflow, from any branch) republishes that tag rather
+# than main.
+#
+# One-time repository setup: Settings → Pages → Source "GitHub Actions", and
+# Settings → Environments → github-pages → add a tag rule `v*` (by default the
+# environment accepts deployments from the default branch only, so a tag run
+# is rejected).
+name: Site
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time; never cancel one that is in progress.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      HUGO_VERSION: 0.158.0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # enableGitInfo: each page's "last modified" comes from git history.
+          # Also brings the tags the next step picks from.
+          fetch-depth: 0
+
+      - name: Check out the latest stable tag
+        run: |
+          latest="$(git tag -l 'v*.*.*' --sort=-v:refname | awk '!/-/ && !found { print; found = 1 }')"
+          if [ -z "$latest" ]; then
+            echo "::error::no stable (v*.*.*) tag found to publish"
+            exit 1
+          fi
+          echo "Publishing the site from tag $latest"
+          git checkout --force --detach "$latest"
+          if [ ! -d site ]; then
+            echo "::error::$latest predates the site (no site/ directory)"
+            exit 1
+          fi
+          # GitInfo matches pages to git's file paths; quoted non-ASCII paths
+          # would not match.
+          git config core.quotepath false
+
+      # The theme is a Hugo module (site/go.mod); Hugo fetches it via `go`.
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: false
+
+      # Extended: the theme's stylesheets are SCSS.
+      - name: Install Hugo
+        run: |
+          wget -q -O "${{ runner.temp }}/hugo.deb" \
+            "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_extended_${HUGO_VERSION}_linux-amd64.deb"
+          sudo dpkg -i "${{ runner.temp }}/hugo.deb"
+
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Build
+        working-directory: site
+        run: hugo --gc --minify --baseURL "${{ steps.pages.outputs.base_url }}/"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

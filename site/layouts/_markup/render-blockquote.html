@@ -1,0 +1,14 @@
+{{- /* The theme's hook, plus a title line on GitHub alerts ("Warning", or the
+  custom title after the marker) so the kind is named, not only coloured. */ -}}
+{{- $attributes := .Attributes -}}
+{{- $class := printf "book-hint %s" ($.AlertType | lower) -}}
+{{- if isset $attributes "class" -}}
+  {{- $class = printf "%s %s" $class (index $attributes "class") -}}
+{{ end -}}
+{{- $attributes = merge $attributes (dict "class" $class) -}}
+<blockquote {{ range $key, $value := $attributes }}{{printf "%s='%s'" $key $value | safeHTMLAttr}}{{ end }}>
+{{- if eq .Type "alert" }}
+<p class="book-hint-title">{{ with .AlertTitle }}{{ . }}{{ else }}{{ $.AlertType | title }}{{ end }}</p>
+{{- end }}
+{{ .Text -}}
+</blockquote>

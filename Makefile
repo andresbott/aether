@@ -1,13 +1,20 @@
 COMMIT_SHA_SHORT ?= $(shell git rev-parse --short=12 HEAD)
 PWD_DIR := ${CURDIR}
 
+# Server-only targets live in server/Makefile; the ones below delegate to it so
+# everything can still be run from the repo root. Recipes spell out $(MAKE)
+# literally so make treats them as recursive (-n, -j jobserver).
+IN_SERVER := --no-print-directory -C server
+# Same for the website: site/Makefile holds its targets (theme-update, new, …).
+IN_SITE := --no-print-directory -C site
+
 default: help
 
 #==========================================================================================
 ##@ Testing
 #==========================================================================================
 test: ## run fast go tests
-	@go test ./... -cover
+	@$(MAKE) $(IN_SERVER) test
 
 ui-test: ## run webui unit tests
 	@cd webui && npm test
@@ -16,49 +23,24 @@ spec-lint: ## lint docs/openapi/aether-v0.yaml against .spectral.yaml (header-sa
 	@cd webui && npm run spec-lint
 
 lint: ## run go linter
-	# depends on https://github.com/golangci/golangci-lint
-	@golangci-lint run
+	@$(MAKE) $(IN_SERVER) lint
 
-COVERAGE_THRESHOLD ?= 70
 .PHONY: coverage
 coverage:
-	@fail=0; \
-	for pkg in $$(go list ./internal/...); do \
-		go test -coverprofile=coverage.out -covermode=atomic $$pkg > /dev/null; \
-		if [ -f coverage.out ]; then \
-			coverage=$$(go tool cover -func=coverage.out | grep total: | awk '{print $$3}' | sed 's/%//'); \
-			if [ -z "$$coverage" ]; then \
-				echo "⚠️  $$pkg: no coverage total"; \
-				fail=1; \
-			elif awk "BEGIN { exit !($$coverage < $(COVERAGE_THRESHOLD)) }"; then \
-				echo "❌ $$pkg: $$coverage% (below $(COVERAGE_THRESHOLD)%)"; \
-				fail=1; \
-			else \
-				echo "✅ $$pkg: $$coverage%"; \
-			fi; \
-			rm -f coverage.out; \
-		else \
-			echo "⚠️  $$pkg: no coverage data"; \
-			fail=1; \
-		fi; \
-	done; \
-	if [ $$fail -ne 0 ]; then \
-		echo "❌ coverage below threshold ($(COVERAGE_THRESHOLD)%)"; \
-		exit 1; \
-	fi; \
-	echo "✅ coverage: all packages >= $(COVERAGE_THRESHOLD)%"
+	@$(MAKE) $(IN_SERVER) coverage
 
 benchmark: ## run go benchmarks
-	@go test -run=^$$ -bench=. ./...
+	@$(MAKE) $(IN_SERVER) benchmark
 
 license-check: ## check for invalid licenses
-	# depends on : https://github.com/elastic/go-licence-detector
-	@go list -m -mod=readonly -json all | go-licence-detector -includeIndirect -rules allowedLicenses.json -overrides overrideLicenses.json
+	@$(MAKE) $(IN_SERVER) license-check
 
 .PHONY: verify
-verify: ## run all checks; runs every check and fails if any fail
+verify: ## run all checks (server verify + webui); runs every check and fails if any fail
 	@fail=0; \
-	for target in test ui-test spec-lint license-check lint benchmark coverage; do \
+	echo "==================== make -C server verify ===================="; \
+	$(MAKE) $(IN_SERVER) verify || fail=1; \
+	for target in ui-test spec-lint; do \
 		echo "==================== make $$target ===================="; \
 		$(MAKE) --no-print-directory $$target || fail=1; \
 	done; \
@@ -69,53 +51,35 @@ verify: ## run all checks; runs every check and fails if any fail
 	echo "✅ verify passed"
 
 coverage-report: ## generate a coverage report
-	go test -covermode=count -coverpkg=./... -coverprofile coverage.cover.out  ./...
-	@go tool cover -func=coverage.cover.out | tee coverage_internal.report
-	go tool cover -html coverage.cover.out -o cover.html
-	open cover.html
+	@$(MAKE) $(IN_SERVER) coverage-report
 
 #==========================================================================================
 ##@ Running
 #==========================================================================================
-run: ## start the GO service with the dev config (zarf/localdata/config.yaml)
-	@AETHER_ENV_LOGLEVEL="debug" go run main.go start -c zarf/localdata/config.yaml
+run: ## start the GO service with the dev config (server/zarf/localdata/config.yaml)
+	@$(MAKE) $(IN_SERVER) run
 
 run-ui: package-ui run## build the UI and start the GO service
 
-LAB_ADDR ?= :8099
 .PHONY: run-lab
 run-lab: ## start the covergen cover-art tuning lab (dev-only; http://localhost:8099 — override with LAB_ADDR=:9000)
-	@go run ./libs/covergen/lab -addr "$(LAB_ADDR)"
+	@$(MAKE) $(IN_SERVER) run-lab
 
 proxy: ## smoke-test proxy for auth proxy-header mode: make proxy USER=admin GROUP=aether-admin (GROUP optional)
-	@# USER is also a shell env var (the login name), so require it explicitly
-	@# on the command line — inheriting it would silently proxy as $$USER.
-	@[ "$(origin USER)" = "command line" ] || ( echo ">> USER is not set, usage: make proxy USER=admin GROUP=aether-admin"; exit 1 )
-	@go run ./zarf/devproxy -user "$(USER)" -groups "$(GROUP)"
+	@$(MAKE) $(IN_SERVER) proxy
 
-DATA_DIR ?= ./zarf/localdata/data
 .PHONY: reset-data
-reset-data: ## delete the local data dir — user DB, image cache, metadata, task logs, session/PAT keys (FORCE=1 skips the prompt)
-	@if [ ! -e "$(DATA_DIR)" ]; then \
-		echo "nothing to remove: '$(DATA_DIR)' does not exist"; \
-	else \
-		if [ "$(FORCE)" != "1" ]; then \
-			printf ">> delete ALL local data in '%s' (DB, caches, metadata, keys)? [y/N] " "$(DATA_DIR)"; \
-			read ans; \
-			case "$$ans" in [yY]|[yY][eE][sS]) ;; *) echo "aborted"; exit 1;; esac; \
-		fi; \
-		rm -rf "$(DATA_DIR)"; \
-		echo "✅ removed '$(DATA_DIR)' (recreated on next 'make run')"; \
-	fi
+reset-data: ## delete the local data dir (server/zarf/localdata/data; DATA_DIR is relative to server/, FORCE=1 skips the prompt)
+	@$(MAKE) $(IN_SERVER) reset-data
 
 #==========================================================================================
 ##@ Building
 #==========================================================================================
 package-ui: build-ui ## build the web and copy into Go package
-	rm -rf ./app/spa/files/ui*
-	mkdir -p ./app/spa/files/ui
-	cp -r ./webui/dist/* ./app/spa/files/ui/
-	touch ./app/spa/files/ui/.gitkeep
+	rm -rf ./server/app/spa/files/ui*
+	mkdir -p ./server/app/spa/files/ui
+	cp -r ./webui/dist/* ./server/app/spa/files/ui/
+	touch ./server/app/spa/files/ui/.gitkeep
 build-ui:
 	@cd webui && \
 	npm install && \
@@ -125,8 +89,20 @@ build: package-ui ## use goreleaser to build to current OS/Arch
 	@goreleaser build --snapshot --clean --single-target
 
 .PHONY: icons
-icons: ## re-render the SPA icon set from zarf/icon into webui/public (needs inkscape + imagemagick)
-	@./zarf/icon/render.sh
+icons: ## re-render the SPA icon set from server/zarf/icon into webui/public (needs inkscape + imagemagick)
+	@./server/zarf/icon/render.sh
+
+#==========================================================================================
+##@ Site
+#==========================================================================================
+site-serve: ## serve the website (site/) with live reload on http://localhost:1313/aether/ (needs hugo extended + go)
+	@$(MAKE) $(IN_SITE) serve
+
+site-build: ## build the website into site/public, as CI does
+	@$(MAKE) $(IN_SITE) build
+
+site-check: ## check the website builds (errors, links to missing pages) without leaving output
+	@$(MAKE) $(IN_SITE) check
 
 #==========================================================================================
 ##@ Release

@@ -50,7 +50,7 @@ var specDocOnce = sync.OnceValues(func() (*openapi3.T, error) {
 	if !ok {
 		return nil, errors.New("could not resolve this test file's own location")
 	}
-	specPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "docs", "openapi", "aether-v0.yaml")
+	specPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "docs", "openapi", "aether-v0.yaml")
 	doc, err := openapi3.NewLoader().LoadFromFile(specPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading %s: %w", specPath, err)

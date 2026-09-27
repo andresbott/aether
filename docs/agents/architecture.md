@@ -15,6 +15,10 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
 
 ## Layering
 
+The Go module is `server/`; the package paths below and throughout these docs
+(`app/…`, `internal/…`, `libs/…`, `zarf/…`) are relative to it. The SPA is
+`webui/` at the repo root.
+
     app/cmd (cobra CLI, config, wiring)          webui/ (Vue 3 SPA)
             |                                        | (built + embedded)
     app/router ──── /api/v0 handlers ── /rest subsonic ── app/spa (embed.FS)

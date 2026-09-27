@@ -19,6 +19,7 @@ capability — gaps are catalogued with chosen directions — and
 - **No backwards compatibility — until further notice.** No users, no live deployment. Do not write migration code, schema bridges, config compat layers, or "if old shape, fall back to..." branches. When the schema or config shape changes, just change it; the user will drop the DB manually if needed. Structure can change freely.
 - SQLite + GORM for persistence, gorilla/mux for routing, PrimeVue for UI.
 - Single binary deployment with embedded SPA.
+- **Repo layout:** the Go module lives in `server/` (`go.mod`, `main.go`, `app/`, `internal/`, `libs/`, `zarf/`, plus its own `Makefile` and tool configs `.golangci.yaml` and the license-check JSONs); the SPA in `webui/`; the public website (Hugo landing page + user docs, deployed on release — see `site/README.md`) in `site/`, while `docs/` stays internal; `docs/`, the root `Makefile`, `.goreleaser*.yaml` and `.github/` at the root. Go paths in the docs (`app/…`, `internal/…`, `libs/…`, `zarf/…`) are relative to `server/`. `server/Makefile` holds the server-only targets (`test`, `lint`, `coverage`, `benchmark`, `license-check`, a Go-only `verify`, `run`, `proxy`, …); the root `Makefile` delegates to it and adds the webui, build and release targets — `make verify` at the root is the full gate. Run raw `go`/`golangci-lint` commands inside `server/`.
 
 ## API Compatibility
 

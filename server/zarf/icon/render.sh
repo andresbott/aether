@@ -9,7 +9,7 @@
 set -euo pipefail
 
 src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/web"
-out="$(cd "$src/../../.." && pwd)/webui/public"
+out="$(cd "$src/../../../.." && pwd)/webui/public"
 
 for tool in inkscape convert; do
 	command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }

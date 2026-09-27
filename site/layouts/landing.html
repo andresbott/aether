@@ -1,0 +1,74 @@
+{{- /* The landing page (layout: landing). A page of its own rather than a
+  block in the theme's baseof, so the hero can run the full width: the login
+  screen's atmosphere, the wordmark, and the UI itself overlapping the page
+  below. Hero copy and the hero screenshot come from the front matter; the rest
+  is the page's markdown. */ -}}
+<!DOCTYPE html>
+<html lang="{{ default .Site.Language.Lang .Site.LanguageCode }}" dir="ltr">
+<head>
+  {{ partial "docs/html-head" . }}
+  {{ partial "docs/inject/head" . }}
+</head>
+<body class="landing">
+  <header class="landing-hero">
+    <div class="landing-wrap">
+      <nav class="landing-nav" aria-label="Site">
+        <ul>
+          {{- range .Site.Menus.home }}
+          {{- $isRemote := (urls.Parse .URL).IsAbs }}
+          <li><a href="{{ .URL }}"{{ if $isRemote }} rel="noopener"{{ end }}>
+            {{- with .Params.icon }}{{ partial "icon.html" . }}{{ end }}{{ .Name -}}
+          </a></li>
+          {{- end }}
+        </ul>
+      </nav>
+
+      <div class="landing-intro">
+        <h1 class="landing-title">{{ partial "wordmark.html" . }}</h1>
+        <p class="landing-tagline">{{ .Params.tagline }}</p>
+        <div class="landing-actions">
+          {{- with .Site.GetPage "/docs/getting-started" }}
+          <a class="btn btn-primary" href="{{ .RelPermalink }}">Get started</a>
+          {{- end }}
+          <a class="btn btn-ghost" href="https://github.com/andresbott/aether/releases/latest" rel="noopener">Download</a>
+        </div>
+        {{- with .Params.notice }}
+        <p class="landing-notice"><span class="pill pill-staged">Pre-release</span> {{ . }}</p>
+        {{- end }}
+      </div>
+
+      <div class="landing-hero-shot">
+        {{- with .Params.heroShot }}
+        {{ partial "screenshot.html" (dict "name" .name "title" .title "kind" "desktop" "eager" true) }}
+        {{- end }}
+      </div>
+    </div>
+  </header>
+
+  <main class="landing-body">
+    <div class="landing-wrap markdown">
+      {{ .Content }}
+    </div>
+  </main>
+
+  <footer class="landing-footer">
+    <div class="landing-wrap">
+      <a class="landing-footer-brand" href="{{ .Site.Home.RelPermalink }}">{{ partial "wordmark.html" . }}</a>
+      <p>Free software under the <a href="https://github.com/andresbott/aether/blob/main/LICENSE" rel="noopener">AGPL-3.0</a>.</p>
+      <ul>
+        {{- with .Site.GetPage "/docs/getting-started" }}
+        <li><a href="{{ .RelPermalink }}">Documentation</a></li>
+        {{- end }}
+        <li><a href="https://github.com/andresbott/aether" rel="noopener">GitHub</a></li>
+        <li><a href="https://github.com/andresbott/aether/releases" rel="noopener">Releases</a></li>
+        <li><a href="https://opensubsonic.netlify.app/" rel="noopener">OpenSubsonic</a></li>
+      </ul>
+    </div>
+  </footer>
+
+  {{- with resources.Get "clipboard.js" | resources.Minify }}
+  <script>{{ .Content | safeJS }}</script>
+  {{- end }}
+  {{ partial "docs/inject/body" . }}
+</body>
+</html>

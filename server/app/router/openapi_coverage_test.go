@@ -168,7 +168,7 @@ func loadSpecOperations(t *testing.T) map[apiV0Route]bool {
 	}
 	// Resolved relative to this source file, not the "go test" working
 	// directory, so the path holds regardless of how the test is invoked.
-	specPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "docs", "openapi", "aether-v0.yaml")
+	specPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "docs", "openapi", "aether-v0.yaml")
 	data, err := os.ReadFile(specPath)
 	if err != nil {
 		t.Fatalf("reading %s: %v", specPath, err)

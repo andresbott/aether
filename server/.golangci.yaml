@@ -32,16 +32,6 @@ linters:
         linters:
           - gosec
         text: 'G703|G705|G120'
-      # Vendored third-party code
-      - path: 'webui/node_modules/'
-        linters:
-          - gocyclo
-          - nestif
-          - gosec
-          - errcheck
-          - govet
-          - staticcheck
-          - unused
 
   settings:
     nolintlint:

@@ -9,6 +9,9 @@ builds:
   # with no runtime fallback: a too-new binary dies with SIGILL at startup.
   # =====================================================================================
   - id: linux
+    # The Go module lives in server/; every other path in this file is
+    # relative to the repo root.
+    dir: server
     goos:
       - linux
     goarch:
@@ -42,6 +45,7 @@ builds:
   # Packaged as both zip and deb, same as the baseline.
   # =====================================================================================
   - id: linux-opt
+    dir: server
     goos:
       - linux
     goarch:
@@ -68,6 +72,7 @@ builds:
   # Windows build
   # =====================================================================================
   - id: windows
+    dir: server
     goos:
       - windows
     goarch:
@@ -98,6 +103,24 @@ archives:
     files:
       - LICENSE
       - README.md
+
+  # =====================================================================================
+  # aether-spa.zip — the built web UI alone (no binaries), for serving it or
+  # embedding it elsewhere. Built from webui/dist, which `make package-ui` fills
+  # before goreleaser runs; a missing webui/dist fails the release rather than
+  # publishing an empty zip. Flat layout (index.html at the root) so it unzips
+  # straight into a web root. Only in this config — the darwin one appends to
+  # the same release and would upload it twice.
+  # =====================================================================================
+  - id: spa
+    meta: true
+    formats: [zip]
+    name_template: aether-spa
+    files:
+      - LICENSE
+      # A directory src keeps its tree; dst "." drops the webui/dist/ prefix.
+      - src: webui/dist
+        dst: .
 
 nfpms:
   -
@@ -148,9 +171,9 @@ nfpms:
         dst: /usr/share/doc/aether/README.md
       - src: LICENSE
         dst: /usr/share/doc/aether/LICENSE
-      - src: zarf/packaging/aether.service
+      - src: server/zarf/packaging/aether.service
         dst: /lib/systemd/system/aether.service
-      - src: zarf/packaging/config.yaml
+      - src: server/zarf/packaging/config.yaml
         dst: /etc/aether/config.yaml
         type: config|noreplace
       # Created by postinstall with aether:aether ownership; declared here so
@@ -161,10 +184,10 @@ nfpms:
           mode: 0750
 
     scripts:
-      preinstall: zarf/packaging/preinstall.sh
-      postinstall: zarf/packaging/postinstall.sh
-      preremove: zarf/packaging/preremove.sh
-      postremove: zarf/packaging/postremove.sh
+      preinstall: server/zarf/packaging/preinstall.sh
+      postinstall: server/zarf/packaging/postinstall.sh
+      preremove: server/zarf/packaging/preremove.sh
+      postremove: server/zarf/packaging/postremove.sh
 
 # =====================================================================================
 # Container image — ghcr.io/andresbott/aether, multi-arch (amd64 + arm64).
@@ -177,9 +200,9 @@ dockers_v2:
   - id: aether
     ids:
       - linux
-    dockerfile: zarf/docker/Dockerfile
+    dockerfile: server/zarf/docker/Dockerfile
     extra_files:
-      - zarf/docker/config.yaml
+      - server/zarf/docker/config.yaml
     images:
       - "ghcr.io/andresbott/aether"
     tags:

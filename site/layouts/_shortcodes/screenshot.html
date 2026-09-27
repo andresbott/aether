@@ -1,0 +1,9 @@
+{{- /* {{< screenshot name="settings-tasks" title="…" kind="desktop" >}} — see
+  layouts/_partials/screenshot.html for the parameters. */ -}}
+{{- partial "screenshot.html" (dict
+  "name" (.Get "name")
+  "title" (.Get "title")
+  "kind" (.Get "kind")
+  "ratio" (.Get "ratio")
+  "width" (.Get "width")
+) -}}

@@ -15,7 +15,7 @@ RUN apk add --no-cache ffmpeg chromaprint ca-certificates tzdata \
 
 ARG TARGETPLATFORM
 COPY $TARGETPLATFORM/aether /usr/bin/aether
-COPY zarf/docker/config.yaml /etc/aether/config.yaml
+COPY server/zarf/docker/config.yaml /etc/aether/config.yaml
 
 USER aether
 WORKDIR /var/lib/aether

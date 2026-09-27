@@ -425,7 +425,7 @@ A file whose only embedded picture is typed `Other` counts as having no cover â€
 deliberate: it falls through to folder art, then the generated cover.
 
 gosec path-traversal findings on these handlers are suppressed in
-`.golangci.yaml` **with a documented justification**, and the justification is
+`server/.golangci.yaml` **with a documented justification**, and the justification is
 enforced, not merely asserted: the paths `stream` and `getCoverArt` serve come
 from DB rows, and `mediaPathAllowed` (`subsonic/media.go`) confines them to the
 configured scan-folder roots through `internal/pathguard`, which fails closed â€”

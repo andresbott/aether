@@ -1,0 +1,1097 @@
+// Aether theme, selected by BookTheme = 'aether' in hugo.toml: the web UI's
+// look on hugo-book. The --app-* tokens carry the same names and values as
+// webui/src/assets/scss/_variables.scss (and theme.js for the cyan scale), so
+// a palette change there is a search away here. Light and dark follow the OS
+// setting, like the theme's 'auto'.
+//
+// The pieces that make it read as the app: the docs menu is the app's dark nav
+// rail (cyan entry, bar on the right edge), code sits on the player bar's
+// colour, and the landing hero reuses the login screen's glow.
+
+// Inter, the web UI's face, self-hosted like the app bundles it (the latin
+// subset of @fontsource-variable/inter, copied to static/fonts). The URL is
+// relative to the compiled stylesheet at the site root.
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('fonts/inter-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+
+// The logo gradient (webui/public/icon.svg), for the feature tiles.
+$brand-gradient: linear-gradient(170deg, #72cfcc -10%, #102744 95%);
+
+@mixin aether-light {
+  @include theme-light;
+
+  --font-sans: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+
+  --app-background: #e7eaee;
+  --app-surface: #f4f6f8;
+  --app-surface-2: #ffffff;
+  --app-bg-subtle: #e9ecf0;
+  --app-border: #dde2e8;
+  --app-text-primary: #1b2430;
+  --app-text-secondary: #67727f;
+  --app-accent: #0e9bb5;
+  --app-accent-hover: #0b8299;
+  --app-accent-soft: rgba(14, 155, 181, 0.12);
+  --app-nav-bg: #1b2430;
+  --app-nav-text: #d3dae2;
+  --app-nav-brand: #2fd3ef;
+  --app-nav-brand-alt: #d81b60;
+  --app-player-bg: #141b24;
+  --app-player-text: #d3dae2;
+  --app-radius: 8px;
+
+  // Site-only: the accent as body text. The app's #0e9bb5 is a button colour
+  // (3:1 on the surface); primary.800 keeps running-text links above 6:1.
+  --site-link: #0c6a7d;
+  // The rail's dim text, one step up from the app's --app-nav-text-dim
+  // (#7b8794 / #6a7681, about 4.2:1) so the small group headers and footer
+  // links clear AA on the rail.
+  --site-rail-dim: #8b97a4;
+  --site-code-border: transparent;
+  --site-shot-shadow: 0 0 0 1px var(--app-border), 0 18px 40px -24px rgba(15, 23, 32, 0.45);
+
+  // hugo-book's own variables, pointed at the tokens above.
+  --body-background: var(--app-surface);
+  --body-font-color: var(--app-text-primary);
+  --color-link: var(--site-link);
+  --color-visited-link: var(--site-link);
+  --gray-100: var(--app-bg-subtle);
+  --gray-200: var(--app-border);
+  --gray-500: var(--app-text-secondary);
+
+  // Alerts: each shade passes AA as the alert's title text. Staged amber and
+  // danger red are the app's own tokens; important is the wordmark's magenta.
+  @include accent("default", #67727f);
+  @include accent("note", #0c6a7d);
+  @include accent("tip", #15803d);
+  @include accent("important", #c2185b);
+  @include accent("warning", #b45309);
+  @include accent("caution", #b91c1c);
+  @include accent("info", #0c6a7d);
+  @include accent("success", #15803d);
+  @include accent("danger", #b91c1c);
+}
+
+@mixin aether-dark {
+  @include theme-dark;
+
+  --app-background: #0d1117;
+  --app-surface: #141b24;
+  --app-surface-2: #1a222e;
+  --app-bg-subtle: #1c2632;
+  --app-border: #232d3a;
+  --app-text-primary: #d7dee6;
+  --app-text-secondary: #8b97a4;
+  --app-accent: #2fd3ef;
+  --app-accent-hover: #57e0f7;
+  --app-accent-soft: rgba(47, 211, 239, 0.16);
+  --app-nav-bg: #0a0e13;
+  --app-nav-text: #d7dee6;
+  --app-player-bg: #080b10;
+  --app-player-text: #d7dee6;
+
+  --site-link: #2fd3ef;
+  --site-rail-dim: #7b8794;
+  --site-code-border: var(--app-border);
+  --site-shot-shadow: 0 0 0 1px var(--app-border), 0 18px 40px -24px rgba(0, 0, 0, 0.8);
+
+  --body-background: var(--app-surface);
+  --body-font-color: var(--app-text-primary);
+  --color-link: var(--site-link);
+  --color-visited-link: var(--site-link);
+  --gray-100: var(--app-bg-subtle);
+  --gray-200: var(--app-border);
+  --gray-500: var(--app-text-secondary);
+
+  @include accent("default", #8b97a4, 0.12);
+  @include accent("note", #2fd3ef, 0.12);
+  @include accent("tip", #4ade80, 0.12);
+  @include accent("important", #f06292, 0.12);
+  @include accent("warning", #fbbf24, 0.12);
+  @include accent("caution", #f87171, 0.12);
+  @include accent("info", #2fd3ef, 0.12);
+  @include accent("success", #4ade80, 0.12);
+  @include accent("danger", #f87171, 0.12);
+}
+
+@mixin theme-aether {
+  @include aether-light;
+
+  @media (prefers-color-scheme: dark) {
+    @include aether-dark;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Base
+// ---------------------------------------------------------------------------
+
+body {
+  font-family: var(--font-sans);
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+}
+
+::selection {
+  background-color: var(--app-accent);
+  color: #ffffff;
+}
+
+:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 2px;
+}
+
+// The theme fades every nav link to half opacity on hover; the rail and the
+// landing nav change colour instead, as the app's sidebar does.
+nav ul a[href]:hover,
+nav ul a[role=button]:hover {
+  opacity: 1;
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.wordmark-mark {
+  flex: none;
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.wordmark-text {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--app-nav-brand);
+}
+
+.wordmark-accent {
+  color: var(--app-nav-brand-alt);
+}
+
+// ---------------------------------------------------------------------------
+// Docs shell: rail on the left edge, a centred reading column, the ToC right
+// ---------------------------------------------------------------------------
+
+// Full width, so the rail sits on the window's edge as in the app instead of
+// floating inside a centred 80rem box.
+.container {
+  max-width: none;
+}
+
+.book-page {
+  padding: 2.5rem clamp(1rem, 4vw, 3rem) 2rem;
+
+  > .book-header,
+  > .book-article,
+  > .book-footer {
+    max-width: 42rem;
+    margin-inline: auto;
+  }
+}
+
+.book-menu {
+  font-size: 0.875rem;
+
+  .book-menu-content {
+    padding: 1.5rem 0 1rem;
+    background: var(--app-nav-bg);
+    color: var(--app-nav-text);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--app-nav-brand);
+    outline-offset: -2px;
+  }
+
+  a,
+  a.active {
+    color: inherit;
+  }
+
+  nav ul a {
+    padding: 0.5rem 1.25rem;
+    font-weight: 500;
+    transition: background-color 0.15s ease, color 0.15s ease;
+
+    &[href]:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: #ffffff;
+    }
+  }
+
+  nav ul ul {
+    padding-inline-start: 0;
+  }
+
+  // The current page: the app's active entry — cyan, tinted, with the bar on
+  // the rail's right edge.
+  nav ul a.active {
+    color: var(--app-nav-brand);
+    background: rgba(47, 211, 239, 0.12);
+    box-shadow: inset -3px 0 0 var(--app-nav-brand);
+  }
+}
+
+.book-brand {
+  margin: 0 1.25rem 1.25rem;
+  font-size: 1.5rem;
+
+  a {
+    color: inherit;
+  }
+
+  .wordmark-mark {
+    width: 1.15em;
+    height: 1.15em;
+  }
+}
+
+.book-menu .book-search {
+  margin: 0 1.25rem 0.75rem;
+
+  input {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid transparent;
+    border-radius: var(--app-radius);
+    // One step lighter than the rail, like the login card's fields.
+    background: color-mix(in srgb, var(--app-nav-bg), #ffffff 7%);
+    color: var(--app-nav-text);
+    font: inherit;
+
+    &::placeholder {
+      color: var(--site-rail-dim);
+    }
+
+    &:focus {
+      border-color: var(--app-nav-brand);
+      outline: none;
+    }
+  }
+
+  .book-search-spinner {
+    border-top-color: var(--app-nav-text);
+  }
+
+  ul a {
+    padding: 0.375rem 0;
+  }
+
+  small {
+    opacity: 1;
+    color: var(--site-rail-dim);
+  }
+}
+
+// Sections are the rail's group headers, like the app's "Library" group.
+.book-menu .rail-tree > ul > li {
+  margin-top: 1rem;
+
+  > a {
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+    color: var(--site-rail-dim);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+}
+
+.book-menu .rail-after {
+  margin-top: 1.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+
+  a {
+    color: var(--site-rail-dim);
+  }
+}
+
+.book-header {
+  margin-bottom: 2rem;
+
+  a.book-header-brand {
+    flex: none;
+    font-size: 1.25rem;
+  }
+
+  // The ToC toggle's slot stays when a page has none, keeping the brand
+  // centred; the menu icon is the width to match.
+  label {
+    min-width: 1.5rem;
+  }
+}
+
+.book-toc {
+  font-size: 0.8125rem;
+
+  .book-toc-content {
+    padding: 2.75rem 1.25rem 1rem 0.5rem;
+  }
+
+  #TableOfContents > ul {
+    border-inline-start: 1px solid var(--app-border);
+  }
+
+  nav ul a {
+    padding: 0.3rem 0 0.3rem 0.875rem;
+    color: var(--app-text-secondary);
+
+    &[href]:hover {
+      color: var(--app-text-primary);
+    }
+  }
+
+  nav ul ul {
+    padding-inline-start: 0.75rem;
+  }
+}
+
+.book-footer {
+  margin-top: 3.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--app-border);
+  font-size: 0.8125rem;
+  color: var(--app-text-secondary);
+
+  a[href] {
+    color: var(--app-text-secondary);
+
+    &:hover {
+      color: var(--app-text-primary);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Page content
+// ---------------------------------------------------------------------------
+
+.markdown {
+  line-height: 1.65;
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-weight: 700;
+    color: var(--app-text-primary);
+  }
+
+  h1 {
+    margin-bottom: 1.25rem;
+    font-size: 2rem;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    margin-top: 2.75rem;
+    margin-bottom: 0.75rem;
+    font-size: 1.5rem;
+    line-height: 1.25;
+    letter-spacing: -0.015em;
+  }
+
+  h3 {
+    margin-top: 2rem;
+    margin-bottom: 0.5rem;
+    font-size: 1.1875rem;
+    font-weight: 650;
+    line-height: 1.3;
+  }
+
+  h4 {
+    margin-top: 1.75rem;
+    margin-bottom: 0.5rem;
+    font-size: 1rem;
+    font-weight: 650;
+    line-height: 1.4;
+  }
+
+  b,
+  strong {
+    font-weight: 650;
+  }
+
+  a[href] {
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--site-link) 35%, transparent);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+
+    &:hover {
+      text-decoration-color: currentColor;
+    }
+  }
+
+  a.anchor {
+    color: var(--app-text-secondary);
+    text-decoration: none;
+  }
+
+  code {
+    padding: 0.1em 0.35em;
+    border: 1px solid var(--app-border);
+    border-radius: 4px;
+    background: var(--app-bg-subtle);
+    font-size: 0.875em;
+    // A value broken over two lines keeps its box on both.
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  // Code on the player bar's colour, dark in both themes.
+  pre {
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--site-code-border);
+    border-radius: var(--app-radius);
+    background: var(--app-player-bg);
+    color: var(--app-player-text);
+    font-size: 0.875rem;
+    line-height: 1.65;
+
+    code {
+      padding: 0;
+      border: 0;
+      background: none;
+      color: inherit;
+      font-size: inherit;
+    }
+  }
+
+  // Tables like the app's lists: one raised panel, hairlines between rows.
+  table {
+    border: 1px solid var(--app-border);
+    border-radius: var(--app-radius);
+    background: var(--app-surface-2);
+    font-size: 0.9375rem;
+    line-height: 1.5;
+
+    tr th,
+    tr td {
+      padding: 0.625rem 1rem;
+      border: 0;
+      border-bottom: 1px solid var(--app-border);
+      vertical-align: top;
+    }
+
+    tr th {
+      color: var(--app-text-secondary);
+      font-size: 0.8125rem;
+      font-weight: 600;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    tr:nth-child(2n) {
+      background: none;
+    }
+  }
+
+  blockquote {
+    margin: 1.5rem 0;
+    padding: 0.875rem 1.125rem;
+    border-inline-start: 3px solid var(--app-border);
+    border-radius: var(--app-radius);
+  }
+
+  .book-hint-title {
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 650;
+  }
+
+  @each $name in (note, tip, important, warning, caution) {
+    .book-hint.#{$name} .book-hint-title {
+      color: var(--color-accent-#{$name});
+    }
+  }
+
+  hr {
+    background: var(--app-border);
+  }
+}
+
+// Syntax colours for the player-bar code blocks (markup.highlight.noClasses =
+// false): the brand cyan for keywords and keys, a light magenta after the
+// wordmark's for strings, the staged amber for numbers.
+.chroma {
+  .c, .ch, .cm, .c1, .cs, .cp, .cpf, .gp, .go {
+    color: #7b8794;
+    font-style: italic;
+  }
+
+  .k, .kd, .kn, .kp, .kr, .kt, .nb, .bp, .ow, .nt {
+    color: #2fd3ef;
+  }
+
+  .na, .nv, .vc, .vg, .vi, .py, .no, .nl, .nn {
+    color: #a5e9f5;
+  }
+
+  .s, .sa, .sb, .sc, .dl, .sd, .s2, .sh, .si, .sx, .sr, .s1, .ss {
+    color: #f48fb1;
+  }
+
+  .kc, .m, .mb, .mf, .mh, .mi, .il, .mo, .l, .ld {
+    color: #fbbf24;
+  }
+
+  .o, .p, .se {
+    color: #8b97a4;
+  }
+
+  .nf, .fm, .nc, .ne, .nd {
+    font-weight: 600;
+  }
+
+  .gd { color: #f87171; }
+  .gi { color: #4ade80; }
+  .err { color: inherit; }
+  .hl { display: block; background: rgba(255, 255, 255, 0.06); }
+  .line { display: flex; }
+
+  .ln, .lnt {
+    margin-inline-end: 0.75em;
+    color: #6a7681;
+    user-select: none;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Screenshots (layouts/_partials/screenshot.html)
+// ---------------------------------------------------------------------------
+
+.shot {
+  // The placeholder's wireframe is sized in cqi, against this width.
+  container-type: inline-size;
+  margin: 2rem 0;
+
+  figcaption {
+    margin-top: 0.75rem;
+    color: var(--app-text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+}
+
+.shot-frame {
+  display: block;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--app-background);
+  box-shadow: var(--site-shot-shadow);
+
+  img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+}
+
+.shot-phone {
+  max-width: 18rem;
+
+  .shot-frame {
+    border-radius: 1.5rem;
+  }
+}
+
+// The placeholder is the app shell in outline: nav rail, content, player bar
+// (phone: content and mini player; panel: content only), with the title and the
+// file to drop in the middle.
+.shot-placeholder {
+  display: grid;
+  grid-template: "rail main" 1fr "player player" 7.5cqi / 17% 1fr;
+}
+
+.shot-phone .shot-placeholder {
+  grid-template: "main" 1fr "player" 17cqi / 1fr;
+}
+
+// A panel (a dialog, a settings section): a title and the rule under it.
+.shot-panel .shot-placeholder {
+  grid-template: "main" 1fr / 1fr;
+  background:
+    linear-gradient(var(--app-border), var(--app-border)) 4cqi 4cqi / 24cqi 1.8cqi no-repeat,
+    linear-gradient(var(--app-border), var(--app-border)) 0 10cqi / 100% 1px no-repeat,
+    var(--app-surface-2);
+}
+
+// The nav rail on its own (a crop of the sidebar): the rail's entries fill it.
+.shot-rail .shot-placeholder {
+  grid-template: "main" 1fr / 1fr;
+}
+
+.wire-rail,
+.shot-rail .wire-main {
+  // Wordmark, two entries, the active one, two more.
+  background:
+    linear-gradient(var(--app-nav-brand), var(--app-nav-brand)) 14% 6% / 52% 2.4% no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1)) 14% 16% / 62% 1.6% no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1)) 14% 22% / 48% 1.6% no-repeat,
+    linear-gradient(rgba(47, 211, 239, 0.16), rgba(47, 211, 239, 0.16)) 0 31% / 100% 6% no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1)) 14% 40% / 56% 1.6% no-repeat,
+    linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1)) 14% 46% / 44% 1.6% no-repeat,
+    var(--app-nav-bg);
+}
+
+.wire-rail {
+  grid-area: rail;
+
+  .shot-phone &,
+  .shot-panel &,
+  .shot-rail & {
+    display: none;
+  }
+}
+
+.shot-rail .shot-label {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: var(--app-nav-bg);
+  color: var(--app-nav-text);
+
+  code,
+  .markdown & code {
+    color: var(--site-rail-dim);
+  }
+}
+
+.wire-main {
+  grid-area: main;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6cqi;
+}
+
+.wire-player {
+  grid-area: player;
+  position: relative;
+  background: var(--app-player-bg);
+
+  // Play button and scrubber.
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+  }
+
+  &::before {
+    top: 38%;
+    left: 50%;
+    width: 3.4cqi;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: var(--app-nav-brand);
+    translate: -50% -50%;
+  }
+
+  &::after {
+    bottom: 22%;
+    left: 34%;
+    right: 34%;
+    height: 0.3cqi;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  .shot-phone &::before {
+    top: 50%;
+    left: auto;
+    right: 5cqi;
+    width: 8cqi;
+    translate: 0 -50%;
+  }
+
+  .shot-phone &::after {
+    display: none;
+  }
+
+  .shot-panel &,
+  .shot-rail & {
+    display: none;
+  }
+}
+
+.shot-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5em;
+  max-width: 30em;
+  padding: 1em 1.5em;
+  border: 1px dashed color-mix(in srgb, var(--app-text-secondary) 50%, transparent);
+  border-radius: var(--app-radius);
+  color: var(--app-text-primary);
+  font-size: clamp(0.8125rem, 2.1cqi, 1.25rem);
+  line-height: 1.35;
+  text-align: center;
+
+  strong {
+    font-weight: 650;
+    text-wrap: balance;
+  }
+
+  // Beats .markdown code: the path is a hint, not inline code.
+  .markdown & code,
+  & code {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--app-text-secondary);
+    font-size: 0.7em;
+    overflow-wrap: anywhere;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Landing page (layouts/landing.html)
+// ---------------------------------------------------------------------------
+
+.landing {
+  // How far the hero screenshot reaches into the page below.
+  --hero-overlap: clamp(3rem, 14vw, 10rem);
+}
+
+.landing-wrap {
+  max-width: 72rem;
+  margin-inline: auto;
+  padding-inline: clamp(1.25rem, 4vw, 2.5rem);
+}
+
+// The login screen's atmosphere (LoginView.vue): deep blue, a brand-cyan glow
+// rising from the lower left and a softer echo mid-height. Dark in both themes.
+.landing-hero {
+  // A formatting context of its own, so the screenshot's negative margin ends
+  // the hero early (letting the shot overhang) instead of collapsing through.
+  display: flow-root;
+  background-color: #060b13;
+  background-image:
+    radial-gradient(110% 95% at 10% 75%, color-mix(in srgb, #2fd3ef 34%, #0b1c30), transparent 72%),
+    radial-gradient(65% 55% at 42% 45%, color-mix(in srgb, #2fd3ef 16%, transparent), transparent 70%);
+  color: #d7dee6;
+}
+
+.landing-nav {
+  ul {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem 1.75rem;
+    padding-top: 1.25rem;
+  }
+
+  // Icon and label like the app's sidebar entries.
+  a {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0;
+    color: #d3dae2;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    transition: color 0.15s ease;
+
+    &:hover {
+      color: #ffffff;
+    }
+  }
+
+  svg {
+    flex: none;
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+}
+
+.landing-intro {
+  padding-top: clamp(1rem, 3vw, 2rem);
+}
+
+.landing-title {
+  margin: 0;
+  font-size: clamp(2.75rem, 7vw, 4.25rem);
+  line-height: 1;
+
+  .wordmark {
+    gap: 0.28em;
+  }
+
+  .wordmark-text {
+    letter-spacing: 0.01em;
+  }
+}
+
+// One line wherever it fits; a phone wraps it.
+.landing-tagline {
+  margin: 1rem 0 0;
+  color: #d7dee6;
+  font-size: clamp(1.125rem, 2vw, 1.375rem);
+  font-weight: 500;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+
+.landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+// The app's buttons (theme.js: 8px, dark-theme primary).
+a.btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  border: 1px solid transparent;
+  border-radius: var(--app-radius);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+a.btn-primary {
+  background: #2fd3ef;
+  color: #1f2937;
+
+  &:hover {
+    background: #57e0f7;
+  }
+}
+
+a.btn-ghost {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #d7dee6;
+
+  &:hover {
+    border-color: rgba(255, 255, 255, 0.36);
+    background: rgba(255, 255, 255, 0.06);
+    color: #ffffff;
+  }
+}
+
+.landing-hero :focus-visible,
+.landing-footer :focus-visible {
+  outline-color: #2fd3ef;
+}
+
+.pill {
+  display: inline-block;
+  padding: 0.2em 0.7em;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+// The metadata editor's "staged" amber: something not settled yet.
+.pill-staged {
+  background: rgba(251, 191, 36, 0.14);
+  color: #fbbf24;
+}
+
+.landing-notice {
+  margin: 1rem 0 0;
+  color: #8b97a4;
+  font-size: 0.875rem;
+}
+
+.landing-hero-shot {
+  position: relative;
+  z-index: 1;
+  margin-top: clamp(1.75rem, 3.5vw, 2.5rem);
+  margin-bottom: calc(-1 * var(--hero-overlap));
+
+  .shot {
+    margin: 0;
+  }
+
+  // Lit by the hero's glow above the fold, resting on the page below it.
+  .shot-frame {
+    border-radius: 12px;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 32px 64px -32px rgba(6, 11, 19, 0.55),
+      0 0 80px -24px color-mix(in srgb, #2fd3ef 45%, transparent);
+  }
+
+  figcaption {
+    display: none;
+  }
+}
+
+.landing-body {
+  padding: calc(var(--hero-overlap) + clamp(3rem, 6vw, 4.5rem)) 0 clamp(4rem, 8vw, 6rem);
+
+  .markdown {
+    > p {
+      max-width: 40rem;
+    }
+
+    // A section's opening paragraph is its lead.
+    > h2 + p {
+      max-width: 36em;
+      font-size: clamp(1.0625rem, 1.6vw, 1.1875rem);
+      line-height: 1.55;
+    }
+
+    h2 {
+      margin: clamp(3.5rem, 7vw, 5.5rem) 0 1rem;
+      font-size: clamp(1.625rem, 3vw, 2.125rem);
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+    }
+
+    > h2:first-child {
+      margin-top: 0;
+    }
+
+    pre {
+      max-width: 44rem;
+    }
+  }
+}
+
+// Features read like the app's track list: a thumbnail, a title, one line
+// under it, hairlines between rows.
+.markdown .features {
+  display: grid;
+  // Quoted: libsass would evaluate min() itself and fail on rem against %.
+  grid-template-columns: repeat(auto-fit, minmax(#{"min(100%, 24rem)"}, 1fr));
+  column-gap: 3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feature {
+  display: grid;
+  grid-template-columns: 2.75rem 1fr;
+  gap: 1rem;
+  padding: 1.25rem 0;
+  border-top: 1px solid var(--app-border);
+}
+
+.feature-icon {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--app-radius);
+  background: $brand-gradient;
+  color: #ffffff;
+
+  svg {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+}
+
+.markdown .feature-body {
+  h3 {
+    margin: 0.125rem 0 0.25rem;
+    font-size: 1.0625rem;
+    font-weight: 650;
+    letter-spacing: -0.005em;
+    line-height: 1.3;
+  }
+
+  p {
+    margin: 0;
+    color: var(--app-text-secondary);
+    font-size: 0.9375rem;
+    line-height: 1.55;
+  }
+}
+
+// A phone and a 16:10 capture side by side at equal heights: column widths in
+// the ratio of their widths at one height (9 : 19.5 against 16 : 10).
+.screens {
+  display: grid;
+  grid-template-columns: minmax(0, 9fr) minmax(0, 31.2fr);
+  gap: 2rem;
+  align-items: start;
+
+  .shot {
+    margin: 0;
+  }
+
+  .shot-phone {
+    max-width: none;
+  }
+
+  @media (max-width: 48rem) {
+    grid-template-columns: minmax(0, 1fr);
+
+    .shot-phone {
+      max-width: 18rem;
+    }
+  }
+}
+
+.landing-footer {
+  padding: 2.5rem 0;
+  background: var(--app-nav-bg);
+  color: var(--site-rail-dim);
+  font-size: 0.875rem;
+
+  .landing-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem 2rem;
+  }
+
+  p {
+    flex: 1 1 auto;
+    margin: 0;
+  }
+
+  ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  a[href] {
+    flex: none;
+    color: var(--app-nav-text);
+
+    &:hover {
+      color: #ffffff;
+    }
+  }
+}
+
+.landing-footer-brand {
+  font-size: 1.25rem;
+}

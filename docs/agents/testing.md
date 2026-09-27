@@ -1,11 +1,16 @@
 # Testing — gates, commands, conventions
 
-The full gate is `make verify` — run it before calling any work done. It runs,
-in order: `test` → `ui-test` → `license-check` → `lint` → `benchmark` →
-`coverage`, collects all failures, and fails if any target failed. CI runs the
+The full gate is `make verify` from the repo root — run it before calling any
+work done. It runs the server gate (`make -C server verify`: `test` →
+`license-check` → `lint` → `benchmark` → `coverage`), then `ui-test` →
+`spec-lint`, collects all failures, and fails if any target failed. CI runs the
 same pieces (`.github/workflows/test.yml`: `make test`, `make coverage`,
-`make ui-test`, `make package-ui`; separate golangci-lint and license-check
-workflows).
+`make ui-test`, `make package-ui`; separate golangci-lint, license-check and
+spec-lint workflows).
+
+The Go targets live in `server/Makefile` (run them there, e.g.
+`cd server && make verify` for a Go-only gate); the root `Makefile` delegates
+to it, so every target below also works from the repo root.
 
 | Target | What it runs |
 |---|---|
@@ -14,13 +19,14 @@ workflows).
 | `make lint` | `golangci-lint run` (v2 config; CI pins v2.12.2 to avoid gosec ruleset skew) |
 | `make coverage` | **per-package** total over `./internal/...`, threshold **70%** each |
 | `make benchmark` | `go test -bench=. ./...` |
-| `make license-check` | `go-licence-detector` against `allowedLicenses.json` / `overrideLicenses.json` |
-| `make verify` | all of the above; the definition of done |
+| `make license-check` | `go-licence-detector` against `server/allowedLicenses.json` / `server/overrideLicenses.json` |
+| `make spec-lint` | Spectral over `docs/openapi/aether-v0.yaml` (root only) |
+| `make verify` | all of the above; the definition of done (in `server/`: the Go checks only) |
 
 - The coverage gate is per `internal/` package, not a repo total. A new
   `internal/` package below 70% fails `verify` — write the tests, don't lower
   `COVERAGE_THRESHOLD`. `app/`, `libs/`, and `webui` are outside this gate.
-- Lint policy (`.golangci.yaml`): standard set + `nolintlint`, `gocyclo`
+- Lint policy (`server/.golangci.yaml`): standard set + `nolintlint`, `gocyclo`
   (min-complexity 20), `nestif`, `gosec`, `dupl`. `nolint` directives must
   name the linter and carry an explanation (`require-explanation: true`).
   The gosec path-traversal suppressions for the media handlers are documented
@@ -64,12 +70,13 @@ workflows).
 
 ## Running the app locally
 
-- `make run` — Go server with debug logging (`AETHER_ENV_LOGLEVEL=debug`) and
-  the dev config `zarf/localdata/config.yaml`: data in `zarf/localdata/data`,
-  scans `zarf/locallibrary` (both git-ignored); serves whatever UI build is
-  currently embedded.
-- `make run-ui` — rebuilds the SPA, copies it into `app/spa/files/ui`, then
-  runs the server.
+- `make run` — Go server with debug logging (`AETHER_ENV_LOGLEVEL=debug`),
+  started from `server/` with the dev config `server/zarf/localdata/config.yaml`:
+  data in `server/zarf/localdata/data`, scans `server/zarf/locallibrary` (both
+  git-ignored), provider keys from `server/*.api.key`; serves whatever UI build
+  is currently embedded.
+- `make run-ui` — rebuilds the SPA, copies it into `server/app/spa/files/ui`,
+  then runs the server.
 - `cd webui && npm run dev` — Vite dev server for UI work (set
   `VITE_SERVER_URL_V0` if not proxying).
 
