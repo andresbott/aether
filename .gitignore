@@ -1,5 +1,6 @@
 # Go
 /data/
+/server/data/
 *.db
 *.db-shm
 *.db-wal
@@ -20,6 +21,11 @@ node_modules
 # Build
 /dist/
 
+# Hugo site output (make site-build) and resource cache
+/site/public/
+/site/resources/
+/site/.hugo_build.lock
+
 # Env
 .env
 
@@ -28,24 +34,24 @@ FanartApiKey.api.key
 TheAudioDBApiKey.api.key
 
 # SPA embedded files (rebuilt from webui/)
-app/spa/files/ui/*
-!app/spa/files/ui/.gitkeep
+server/app/spa/files/ui/*
+!server/app/spa/files/ui/.gitkeep
 
 # Generated cover art test samples
-libs/covergen/testdata/*.png
-libs/covergen/allstyles/testdata/text/*.png
+server/libs/covergen/testdata/*.png
+server/libs/covergen/allstyles/testdata/text/*.png
 .tokensave
 
 # Subagent-driven-development scratch workspace
 .superpowers/
 
-libs/covergen/svg/candidates/*
-!libs/covergen/svg/candidates/.gitkeep
+server/libs/covergen/svg/candidates/*
+!server/libs/covergen/svg/candidates/.gitkeep
 
-# Local dev music library, scanned by `make run` (see zarf/localdata/config.yaml)
-zarf/locallibrary/*
-!zarf/locallibrary/.gitkeep
+# Local dev music library, scanned by `make run` (see server/zarf/localdata/config.yaml)
+server/zarf/locallibrary/*
+!server/zarf/locallibrary/.gitkeep
 
 # Local dev config + data dir used by `make run`; only the config is tracked
-zarf/localdata/*
-!zarf/localdata/config.yaml
+server/zarf/localdata/*
+!server/zarf/localdata/config.yaml

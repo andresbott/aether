@@ -1,0 +1,6 @@
+{{- /* {{ partial "icon.html" "album" }}: a Material Symbols glyph from
+  assets/icons/ (the web UI's icon set, its filled Rounded style), inline so it
+  takes the text colour. Decorative: the SVGs carry aria-hidden. */ -}}
+{{- $icon := resources.Get (printf "icons/%s.svg" .) -}}
+{{- if not $icon }}{{ errorf "icon %q: no assets/icons/%s.svg" . . }}{{ end -}}
+{{- $icon.Content | safeHTML -}}

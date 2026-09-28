@@ -20,6 +20,7 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: true
+          cache-dependency-path: server/go.sum
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
@@ -27,3 +28,4 @@ jobs:
           # Pin the exact version so the bundled gosec ruleset matches local
           # runs; version skew makes nolintlint flag directives inconsistently.
           version: v2.13.2
+          working-directory: server

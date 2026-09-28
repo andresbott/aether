@@ -1,5 +1,5 @@
-# Dev config: `make run` starts the server from the repo root with
-# -c zarf/localdata/config.yaml. Relative paths in this file (DataDir, scan
+# Dev config: `make run` starts the server from server/ (the Go module root)
+# with -c zarf/localdata/config.yaml. Relative paths in this file (DataDir, scan
 # folder Paths, "@" key files) resolve against that working directory, not
 # against this file's directory.
 Server:

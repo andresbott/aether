@@ -1,0 +1,15 @@
+{{- /* The theme's phone header, with the wordmark in the middle instead of the
+  page title, which the page's own heading repeats right below. */ -}}
+<div class="flex align-center justify-between">
+  <label for="menu-control">
+    <img src="{{ partial "docs/icon" "menu" }}" class="book-icon" alt="{{ partial "docs/text/i18n" "Menu" }}" />
+  </label>
+
+  <a class="book-header-brand" href="{{ .Site.Home.RelPermalink }}">{{ partial "wordmark.html" . }}</a>
+
+  <label for="toc-control">
+    {{ if partial "docs/toc-show" . }}
+    <img src="{{ partial "docs/icon" "toc" }}" class="book-icon" alt="{{ partial "docs/text/i18n" "Table of Contents" }}" />
+    {{ end }}
+  </label>
+</div>

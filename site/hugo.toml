@@ -1,0 +1,90 @@
+baseURL = 'https://andresbott.github.io/aether/'
+languageCode = 'en-us'
+title = 'Aether'
+
+# No tags/categories: the theme does not render them.
+disableKinds = ['taxonomy', 'term']
+
+# "Last modified" + commit link in each docs page footer (BookLastChangeLink).
+# CI checks out the full history for it; a shallow clone dates every page to
+# the last commit.
+enableGitInfo = true
+
+# The theme is a Hugo module pinned in go.mod (not a git submodule). Update it
+# with `make theme-update TAG=<hugo-book tag>`, never `hugo mod get -u`: the
+# theme's tags are not Go-module versions, and -u would "upgrade" to its
+# ancient v0.15.0.
+[module]
+  [[module.imports]]
+    path = 'github.com/alex-shpak/hugo-book'
+  # The brand mark and favicon come straight from the web UI, so the two never
+  # drift: the bare diamond its sidebar and login page put next to the
+  # wordmark (BrandMark.vue), and the favicon `make icons` renders. Declaring
+  # any static mount drops Hugo's default one, hence the explicit static →
+  # static.
+  [[module.mounts]]
+    source = 'static'
+    target = 'static'
+  [[module.mounts]]
+    source = '../webui/src/assets/aether-mark.svg'
+    target = 'static/mark.svg'
+  [[module.mounts]]
+    source = '../webui/public/favicon.ico'
+    target = 'static/favicon.ico'
+
+[params]
+  # The theme mixin in assets/_custom.scss: the web UI's own light and dark
+  # palettes, following the OS setting like hugo-book's 'auto'.
+  BookTheme = 'aether'
+  BookToC = true
+  BookFavicon = 'favicon.ico'
+  BookSection = 'docs'
+  BookSearch = true
+  BookComments = false
+  BookDateFormat = 'Jan 2, 2006'
+
+  # Plain markdown links to other pages (`[x](/docs/guides/libraries.md)`) are
+  # resolved to their URL, so they also work on GitHub and survive a baseURL
+  # change. 'error' fails the build on a link to a page that does not exist.
+  BookPortableLinks = 'error'
+
+  # .Path is the file path relative to this directory, hence the site/ prefix.
+  BookEditLink = 'https://github.com/andresbott/aether/edit/main/site/{{ .Path }}'
+  BookLastChangeLink = 'https://github.com/andresbott/aether/commit/{{ .GitInfo.Hash }}'
+
+# Top navigation of the landing page (layout: landing). params.icon names a
+# glyph in assets/icons/.
+[[menus.home]]
+  name = 'Documentation'
+  pageRef = '/docs/getting-started'
+  weight = 10
+  params.icon = 'menu-book'
+[[menus.home]]
+  name = 'Download'
+  url = 'https://github.com/andresbott/aether/releases/latest'
+  weight = 20
+  params.icon = 'download'
+[[menus.home]]
+  name = 'GitHub'
+  url = 'https://github.com/andresbott/aether'
+  weight = 30
+  params.icon = 'github'
+
+# Links below the docs sidebar.
+[[menus.after]]
+  name = 'GitHub'
+  url = 'https://github.com/andresbott/aether'
+  weight = 10
+[[menus.after]]
+  name = 'Releases'
+  url = 'https://github.com/andresbott/aether/releases'
+  weight = 20
+
+[markup]
+  # Code is coloured by class, from the player-bar palette in
+  # assets/_custom.scss, instead of a stock Chroma style inlined per token.
+  [markup.highlight]
+    noClasses = false
+  [markup.tableOfContents]
+    startLevel = 2
+    endLevel = 3

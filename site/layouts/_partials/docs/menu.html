@@ -1,0 +1,28 @@
+{{- /* The theme's menu, with the page tree and the links below it wrapped so
+  assets/_custom.scss can style them as the web UI's nav rail: sections as
+  headers, pages as entries, the external links as the rail's footer. */ -}}
+<nav>
+{{ partial "docs/brand" . }}
+{{ partial "docs/search" . }}
+{{ if hugo.IsMultilingual }}
+  {{ partial "docs/languages" . }}
+{{ end }}
+
+{{ partial "docs/inject/menu-before" . }}
+{{ partial "docs/menu-hugo" (dict "Page" .Page "Menu" .Site.Menus.before) }}
+
+<div class="rail-tree">
+{{ partial "docs/menu-filetree" . }}
+</div>
+
+<div class="rail-after">
+{{ partial "docs/menu-hugo" (dict "Page" .Page "Menu" .Site.Menus.after) }}
+</div>
+{{ partial "docs/inject/menu-after" . }}
+</nav>
+
+<!-- Restore menu position as soon as possible to avoid flickering -->
+{{ $script := resources.Get "menu-reset.js" | resources.Minify }}
+{{ with $script.Content }}
+  <script>{{ . | safeJS }}</script>
+{{ end }}

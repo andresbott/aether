@@ -7,7 +7,7 @@ description: Use when the user runs /verify or asks to run make verify. Runs the
 
 Run `make verify` and fix all issues until it passes clean.
 
-`make verify` runs in order: `test` → `ui-test` → `license-check` → `lint` → `benchmark` → `coverage`
+`make verify` (repo root) runs the server gate `make -C server verify` (`test` → `license-check` → `lint` → `benchmark` → `coverage`), then `ui-test` → `spec-lint`. `cd server && make verify` runs the Go checks only.
 
 ## How to run
 
@@ -33,7 +33,7 @@ The only valid `//nolint` is when the linter is provably wrong for that exact li
 
 ## Linter quick reference
 
-Config: `.golangci.yaml` — standard linters + `nolintlint`, `gocyclo` (≥20), `nestif` (≥5), `gosec`, `dupl`
+Config: `server/.golangci.yaml` — standard linters + `nolintlint`, `gocyclo` (≥20), `nestif` (≥5), `gosec`, `dupl`
 
 | Linter | Common fix |
 |--------|-----------|

@@ -1,0 +1,10 @@
+{{- /* {{< feature icon="album" title="Artwork" >}}Markdown text{{< /feature >}}
+  inside {{< features >}}. icon names a glyph in assets/icons/ (see
+  _partials/icon.html), shown on a tile in the logo's gradient. */ -}}
+<li class="feature">
+  <span class="feature-icon">{{ partial "icon.html" (.Get "icon") }}</span>
+  <div class="feature-body">
+    <h3>{{ .Get "title" }}</h3>
+    {{ .Inner | .Page.RenderString (dict "display" "block") }}
+  </div>
+</li>

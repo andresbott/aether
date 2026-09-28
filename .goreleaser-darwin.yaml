@@ -4,6 +4,8 @@ builds:
   # macOS build
   # =====================================================================================
   - id: darwin
+    # The Go module lives in server/.
+    dir: server
     goos:
       - darwin
     goarch:

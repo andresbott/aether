@@ -15,6 +15,10 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
 
 ## Layering
 
+The Go module is `server/`; the package paths below and throughout these docs
+(`app/…`, `internal/…`, `libs/…`, `zarf/…`) are relative to it. The SPA is
+`webui/` at the repo root.
+
     app/cmd (cobra CLI, config, wiring)          webui/ (Vue 3 SPA)
             |                                        | (built + embedded)
     app/router ──── /api/v0 handlers ── /rest subsonic ── app/spa (embed.FS)
@@ -441,8 +445,6 @@ See [api-conventions.md](api-conventions.md) for the full house rules.
 - `docs/cue-playing.md` (2026-07-22) and `docs/gapless-playback-web-audio.md`
   (2026-06-30) — assessed-but-deferred designs. Check them before designing
   CUE support or Web-Audio gapless playback from scratch.
-- `gonic_features.md` — an analysis of the *gonic* server used as a feature
-  reference; it describes gonic, **not** aether.
 
 ## Known debt
 

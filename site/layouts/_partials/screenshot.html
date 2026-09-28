@@ -1,0 +1,59 @@
+{{- /*
+  A screenshot of the web UI, or a placeholder until there is one.
+
+  Context: (dict "name" "library" "title" "…" "kind" "desktop" "ratio" "" "width" "" "eager" false)
+
+  - name:  the file under assets/screenshots/, without extension: .png, .webp or
+           .jpg. <name>-dark.<ext> next to it, when present, is shown instead in
+           dark mode.
+  - title: the caption, and the image's alt text.
+  - kind:  desktop (16:10, the default), phone (9:19.5), panel (4:3, a cropped
+           part of the UI such as a dialog) or rail (1:2, a crop of the nav
+           sidebar). It shapes the placeholder only.
+  - ratio: overrides the placeholder's aspect ratio, e.g. "3 / 4".
+  - width: caps the figure's width, e.g. "20rem" for a tall, narrow crop.
+  - eager: load at once, for the image at the top of a page.
+
+  Missing file = a wireframe of the app shell with the title and the path to
+  drop the capture at, so replacing it needs no markdown change.
+*/ -}}
+{{- $name := .name -}}
+{{- $title := .title -}}
+{{- $kind := .kind | default "desktop" -}}
+{{- $ratios := dict "desktop" "16 / 10" "phone" "9 / 19.5" "panel" "4 / 3" "rail" "1 / 2" -}}
+{{- $ratio := .ratio | default (index $ratios $kind) | default "16 / 10" -}}
+
+{{- $img := false -}}
+{{- $dark := false -}}
+{{- range slice "png" "webp" "jpg" -}}
+  {{- if not $img -}}
+    {{- with resources.Get (printf "screenshots/%s.%s" $name .) }}{{ $img = . }}{{ end -}}
+  {{- end -}}
+  {{- if not $dark -}}
+    {{- with resources.Get (printf "screenshots/%s-dark.%s" $name .) }}{{ $dark = . }}{{ end -}}
+  {{- end -}}
+{{- end -}}
+
+<figure class="shot shot-{{ $kind }}"{{ with .width }} style="{{ printf "max-width: %s" . | safeCSS }}"{{ end }}>
+{{- if $img }}
+  <picture class="shot-frame">
+    {{- with $dark }}
+    <source srcset="{{ .RelPermalink }}" media="(prefers-color-scheme: dark)" />
+    {{- end }}
+    <img src="{{ $img.RelPermalink }}" width="{{ $img.Width }}" height="{{ $img.Height }}" alt="{{ $title }}"
+      {{- if .eager }} fetchpriority="high"{{ else }} loading="lazy"{{ end }} decoding="async" />
+  </picture>
+  <figcaption>{{ $title }}</figcaption>
+{{- else }}
+  <div class="shot-frame shot-placeholder" style="{{ printf "aspect-ratio: %s" $ratio | safeCSS }}" role="img" aria-label="Screenshot to come: {{ $title }}">
+    <span class="wire-rail" aria-hidden="true"></span>
+    <span class="wire-main">
+      <span class="shot-label">
+        <strong>{{ $title }}</strong>
+        <code>assets/screenshots/{{ $name }}.png</code>
+      </span>
+    </span>
+    <span class="wire-player" aria-hidden="true"></span>
+  </div>
+{{- end }}
+</figure>
