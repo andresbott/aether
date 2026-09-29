@@ -32,7 +32,9 @@ Open the URL Vite prints; it proxies `/api` and `/rest` to the backend.
 `make run-ui` serves the SPA embedded from `:8075`.
 
 `make run` uses the dev config `server/zarf/localdata/config.yaml`, the full
-annotated example of every setting.
+annotated example of every setting. It scans `server/zarf/locallibrary`
+(git-ignored); `make sample-library` fills it with ~1 GB of freely licensed
+albums from the Internet Archive.
 
 ## Website
 

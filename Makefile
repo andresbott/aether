@@ -72,6 +72,10 @@ proxy: ## smoke-test proxy for auth proxy-header mode: make proxy USER=admin GRO
 reset-data: ## delete the local data dir (server/zarf/localdata/data; DATA_DIR is relative to server/, FORCE=1 skips the prompt)
 	@$(MAKE) $(IN_SERVER) reset-data
 
+.PHONY: sample-library
+sample-library: ## download ~1 GB of freely licensed albums into server/zarf/locallibrary/sample-library (SAMPLE_LIBRARY_DIR is relative to server/)
+	@$(MAKE) $(IN_SERVER) sample-library
+
 #==========================================================================================
 ##@ Building
 #==========================================================================================
