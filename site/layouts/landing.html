@@ -33,7 +33,7 @@
           <a class="btn btn-ghost" href="https://github.com/andresbott/aether/releases/latest" rel="noopener">Download</a>
         </div>
         {{- with .Params.notice }}
-        <p class="landing-notice"><span class="pill pill-staged">Pre-release</span> {{ . }}</p>
+        <p class="landing-notice"><span class="pill pill-staged">Pre-release</span> {{ $.RenderString . }}</p>
         {{- end }}
       </div>
 
