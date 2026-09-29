@@ -97,6 +97,11 @@ reset-data: ## delete the local data dir — user DB, image cache, metadata, tas
 		echo "✅ removed '$(DATA_DIR)' (recreated on next 'make run')"; \
 	fi
 
+SAMPLE_LIBRARY_DIR ?= ./zarf/locallibrary/sample-library
+.PHONY: sample-library
+sample-library: ## download ~1 GB of freely licensed albums into zarf/locallibrary/sample-library for 'make run' (needs curl + jq; re-runs skip what is there)
+	@./zarf/samplelibrary/fetch.sh "$(SAMPLE_LIBRARY_DIR)"
+
 
 #==========================================================================================
 #  Help

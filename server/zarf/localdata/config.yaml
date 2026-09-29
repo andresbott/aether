@@ -74,8 +74,9 @@ DataDir: "./zarf/localdata/data"
 #       - ".*/covers/.*"
 #     FollowSymlinks: false
 #
-# Active dev setup: `make run` scans zarf/locallibrary — drop music there; git
-# ignores everything in it except its .gitkeep.
+# Active dev setup: `make run` scans zarf/locallibrary — drop music there, or
+# run `make sample-library` for ~1 GB of freely licensed albums; git ignores
+# everything in it except its .gitkeep.
 ScanFolders:
   - Name: "Music"
     Path: "./zarf/locallibrary"

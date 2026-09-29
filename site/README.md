@@ -80,7 +80,9 @@ page's hero is `heroShot` in its front matter):
 | `settings-users` | Authentication: Settings → Users |
 
 Capture at 1440×900 (desktop) or 390×844 (phone) with a scanned library and
-something queued, so views are not empty.
+something queued, so views are not empty. The landing hero (`library`) is the
+exception, at 1680×1050: at 1440 the album grid beside the open queue shows only
+two columns.
 
 ## Icons
 

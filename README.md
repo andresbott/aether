@@ -4,8 +4,10 @@ Aether is a self-hosted music server that indexes your music folders and streams
 them over an OpenSubsonic-compatible API. It ships as a single Go binary with the
 Vue 3 web player embedded.
 
-> **Under active development.** Pre-release: no compatibility guarantees between
-> versions.
+> **Pre-release:** under active development.
+> [More details](https://andresbott.github.io/aether/docs/getting-started/pre-release/)
+
+![The library: album grid, play queue and player bar](site/assets/screenshots/library.png)
 
 **Documentation:** <https://andresbott.github.io/aether/>
 
@@ -28,7 +30,3 @@ For the Debian package, the plain binary and the container's options, see
 ## Development
 
 See [DEVELOPMENT.md](DEVELOPMENT.md).
-
-## License
-
-[AGPL-3.0](LICENSE)

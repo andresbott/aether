@@ -1,6 +1,6 @@
-<!-- todo:guide — managed by todo; this block is rewritten on save. Docs: https://github.com/andresbott/todo
+<!-- todo:guide — managed by todo; this block is rewritten on save. Docs: https://github.com/candy-tools/todo
 This file is a todo list managed by "todo", a terminal TODO app:
-https://github.com/andresbott/todo
+https://github.com/candy-tools/todo
 
 todo watches this file and reloads it automatically when it changes on disk, so
 you — human or agent — can edit it directly in any editor. Keep to this format
@@ -18,23 +18,17 @@ Notes for editors:
 - Text above the first heading (this block included) is preserved on save.
 - todo rewrites the file into the canonical form above on every change, so any
   other free-form markdown placed between items is not kept.
+
+Prefer the CLI over editing by hand: it writes this file in the exact format
+above. `todo add`, `todo done|progress|defer|reopen`, `todo edit`, `todo rm`
+and `todo list --json` cover the common actions — run `todo --help`.
 -->
 
 # 1.0
 
 ## Features
 
-- [x] Proper playlist editing
-- [x] multi user playlists
-- [x] detach scaned folders from libraries
-  use metaadata queries insetd of folders for sources of songs — **Shipped** (branch `feat/virtual-libraries`): scan folders are config-only (`ScanFolders:`), libraries are saved filters (scan folder, path, format, release type, compilation, genre) served to `/rest` as music folders.
-- [ ] Migrate into own GH org
-- [x] new icon theme
-- [x] migrate httperr and upstrem to bunbu http
-
 ## Backend
-
-- [x] does the artist image job still make sense?
 
 ### Backend — API Surface
 
@@ -110,8 +104,6 @@ Notes for editors:
 
 - [ ] Add library statistics
   e.g. albums, artists, songs, genres, disk space used.
-- [x] Rework libraries: scan folders + metadata-composed
-  Stop filtering filesystem concerns into the app. Keep a list of folders to scan (config- or DB-stored); compose libraries from track metadata rather than mapping each library 1:1 to a filesystem path. **Shipped** with "detach scaned folders from libraries": folders are config-stored, libraries compile to a dynamic track predicate (`store.TrackScope`), no membership table.
 - [ ] Index `track_artists` / `album_artists` by `artist_id` (the cost of hide-artists libraries)
   The all-libraries artist index with any hide-artists library takes ~6.7 s at 100k tracks (measured; the pre-virtual-libraries `library_id NOT IN` SQL measured the same 6.86 s with an identical plan). Cause: a `SCAN` of `track_artists`, which only has its `(track_id, artist_id)` autoindex. Fix: an index leading with `artist_id` on both join tables (`model.Migrate` already hand-writes one raw index).
 - [ ] Negated library filters (`not in`)

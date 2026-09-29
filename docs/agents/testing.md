@@ -75,6 +75,12 @@ to it, so every target below also works from the repo root.
   data in `server/zarf/localdata/data`, scans `server/zarf/locallibrary` (both
   git-ignored), provider keys from `server/*.api.key`; serves whatever UI build
   is currently embedded.
+- `make sample-library` — downloads ~1 GB of CC / Live Music Archive albums
+  from archive.org into `server/zarf/locallibrary/sample-library` (script and
+  album list: `server/zarf/samplelibrary/fetch.sh`, each entry noting the
+  edge case it covers: FLAC vs MP3, embedded vs folder art, composer tags,
+  a various-artists compilation, untagged files). No release-type or
+  MusicBrainz tags — tag with Picard to exercise those.
 - `make run-ui` — rebuilds the SPA, copies it into `server/app/spa/files/ui`,
   then runs the server.
 - `cd webui && npm run dev` — Vite dev server for UI work (set
