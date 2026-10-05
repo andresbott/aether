@@ -202,7 +202,9 @@ working directory cannot shadow the packaged one.
   (`go.senan.xyz/taglib` → `github.com/andresbott/go-taglib`). This is a
   module-level replace, so it *does* apply to builds — but it pins a fork;
   version bumps of taglib must go through the fork or remove the replace
-  deliberately.
+  deliberately. The fork is upstream plus `ReadUnsupported` /
+  `RemoveUnsupported` (sentriz/go-taglib#28), which the metadata editor's
+  hidden-frame removal needs; once that lands upstream the replace can go.
 - Version metadata (`app/metainfo`: Version, BuildTime, ShaVer) is injected
   via goreleaser ldflags. The AcoustID app key is a compiled-in constant
   chosen per release line (`metainfo.AcoustIDAppKey`) so usage stats can be

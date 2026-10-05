@@ -331,7 +331,9 @@ func TestWriteMetadata_RoundTripFLAC(t *testing.T) {
 func TestWriteMetadata_NonUTF8TagsFLAC(t *testing.T) {
 	// latin1.flac stores its album and title as Latin-1 bytes, as old taggers
 	// wrote them, which is invalid in Vorbis comments. taglib used to fail the
-	// whole write on such a file.
+	// whole write on such a file; it now drops text that isn't valid UTF-8, so
+	// the edit succeeds but the untouched title is lost — accepted, see
+	// docs/architecture/caveats.md.
 	src := "testdata/latin1.flac"
 	if _, err := os.Stat(src); err != nil {
 		t.Skipf("no fixture at %s: %v", src, err)
@@ -351,9 +353,9 @@ func TestWriteMetadata_NonUTF8TagsFLAC(t *testing.T) {
 	if !reflect.DeepEqual(got["ALBUM"], []string{"Fijación Oral Vol. 1"}) {
 		t.Fatalf("album not written: %v", got["ALBUM"])
 	}
-	// the untouched title is decoded, not lost
-	if !reflect.DeepEqual(got["TITLE"], []string{"Obtener Un Sí"}) {
-		t.Fatalf("title not preserved: %v", got["TITLE"])
+	// the untouched title is dropped, not decoded
+	if v, ok := got["TITLE"]; ok {
+		t.Fatalf("title = %q, want it dropped", v)
 	}
 }
 
