@@ -34,6 +34,11 @@ When a view diverges from these registries, the registry wins.
 - `views/` — route components; `views/settings/` for the settings shell
   (`meta: { layout: 'settings' }`, separate `SettingsLayout`). Routes in
   `router/index.ts`; the two route categories are tabled in CLAUDE.md.
+  `SettingsLayout`'s `.settings-content` is the one vertical scroller for every
+  settings view: the layout is a single viewport tall, so a view taller than the
+  pane scrolls there, while the metadata editor fills it (`height: 100%`) and
+  scrolls its own panels. Pinned off disk by `SettingsLayout.scrollStyles.spec.ts`
+  — the pane used to clip, leaving the bottom of tall settings pages unreachable.
 - `components/layout/` — app chrome (sidebar, player controls, queue,
   ContentScaffold, EditActionBar, HeroHeader/HeroActions).
 - `components/library/` — domain cards/grids/rows. **All card grids render
