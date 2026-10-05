@@ -443,7 +443,10 @@ any scan, is the one named.
 `github.com/andresbott/go-taglib`**, wazero/WASM so no cgo for tags) and
 `FFProbeReader` (shells out to ffprobe). Production wiring is
 `tags.NewFallbackReader(taglib, ffprobe)` — taglib first, ffprobe for what it
-can't read. `ErrUnsupported` marks unreadable file types.
+can't read. `ErrUnsupported` marks unreadable file types. Tag text that is not
+valid UTF-8 reads as missing rather than failing — so ffprobe never sees it —
+and any editor write to the file deletes it
+([`caveats.md`](../architecture/caveats.md#tag-text-that-is-not-valid-utf-8)).
 
 ## Cover art at scan time
 

@@ -417,3 +417,44 @@ except edge 8, which fails outright instead.
 **Revisit when:** libraries need to be exact at album or artist granularity (edge 1),
 or a per-user library model arrives — both want a materialized membership table,
 which the design kept as its escape hatch.
+
+---
+
+## Tag text that is not valid UTF-8
+
+**Status:** accepted — upstream go-taglib's behaviour (sentriz/go-taglib `ed9dfe2`,
+"don't fail on tags with invalid UTF-8 or UTF-16"). *Won't implement* in `TODO.md`
+("Decoding tag text that is not valid UTF-8").
+**Affects:** `internal/tags` (`TaglibReader.Read`, `ReadRawTags`) and every
+`internal/metadataedit` write — tags, raw tags, embedded pictures.
+**Failure mode:** silent data loss. A read drops the field; for invalid UTF-8 the
+next write through the editor also deletes it from the file. No error.
+
+### The gap
+
+Text a format declares as UTF-8 but that isn't — typically Windows-1252 that old
+taggers wrote into Vorbis comments (FLAC, Ogg, Opus) — converts to an empty
+string when the file is parsed, and TagLib discards empty fields. Invalid UTF-16
+in ID3v2 (an unpaired surrogate) also reads as missing — the whole value, not
+just the bad character — but TagLib keeps the frame as it was, so it survives a
+write. ID3v2 frames marked Latin-1 are unaffected, since TagLib decodes those as
+Latin-1.
+
+- **Scan:** the read succeeds without the field, so `FallbackReader` never asks
+  ffprobe. A non-UTF-8 artist or album lands under "Unknown Artist" /
+  "Unknown Album" and a non-UTF-8 title is empty.
+- **Edit:** TagLib rebuilds the whole tag on save, so any write — even one that
+  changes a different field, or only a picture — deletes the dropped UTF-8
+  fields from the file (`TestWriteMetadata_NonUTF8TagsFLAC`). The editor shows
+  them empty first, so the loss is visible before a save but never named.
+
+### What was given up
+
+Until 2026-10 the fork decoded invalid UTF-8 as Windows-1252, which kept the text
+and rewrote it as valid UTF-8 on the next save. Upstream closed that change
+(sentriz/go-taglib#30) in favour of dropping the text, and the fork now follows
+upstream instead of carrying a second patch. Re-applying it means changing one
+header in the fork (`utf8-nothrow/utf8.h`) and rebuilding the wasm.
+
+**Revisit when:** a real library turns up with enough non-UTF-8 tags that losing
+them, or retyping them in the editor, matters.

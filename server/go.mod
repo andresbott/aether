@@ -73,4 +73,4 @@ require (
 	modernc.org/sqlite v1.23.1 // indirect
 )
 
-replace go.senan.xyz/taglib => github.com/andresbott/go-taglib v0.0.0-20260926094147-16d540518a4f
+replace go.senan.xyz/taglib => github.com/andresbott/go-taglib v0.0.0-20261005215559-6835c5b0d6ea
