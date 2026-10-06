@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -335,15 +336,20 @@ func (s *Scanner) reconcileArtistImages(root string, probes map[uint]*artistImag
 	}
 }
 
+// detectCoverInDir returns the best front cover among dir's entries, or "".
+// It lists the directory with os.ReadDir, never filepath.Glob: a glob reads the
+// directory part of its pattern as glob syntax too, so a folder such as
+// "Album [2020]" (a character class), "AC\DC" (an escape) or one with an
+// unclosed "[" never matches itself and its cover is never found.
 func detectCoverInDir(dir string) string {
-	entries, err := filepath.Glob(filepath.Join(dir, "*"))
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		slog.Debug("cover detection glob failed", "dir", dir, "err", err)
+		slog.Debug("cover detection read dir failed", "dir", dir, "err", err)
 		return ""
 	}
 	var candidates []string
 	for _, e := range entries {
-		candidates = append(candidates, filepath.Base(e))
+		candidates = append(candidates, e.Name())
 	}
 	best := BestCover(candidates)
 	if best != "" {

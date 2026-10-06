@@ -121,6 +121,66 @@ func TestReconcileRepointsToAHigherRankedCover(t *testing.T) {
 	}
 }
 
+// Regression test: directory names are data, never glob syntax. Cover detection
+// used to list the directory with filepath.Glob, which reads the whole path as a
+// pattern — "[2020]" is a character class, "\" an escape, an unclosed "[" a bad
+// pattern — so every album under such a folder lost its cover.
+func TestReconcileFindsCoverUnderGlobMetacharacters(t *testing.T) {
+	cases := []struct {
+		name  string
+		files []string
+		want  string
+	}{
+		{
+			name:  "brackets in the album folder",
+			files: []string{"Artist/Album [2020]/01.mp3", "Artist/Album [2020]/cover.jpg"},
+			want:  "Artist/Album [2020]/cover.jpg",
+		},
+		{
+			name:  "brackets in a parent folder",
+			files: []string{"[Compilations]/Album/01.mp3", "[Compilations]/Album/cover.jpg"},
+			want:  "[Compilations]/Album/cover.jpg",
+		},
+		{
+			name:  "unclosed bracket",
+			files: []string{"Artist/Album [Live/01.mp3", "Artist/Album [Live/cover.jpg"},
+			want:  "Artist/Album [Live/cover.jpg",
+		},
+		{
+			name:  "backslash",
+			files: []string{`Artist/AC\DC/01.mp3`, `Artist/AC\DC/cover.jpg`},
+			want:  `Artist/AC\DC/cover.jpg`,
+		},
+		{
+			// The class matched the sibling "Album 1" instead, and its cover.jpg
+			// was recorded under this folder, where no such file exists.
+			name:  "brackets matching a sibling folder",
+			files: []string{"Artist/Album [12]/01.mp3", "Artist/Album [12]/front.jpg", "Artist/Album 1/cover.jpg"},
+			want:  "Artist/Album [12]/front.jpg",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := testScanStore(t)
+			dir := t.TempDir()
+			createTestFiles(t, dir, tc.files)
+
+			s := newScanner(t, st, fakeTagReader{}, seedFolder(dir, nil))
+			if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+				t.Fatal(err)
+			}
+
+			var album model.Album
+			if err := st.DB().First(&album).Error; err != nil {
+				t.Fatal(err)
+			}
+			if want := filepath.Join(dir, tc.want); album.CoverPath != want {
+				t.Fatalf("CoverPath = %q, want %q", album.CoverPath, want)
+			}
+		})
+	}
+}
+
 // Regression test: a multi-disc album spanning several directories must not
 // lose its cover when a disc folder with no art reconciles. Albums are keyed
 // on (name, albumArtist, mbReleaseID), not on directory, so "Album/CD 1/"

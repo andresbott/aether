@@ -318,9 +318,14 @@ const versionTitle = computed(() => {
     opacity: 0.8;
 }
 
+/* The one scroller for every settings view, like PlayerLayout's .main-content:
+   the layout is a single viewport tall, so a view taller than the pane scrolls
+   here. The metadata editor fills the pane (height: 100%) and scrolls its own
+   panels, so it never overflows it. */
 .settings-content {
     flex: 1;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
     min-height: 0;
 }
 
