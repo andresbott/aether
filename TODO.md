@@ -30,8 +30,6 @@ and `todo list --json` cover the common actions — run `todo --help`.
 
 ## Backend
 
-- [ ] does the album detect detect release types?
-
 ### Backend — API Surface
 
 - [ ] Extend the OpenAPI response-contract test to the upstream-mocked and still-uncovered endpoints

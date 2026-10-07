@@ -88,6 +88,10 @@ When a view diverges from these registries, the registry wins.
   of the match, and a failure is not cached (a rate-limited lookup stays
   retryable) while an empty answer is. An empty list stages **nothing** —
   staging `[]` would wipe genres the file already carries.
+  `useReleaseGroupTypes.ts` is its twin for the group's release types (primary
+  first, then secondary): built on the same `releaseGroupCache.ts`, staged
+  through the `release_types` field checkbox, and under the same rule — no
+  types, nothing staged.
   After any metadata-editor write, call `invalidateAfterMetadataWrite(qc)`
   from `useMetadataEditor.ts` rather than inlining keys. It drops
   `['metadata','tracks']` and `['metadata','raw']` (the editor's own views)
