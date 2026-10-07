@@ -15,6 +15,7 @@ import AlbumCandidatePicker from './AlbumCandidatePicker.vue'
 import { ALL_IDENTIFY_FIELD_IDS, type IdentifyFieldId } from '@/lib/identifyFields'
 import { useReleaseGroupGenres } from '@/composables/useReleaseGroupGenres'
 import { useReleaseGroupTypes } from '@/composables/useReleaseGroupTypes'
+import { formatReleaseTypes } from '@/lib/releaseTypes'
 
 // Sentinel slot values for the per-row re-point dropdown: keep the server's
 // proposal, or drop the position entirely (album fields only).
@@ -589,16 +590,25 @@ function cancel() {
                 />
             </div>
 
-            <!-- What the Genres checkbox would write, shown because it is the one
-                 staged value with no column in the table below: genres are
-                 album-level, identical on every row, and they come from a
-                 separate release-group lookup rather than from the match. Absent
-                 when the lookup found nothing or failed — there is then nothing
-                 to stage and nothing to preview. -->
-            <p v-if="selectedGenres.length > 0" class="album-genres" data-test="album-genres">
-                <span class="album-genres-label">Genres</span>
-                <span class="album-genres-value">{{ selectedGenres.join(', ') }}</span>
-            </p>
+            <!-- What the Genres and Release type checkboxes would write, shown
+                 because they are the staged values with no column in the table
+                 below: both are album-level, identical on every row, and they
+                 come from release-group lookups rather than from the match. Each
+                 is absent when its lookup found nothing or failed — there is then
+                 nothing to stage and nothing to preview. -->
+            <div
+                v-if="selectedGenres.length > 0 || selectedTypes.length > 0"
+                class="album-group-fields"
+            >
+                <p v-if="selectedGenres.length > 0" class="album-group-field" data-test="album-genres">
+                    <span class="album-group-label">Genres</span>
+                    <span class="album-group-value">{{ selectedGenres.join(', ') }}</span>
+                </p>
+                <p v-if="selectedTypes.length > 0" class="album-group-field" data-test="album-types">
+                    <span class="album-group-label">Release type</span>
+                    <span class="album-group-value">{{ formatReleaseTypes(selectedTypes) }}</span>
+                </p>
+            </div>
 
             <p v-if="conflictingPositions.length > 0" class="album-conflict" data-test="album-conflict">
                 Two songs are on the same track position. Change one before staging.
@@ -915,24 +925,32 @@ function cancel() {
     margin: 0 0 0.6rem;
     color: var(--p-red-600, #dc2626);
 }
-/* The genre preview reads as one more staged value, so the list is styled like a
-   target cell in the table below (--app-staged = a pending tag change) behind a
-   muted label matching the table's column headers. */
-.album-genres {
+/* The release-group previews (genres, release type) read as more staged values,
+   so each is styled like a target cell in the table below (--app-staged = a
+   pending tag change) behind a muted label matching the table's column headers.
+   They share one line, wrapping only on a narrow dialog: every line spent here
+   is one the track table loses. */
+.album-group-fields {
     display: flex;
-    align-items: baseline;
-    gap: 0.6rem;
+    flex-wrap: wrap;
+    gap: 0.3rem 2rem;
     margin: 0 0 0.8rem;
     font-size: 0.85rem;
 }
-.album-genres-label {
+.album-group-field {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    margin: 0;
+}
+.album-group-label {
     font-weight: 600;
     text-transform: uppercase;
     font-size: 0.75rem;
     letter-spacing: 0.05em;
     color: var(--app-text-secondary);
 }
-.album-genres-value {
+.album-group-value {
     color: var(--app-staged);
     font-weight: 600;
 }

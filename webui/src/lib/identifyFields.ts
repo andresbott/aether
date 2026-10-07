@@ -18,6 +18,7 @@ export type IdentifyFieldId =
     | 'artists'
     | 'album'
     | 'genres'
+    | 'release_types'
     | 'year'
     | 'track_number'
     | 'disc_number'
@@ -27,11 +28,12 @@ export const IDENTIFY_FIELDS: readonly IdentifyFieldDef[] = [
     { id: 'title', label: 'Title', keys: ['title'] },
     { id: 'artists', label: 'Artists', keys: ['artists', 'album_artists'] },
     { id: 'album', label: 'Album', keys: ['album'] },
-    // Genres come from the release GROUP, not from the fingerprint match: both
-    // identify flows look them up separately once the user has settled on a
-    // release. An identify run that resolved no release group stages none, and
-    // the checkbox then simply controls nothing.
+    // Genres and release types come from the release GROUP, not from the
+    // fingerprint match: both identify flows look them up separately once the
+    // user has settled on a release. An identify run that resolved no release
+    // group stages neither, and the checkboxes then simply control nothing.
     { id: 'genres', label: 'Genres', keys: ['genres'] },
+    { id: 'release_types', label: 'Release type', keys: ['release_types'] },
     { id: 'year', label: 'Year', keys: ['year'] },
     { id: 'track_number', label: 'Track number', keys: ['track_number'] },
     { id: 'disc_number', label: 'Disc number', keys: ['disc_number'] },

@@ -75,6 +75,11 @@ function displayPath(t: Track): string {
     return t.path
 }
 
+// What a row's read-error icon says, on hover and to assistive tech alike.
+function readErrorText(t: Track): string {
+    return `Could not read tags: ${t.error}`
+}
+
 function dedupe(tracks: Track[]): Track[] {
     const seen = new Set<string>()
     const out: Track[] = []
@@ -282,13 +287,18 @@ const wrapperEl = ref<HTMLElement | null>(null)
                 </template>
             </Column>
             <Column field="path" header="Path" bodyClass="col-path">
-                <template #body="{ data }">{{ displayPath(data as Track) }}</template>
-            </Column>
-            <Column header="" style="width: 10rem">
                 <template #body="{ data }">
-                    <span v-if="(data as Track).error" class="err" :title="(data as Track).error">
-                        read error
-                    </span>
+                    <!-- Flagged in the path cell, not a column of its own: that column
+                         sat blank for every readable file and cut the path short. The
+                         icon leads the path so the ellipsis never hides it. -->
+                    <i
+                        v-if="(data as Track).error"
+                        class="ms-error read-error"
+                        role="img"
+                        :aria-label="readErrorText(data as Track)"
+                        v-tooltip.top="readErrorText(data as Track)"
+                        data-test="read-error"
+                    ></i>{{ displayPath(data as Track) }}
                 </template>
             </Column>
         </DataTable>
@@ -350,9 +360,9 @@ const wrapperEl = ref<HTMLElement | null>(null)
     opacity: 0.5;
     cursor: default;
 }
-.err {
-    color: var(--p-red-600, #dc2626);
-    font-size: 0.8rem;
+.read-error {
+    color: var(--app-danger);
+    margin-right: 0.35rem;
 }
 .staged-dot {
     color: var(--app-staged);

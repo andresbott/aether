@@ -317,3 +317,40 @@ describe('TrackList path display', () => {
         expect(w.findAll('tbody tr')[0].text()).toContain('Artist/Album/01.mp3')
     })
 })
+
+describe('TrackList read errors', () => {
+    // Stands in for PrimeVue's v-tooltip and mirrors the bound text onto the
+    // element, so the test can read what a hover would show.
+    const tooltipRecorder = {
+        mounted(el: HTMLElement, binding: { value: unknown }) {
+            el.setAttribute('data-tooltip', String(binding.value ?? ''))
+        },
+        updated(el: HTMLElement, binding: { value: unknown }) {
+            el.setAttribute('data-tooltip', String(binding.value ?? ''))
+        }
+    }
+
+    function mountReal(list: Track[]) {
+        return mount(TrackList, {
+            props: { tracks: list, isLoading: false, selection: [] },
+            global: { plugins: [PrimeVue], directives: { tooltip: tooltipRecorder } }
+        })
+    }
+
+    // The error used to sit in a fixed-width column of its own that stayed blank
+    // for every readable file, cutting the path short for nothing.
+    it('flags an unreadable file in its path cell, with the error on hover', () => {
+        const w = mountReal([
+            mkTrack({ path: 'good.mp3' }),
+            mkTrack({ path: 'bad.mp3', error: 'unsupported tag version' })
+        ])
+        const rows = w.findAll('tbody tr')
+        expect(rows[0].find('[data-test="read-error"]').exists()).toBe(false)
+
+        const icon = rows[1].find('[data-test="read-error"]')
+        expect(icon.exists()).toBe(true)
+        expect(icon.element.closest('td')?.textContent).toContain('bad.mp3')
+        expect(icon.attributes('data-tooltip')).toContain('unsupported tag version')
+        expect(icon.attributes('aria-label')).toContain('unsupported tag version')
+    })
+})

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import MetadataEditorView from '@/views/settings/MetadataEditorView.vue'
 import { useIdentifyCache } from '@/composables/useIdentifyCache'
+import { ALL_IDENTIFY_FIELD_IDS } from '@/lib/identifyFields'
 import type {
     AlbumIdentifyPick,
     AlbumOption,
@@ -9,10 +10,10 @@ import type {
     Track
 } from '@/types/metadata'
 
-// The identify dialogs resolve the genres themselves and hand them over on the
-// picks; this spec is about the LAST hop — that the view forwards them into the
-// staged overlay instead of dropping them on the floor. The dialogs are stubbed,
-// so no genre lookup happens here.
+// The identify dialogs resolve the release group's genres and release types
+// themselves and hand them over on the picks; this spec is about the LAST hop —
+// that the view forwards them into the staged overlay instead of dropping them on
+// the floor. The dialogs are stubbed, so no lookup happens here.
 const identifySpy = vi.hoisted(() => vi.fn())
 const identifyAlbumSpy = vi.hoisted(() => vi.fn())
 const tracksRef = vi.hoisted(() => ({ value: [] as Track[] }))
@@ -218,5 +219,36 @@ describe('MetadataEditorView identify genres', () => {
         const overlay = stagedOverlay(w, 'a.mp3')
         expect(overlay?.genres).toBeUndefined()
         expect(overlay?.album).toBe('Album A')
+    })
+})
+
+describe('MetadataEditorView identify release types', () => {
+    // Every field checked is the dialogs' default — and the case that used to
+    // lose the types: no field covered them, so the view's field filter dropped
+    // them even with every box ticked.
+    const allFields = [...ALL_IDENTIFY_FIELD_IDS]
+
+    it('stages the release types a track pick carries', async () => {
+        const w = mountView()
+        await openFolder(w)
+        w.findComponent({ name: 'IdentifyReviewDialog' }).vm.$emit(
+            'apply',
+            [{ ...trackPick, releaseTypes: ['Album', 'Live'] }],
+            allFields
+        )
+        await flushPromises()
+        expect(stagedOverlay(w, 'a.mp3')?.release_types).toEqual(['Album', 'Live'])
+    })
+
+    it('stages the release types an album pick carries', async () => {
+        const w = mountView()
+        await openFolder(w)
+        w.findComponent({ name: 'IdentifyAlbumDialog' }).vm.$emit(
+            'apply',
+            [{ ...albumPick, releaseTypes: ['Album', 'Live'] }],
+            allFields
+        )
+        await flushPromises()
+        expect(stagedOverlay(w, 'a.mp3')?.release_types).toEqual(['Album', 'Live'])
     })
 })

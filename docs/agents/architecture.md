@@ -281,7 +281,9 @@ above).
   match can fill one field across a batch without touching the rest. Add a field
   to `candidateToOverlay` or `albumPickToOverlay` and you must add it to
   `IDENTIFY_FIELDS` too — an uncovered overlay key is silently dropped from every
-  apply in both dialogs (a unit test guards this).
+  apply in both dialogs (a unit test guards this by building both overlays from
+  the real mappings; feed it any input you add to them, or it cannot see the new
+  key — `release_types` once went uncovered that way).
   **Identification is cached in three layers, and each covers a different
   cost.** `identify.Cache`
   (LRU, keyed path + size + mtime) sits on the single `*identify.Identifier` that

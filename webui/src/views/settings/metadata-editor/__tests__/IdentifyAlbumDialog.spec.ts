@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
-// Genres are looked up per release group when an option is selected; drive that
-// through a spy so the specs can assert what was asked for and how often.
+// Genres and release types are looked up per release group when an option is
+// selected; drive that through spies so the specs can assert what was asked for
+// and how often.
 const genresMock = vi.fn()
 const typesMock = vi.fn()
 vi.mock('@/lib/api/Artists', () => ({
@@ -929,6 +930,33 @@ describe('IdentifyAlbumDialog genres', () => {
 
         expect(w.find('[data-test="album-genres"]').text()).toContain('Compilation Rock')
         expect(w.find('[data-test="album-genres"]').text()).not.toContain('Grunge')
+    })
+})
+
+describe('IdentifyAlbumDialog release types', () => {
+    it('shows the release types it will stage', async () => {
+        typesMock.mockResolvedValue(['Album', 'Live'])
+        const w = mountDialog([albumA])
+        await flushPromises()
+        // Primary first, joined the way the album hero names them.
+        expect(w.find('[data-test="album-types"]').text()).toContain('Album · Live')
+    })
+
+    it('carries the release types on every pick', async () => {
+        typesMock.mockResolvedValue(['Album', 'Live'])
+        const w = mountDialog([albumA])
+        await flushPromises()
+        await w.find('[data-test="album-apply"]').trigger('click')
+        const picks = w.emitted('apply')![0][0] as any[]
+        expect(picks).toHaveLength(2)
+        for (const p of picks) expect(p.releaseTypes).toEqual(['Album', 'Live'])
+    })
+
+    it('hides the row when MusicBrainz holds no type for the group', async () => {
+        typesMock.mockResolvedValue([])
+        const w = mountDialog([albumA])
+        await flushPromises()
+        expect(w.find('[data-test="album-types"]').exists()).toBe(false)
     })
 })
 
