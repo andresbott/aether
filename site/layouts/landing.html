@@ -12,26 +12,23 @@
 <body class="landing">
   <header class="landing-hero">
     <div class="landing-wrap">
-      <nav class="landing-nav" aria-label="Site">
-        <ul>
-          {{- range .Site.Menus.home }}
-          {{- $isRemote := (urls.Parse .URL).IsAbs }}
-          <li><a href="{{ .URL }}"{{ if $isRemote }} rel="noopener"{{ end }}>
-            {{- with .Params.icon }}{{ partial "icon.html" . }}{{ end }}{{ .Name -}}
-          </a></li>
-          {{- end }}
-        </ul>
-      </nav>
+      <div class="landing-bar">
+        <h1 class="landing-title">{{ partial "wordmark.html" . }}</h1>
+        <nav class="landing-nav" aria-label="Site">
+          <ul>
+            {{- range .Site.Menus.home }}
+            {{- $isRemote := (urls.Parse .URL).IsAbs }}
+            <li><a href="{{ .URL }}"{{ if $isRemote }} rel="noopener"{{ end }}>
+              {{- with .Params.icon }}{{ partial "icon.html" . }}{{ end -}}
+              <span class="landing-nav-label">{{ .Name }}</span>
+            </a></li>
+            {{- end }}
+          </ul>
+        </nav>
+      </div>
 
       <div class="landing-intro">
-        <h1 class="landing-title">{{ partial "wordmark.html" . }}</h1>
         <p class="landing-tagline">{{ .Params.tagline }}</p>
-        <div class="landing-actions">
-          {{- with .Site.GetPage "/docs/getting-started" }}
-          <a class="btn btn-primary" href="{{ .RelPermalink }}">Get started</a>
-          {{- end }}
-          <a class="btn btn-ghost" href="https://github.com/andresbott/aether/releases/latest" rel="noopener">Download</a>
-        </div>
         {{- with .Params.notice }}
         <p class="landing-notice"><span class="pill pill-staged">Pre-release</span> {{ $.RenderString . }}</p>
         {{- end }}
