@@ -5,63 +5,28 @@ description: "A self-hosted music server with a web player and an OpenSubsonic A
 # Hero copy and screenshot (layouts/landing.html). Screenshots are dropped in
 # assets/screenshots/ under the name given here — see site/README.md. The
 # notice is markdown, next to a "Pre-release" pill.
-tagline: "A self-hosted music server with a web player and an OpenSubsonic API"
+tagline: "Self-host your music. Listen anywhere."
 notice: "Under active development. [More details](/docs/getting-started/pre-release.md)"
 heroShot:
   name: "library"
   title: "The library: album grid, play queue and player bar"
 ---
 
-## Try it
-
-One program with the web player built in: start it, point it at your music,
-open the browser.
-
-```sh
-docker run -d --name aether -p 8075:8075 \
-  -e AETHER_AUTH_ADMINBOOTSTRAP_PW='change-me' \
-  -v aether-data:/var/lib/aether \
-  -v /path/to/music:/music:ro \
-  ghcr.io/andresbott/aether:latest
-```
-
-Open <http://localhost:8075>, sign in as `admin` with the password above, and
-run a scan from **Settings → Tasks**. For the Debian package or the plain binary
-for Linux, Windows and macOS, see [Installation](/docs/getting-started/installation.md).
-
 ## Highlights
 
-Aether streams your music folders to its own web player and to any Subsonic or
-OpenSubsonic app. Beyond that, it does a few things most self-hosted music
-servers do not:
+Aether is a self-hosted music server. It comes with its own web app, and it speaks the [OpenSubsonic](https://opensubsonic.netlify.app/) API, so you can also listen on your phone with apps like Symfonium. On top of that, it does a few things differently:
 
 {{< features >}}
-{{< feature icon="sell" title="A tag editor built in" >}}
-Fix tags and cover art in the browser and write them back into your files.
-Identify a track, or a whole album at once, by AcoustID fingerprint and
-MusicBrainz.
+{{< feature icon="sell" title="A built-in metadata editor" >}}
+Fix tags and cover art in the browser, and Aether writes the changes straight back to your files. It can also identify songs by their audio fingerprint and look them up on MusicBrainz, one track or a whole album at a time.
 {{< /feature >}}
-{{< feature icon="library-music" title="Libraries are filters, not folders" >}}
-Lossless only, soundtracks, the audiobooks: views over the collection by folder,
-format, release type or genre. An album can sit in several, and deleting one
-never touches your music.
+{{< feature icon="devices" title="OpenSubsonic through and through" >}}
+The web app browses and plays your music through the same API any other app would use, with no special treatment. When the standard is missing something, Aether adds it as an extension that any app can pick up.
 {{< /feature >}}
-{{< feature icon="explore" title="A Discover feed that learns" >}}
-Albums and playlists in one ranked feed, shaped by what you play, favorite and
-add, with every fourth slot kept for something you have never played.
+{{< feature icon="key" title="Apps never see your password" >}}
+Each app gets its own login instead, which you can revoke without touching the others. For the web app, sign in with Aether's own accounts or through your reverse proxy (Authelia, Authentik, oauth2-proxy).
 {{< /feature >}}
-{{< feature icon="devices" title="One API for the web player and your apps" >}}
-The web player uses nothing but [OpenSubsonic](https://opensubsonic.netlify.app/),
-like Symfonium or DSub do. What the standard lacks is added as extensions any
-app can adopt.
-{{< /feature >}}
-{{< feature icon="key" title="A password per app" >}}
-Your own password never goes into an app: each gets its own credentials, revoked
-on their own. Sign in with built-in users or through your reverse proxy
-(Authelia, oauth2-proxy).
-{{< /feature >}}
-{{< feature icon="play-circle" title="Pick up where you left off" >}}
-The play queue and position follow you from browser to browser, and to apps
-that sync the queue: pause on the laptop, carry on from the phone.
+{{< feature icon="library-music" title="Make your own libraries" >}}
+Set up a library for lossless only, one for soundtracks, one for the audiobooks. Each one is a saved filter rather than a folder, so an album can show up in several, and deleting a library never touches your files.
 {{< /feature >}}
 {{< /features >}}
