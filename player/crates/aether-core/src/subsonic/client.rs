@@ -62,9 +62,10 @@ pub(crate) struct AlbumList2 {
     pub album: Vec<super::models::Album>,
 }
 
-/// Checks a server address: an `http` or `https` URL with a host and without a
-/// query or fragment (the client adds its own to every request). A missing host
-/// (`http://`) is refused by the URL parser itself.
+/// Checks a server address: an `http` or `https` URL with a host and without
+/// credentials (the player never stores a password), a query or a fragment (the
+/// client adds its own query to every request). A missing host (`http://`) is
+/// refused by the URL parser itself.
 fn parse_server_url(input: &str) -> Result<Url, CoreError> {
     let url = Url::parse(input).map_err(|e| {
         CoreError::InvalidServerUrl(match e {
@@ -79,6 +80,12 @@ fn parse_server_url(input: &str) -> Result<Url, CoreError> {
             "unsupported scheme {:?}, expected http or https",
             url.scheme()
         )));
+    }
+    // empty userinfo (`http://@h/`) is dropped by the parser and carries nothing
+    if !url.username().is_empty() || url.password().is_some_and(|p| !p.is_empty()) {
+        return Err(CoreError::InvalidServerUrl(
+            "credentials are not allowed in the server address".into(),
+        ));
     }
     if url.query().is_some() {
         return Err(CoreError::InvalidServerUrl(
@@ -99,9 +106,9 @@ fn canonical(url: &Url) -> String {
 }
 
 /// Checks a server address and returns its canonical form: an `http` or
-/// `https` URL with a host, no query or fragment and no trailing slash
-/// (`http://h:8075/` becomes `http://h:8075`). The port and a path prefix, for
-/// a server mounted behind a reverse proxy, are kept.
+/// `https` URL with a host, no credentials, query or fragment and no trailing
+/// slash (`http://h:8075/` becomes `http://h:8075`). The port and a path
+/// prefix, for a server mounted behind a reverse proxy, are kept.
 ///
 /// [`SubsonicClient`] applies the same checks to the address it is built with.
 pub fn normalize_server_url(input: &str) -> Result<String, CoreError> {
@@ -629,5 +636,20 @@ mod tests {
         ] {
             assert_rejected(input);
         }
+    }
+
+    #[test]
+    fn normalize_server_url_rejects_credentials() {
+        // the player never stores a password, so none may ride in the address
+        for input in ["http://user:pw@h:8075/", "http://user@h/", "http://:pw@h/"] {
+            assert_rejected(input);
+        }
+        let reason = normalize_server_url("http://user:pw@h/")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            reason.contains("credentials"),
+            "unexpected reason: {reason}"
+        );
     }
 }
