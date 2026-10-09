@@ -95,7 +95,7 @@ engines are the others.
 ## Not implemented (catalogued in TODO.md — read it first)
 
 Last.fm scrobbling, DLNA/UPnP, jukebox/relay, transcoding, CUE sheets,
-app icon/branding, per-scan cover-path
+per-scan cover-path
 revalidation (known stale-cover bug with detailed root-cause notes),
 `getPlaylists` N+1 fix, favorites schema rework,
 a per-root health gate for scan folders, logical (as-spelled) track paths

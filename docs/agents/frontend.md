@@ -739,6 +739,10 @@ output.
 | `web/icon-square.svg` (full-bleed, opaque) | `apple-touch-icon.png` (180) | iOS home screen: Safari ignores manifest icons and applies its own corner mask, so this one must bleed into the corners and carry no alpha |
 | `web/icon-maskable.svg` (mark at 70%) | `icon-maskable-192.png`, `icon-maskable-512.png` | Android adaptive icons (`purpose: maskable`) only guarantee the inner 80% circle |
 
+The same `make icons` run renders the desktop player's app icon from
+`web/icon.svg` into `player/src-tauri/icons/` — see
+[player/releasing.md](player/releasing.md#cautions).
+
 **In-app brand mark.** The same artwork appears inside the UI as the diamond
 rendition: `assets/aether-mark.svg` (cleaned from `zarf/icon/icon.svg`), wrapped
 by `components/common/BrandMark.vue` — the single place that decides it is

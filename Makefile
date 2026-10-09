@@ -94,9 +94,16 @@ build-ui:
 build: package-ui ## use goreleaser to build to current OS/Arch
 	@goreleaser build --snapshot --clean --single-target
 
+# The desktop player's app icon is the SPA favicon's artwork too: `tauri icon`
+# renders its bundle set from server/zarf/icon/web/icon.svg. The android/ and
+# ios/ sets and the 64x64.png it also writes are dropped — the player is not
+# mobile-initialized and bundle.icon lists no 64px icon.
 .PHONY: icons
-icons: ## re-render the SPA icon set from server/zarf/icon into webui/public (needs inkscape + imagemagick)
+icons: ## re-render the app icons from server/zarf/icon: the SPA set into webui/public, the desktop player's into player/src-tauri/icons (needs inkscape + imagemagick, and `make player-prepare`)
 	@./server/zarf/icon/render.sh
+	@echo "rendering icons into player/src-tauri/icons"
+	@cd player && npx --no-install tauri icon ../server/zarf/icon/web/icon.svg
+	@rm -rf player/src-tauri/icons/android player/src-tauri/icons/ios player/src-tauri/icons/64x64.png
 
 #==========================================================================================
 ##@ Player

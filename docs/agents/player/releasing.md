@@ -80,6 +80,14 @@ bundle set is what it is:
 - `webui/dist/` is gitignored and rebuilt by `beforeBuildCommand`; never
   hand-edit or commit it. A stale `webui/dist` is a stale app: `make build-ui`
   refreshes it.
+- `src-tauri/icons/` is generated, not hand-edited: the app icon is the
+  server's artwork. `make icons` at the root renders it with `tauri icon` from
+  the server's `zarf/icon/web/icon.svg` — the SPA favicon's source — along
+  with the SPA set (needs `make player-prepare` for the CLI); re-run it after
+  the artwork changes and commit the output. The window and tray icon come
+  from the same set: `tauri::generate_context!` embeds the first `.png` in
+  `bundle.icon` (`32x32.png`; the first `.ico` on Windows) as
+  `default_window_icon()`, which `tray.rs` reuses.
 - `package.json` exists only to pin `@tauri-apps/cli` — CI runs `npm ci` here
   before `npx tauri build`; keep `package-lock.json` current when bumping the
   CLI.
