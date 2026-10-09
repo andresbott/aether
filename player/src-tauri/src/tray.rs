@@ -151,8 +151,10 @@ pub fn setup(app: &AppHandle) -> tauri::Result<()> {
         .map(|img| {
             let argb: Vec<u8> = img
                 .rgba()
-                .chunks_exact(4)
-                .flat_map(|px| [px[3], px[0], px[1], px[2]])
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .flat_map(|&[r, g, b, a]| [a, r, g, b])
                 .collect();
             vec![ksni::Icon {
                 width: img.width() as i32,
