@@ -21,6 +21,10 @@ node_modules
 # Build
 /dist/
 
+# Desktop player (player/): cargo output and tauri's generated mobile projects
+/player/target/
+/player/src-tauri/gen/
+
 # Hugo site output (make site-build) and resource cache
 /site/public/
 /site/resources/

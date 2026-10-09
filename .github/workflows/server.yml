@@ -1,0 +1,92 @@
+# Server (server/) checks: Go tests + coverage, golangci-lint, the license
+# check and the OpenAPI spec lint. One job each, so they run in parallel and
+# fail independently; each shows up on a PR as `server / <job>`.
+name: server
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'server/go.mod'
+          cache-dependency-path: server/go.sum
+
+      - name: run tests
+        run: make test
+
+      - name: ensure test coverage
+        run: make coverage
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          cache: true
+          cache-dependency-path: server/go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          # Pin the exact version so the bundled gosec ruleset matches local
+          # runs; version skew makes nolintlint flag directives inconsistently.
+          version: v2.13.2
+          working-directory: server
+
+  license-check:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go 1.25.4
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.4'
+          cache-dependency-path: server/go.sum
+
+      - name: Install go-licence-detector
+        run: |
+          go install go.elastic.co/go-licence-detector@v0.10.0
+
+      - name: License check
+        run: make license-check
+
+  # Lints the server's API contract (docs/openapi/aether-v0.yaml); Spectral
+  # comes from the webui's npm packages, hence the Node setup.
+  spec-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: webui/package-lock.json
+
+      - name: Install NPM dependencies
+        working-directory: webui
+        run: npm ci
+
+      - name: Lint OpenAPI spec (Spectral)
+        run: make spec-lint

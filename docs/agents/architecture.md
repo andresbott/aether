@@ -5,19 +5,24 @@ a single Go binary with an embedded Vue 3 SPA, SQLite persistence, an
 OpenSubsonic-compatible `/rest` API for all music functionality, and a private
 `/api/v0` API for server administration. It is pre-release software with **no
 backwards-compatibility obligations** (see CLAUDE.md: no migration code, no
-compat shims — change schemas freely; the user drops the DB).
+compat shims — change schemas freely; the user drops the DB). The repo also
+holds the **desktop player** (`player/`, Tauri 2 + Rust), which opens the very
+same SPA build and talks to a server only over `/rest` — see
+[The desktop player](#the-desktop-player-player) below and
+[player/architecture.md](player/architecture.md).
 
 Read next, per area: [subsonic-api.md](subsonic-api.md) ·
 [api-conventions.md](api-conventions.md) · [scanning.md](scanning.md) ·
 [frontend.md](frontend.md) · [features.md](features.md) ·
 [authentication.md](authentication.md) · [testing.md](testing.md) ·
-[releasing.md](releasing.md)
+[releasing.md](releasing.md) · [player/architecture.md](player/architecture.md)
 
 ## Layering
 
 The Go module is `server/`; the package paths below and throughout these docs
 (`app/…`, `internal/…`, `libs/…`, `zarf/…`) are relative to it. The SPA is
-`webui/` at the repo root.
+`webui/` at the repo root, and the desktop player is `player/` (the paths in
+`docs/agents/player/` are relative to that).
 
     app/cmd (cobra CLI, config, wiring)          webui/ (Vue 3 SPA)
             |                                        | (built + embedded)
@@ -73,6 +78,29 @@ The Go module is `server/`; the package paths below and throughout these docs
   `golang.org/x/image/font` + `math/fixed` (`font.Drawer`/`MeasureString`) into
   the server binary, a negligible single-digit-KB addition; `GenerateWithText`
   is the entry point and the textless `Generate*` path is byte-identical.
+
+## The desktop player (`player/`)
+
+A Tauri 2 app, documented in [player/architecture.md](player/architecture.md):
+
+    webui/dist  (the same vite build the Go binary embeds, opened as the app window)
+       |
+    player/src-tauri            crate `aether-app` — thin shell: IPC commands, rodio engine, tray, keyring
+       |
+    player/crates/aether-core   pure Rust: Subsonic client, Player/Queue, PlaybackEngine trait — no tauri
+
+- **It is a consumer of `webui/`, nothing more.** `player/src-tauri/tauri.conf.json`
+  points `frontendDist` at `../../webui/dist`; there is no vendored copy and no
+  player fork of the SPA. The flip side is a constraint on `webui/`: it must
+  stay **origin-agnostic** — no hardcoded origins, no server-side `index.html`
+  templating, no cookie-only auth assumptions — because inside the app it is
+  served from a `tauri://` origin, not by the Go binary. The UI does not drive
+  the player over IPC yet (it still speaks HTTP, see
+  [player/features.md](player/features.md)); do not wire that ad hoc.
+- **It never imports from `server/`**, and the server knows nothing about it.
+  The only contract between the two is the OpenSubsonic API — the player is
+  just another `/rest` client, so whatever it needs from the server goes
+  through the extension route below like any other client's need.
 
 ## The two-API split (do not blur it)
 
