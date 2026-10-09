@@ -194,12 +194,11 @@ impl SubsonicClient {
         params: &[(&str, &str)],
     ) -> Result<ResponseBody, CoreError> {
         let url = self.build_url(path, params);
-        let resp = self
-            .http
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| CoreError::ServerUnreachable(e.to_string()))?;
+        let resp = self.http.get(url).send().await.map_err(|e| {
+            // reqwest appends the request URL to the message, and the URL
+            // carries the API key
+            CoreError::ServerUnreachable(e.without_url().to_string())
+        })?;
         let envelope: Envelope = resp
             .json()
             .await
@@ -280,14 +279,6 @@ impl SubsonicClient {
     /// The server address in the form [`normalize_server_url`] returns.
     pub fn base_url_str(&self) -> String {
         canonical(&self.base_url)
-    }
-
-    // Transitional: Task 2 removes this together with its only caller.
-    pub fn username_str(&self) -> String {
-        match &self.auth {
-            Auth::Password { username, .. } => username.clone(),
-            Auth::ApiKey(_) => String::new(),
-        }
     }
 }
 
@@ -400,9 +391,17 @@ mod tests {
     #[tokio::test]
     async fn ping_unreachable_server_maps_to_server_unreachable() {
         // port 1 is never listening
-        let client = SubsonicClient::new("http://127.0.0.1:1", "u", "p").unwrap();
+        let client = SubsonicClient::with_api_key("http://127.0.0.1:1", "s3cr3t-key").unwrap();
         let err = client.ping().await.unwrap_err();
-        assert!(matches!(err, CoreError::ServerUnreachable(_)));
+        match err {
+            // the error text ends up in the UI and the logs; the key rides in
+            // the request URL, which reqwest would otherwise print
+            CoreError::ServerUnreachable(reason) => assert!(
+                !reason.contains("s3cr3t-key"),
+                "the api key leaked into the error: {reason}"
+            ),
+            other => panic!("expected ServerUnreachable, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -543,15 +542,6 @@ mod tests {
             let client = SubsonicClient::new(input, "u", "p").unwrap();
             assert_eq!(client.base_url_str(), normalize_server_url(input).unwrap());
         }
-    }
-
-    // Goes away with `username_str` (Task 2).
-    #[test]
-    fn username_str_is_only_set_for_password_auth() {
-        let client = SubsonicClient::new("http://example.com", "admin", "p").unwrap();
-        assert_eq!(client.username_str(), "admin");
-        let client = SubsonicClient::with_api_key("http://example.com", "k").unwrap();
-        assert_eq!(client.username_str(), "");
     }
 
     /// Asserts that `input` normalises to `want`.

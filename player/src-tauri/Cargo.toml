@@ -13,11 +13,12 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 aether-core = { path = "../crates/aether-core" }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
+# The SPA's HTTP transport: requests leave from Rust with a persistent cookie jar.
+tauri-plugin-http = "2"
 serde.workspace = true
 serde_json.workspace = true
 rodio = "0.21"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # StatusNotifierItem tray with a real left-click activate callback;

@@ -1,10 +1,14 @@
+use crate::settings::Settings;
 use aether_core::error::CoreError;
 use aether_core::player::{Player, StreamUrlResolver};
 use aether_core::subsonic::SubsonicClient;
 use std::sync::{Arc, RwLock};
 
 pub struct AppState {
+    /// The authenticated client, once the SPA has handed over its session
+    /// (`set_session`). Lock order: `settings` before `connection`.
     pub connection: Arc<RwLock<Option<SubsonicClient>>>,
+    pub settings: RwLock<Settings>,
     pub player: Arc<Player>,
 }
 
@@ -23,12 +27,17 @@ impl StreamUrlResolver for ConnectionResolver {
 }
 
 impl AppState {
-    pub fn new() -> Result<Self, CoreError> {
+    /// Starts disconnected, with the settings loaded at startup.
+    pub fn new(settings: Settings) -> Result<Self, CoreError> {
         let connection = Arc::new(RwLock::new(None));
         let engine = crate::engine::create_engine()?;
         let resolver = Arc::new(ConnectionResolver(connection.clone()));
         let player = Arc::new(Player::new(engine, resolver));
-        Ok(Self { connection, player })
+        Ok(Self {
+            connection,
+            settings: RwLock::new(settings),
+            player,
+        })
     }
 
     /// Cloned client or NotConnected — commands call this.

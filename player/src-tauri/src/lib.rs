@@ -1,9 +1,9 @@
 mod commands;
-mod credentials;
 mod engine;
 mod error;
 mod events;
 mod protocol;
+mod settings;
 mod state;
 #[cfg(desktop)]
 mod tray;
@@ -22,25 +22,11 @@ fn app_version(app: tauri::AppHandle) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_http::init())
         .register_asynchronous_uri_scheme_protocol("aether", protocol::handle)
         .setup(|app| {
-            let state = AppState::new()?;
+            let state = AppState::new(settings::load(app.handle()))?;
             app.manage(state);
-            if let Some((stored, password)) = credentials::load(&app.handle().clone()) {
-                match aether_core::subsonic::SubsonicClient::new(
-                    &stored.server_url,
-                    &stored.username,
-                    &password,
-                ) {
-                    Ok(client) => {
-                        let st = app.state::<AppState>();
-                        *st.connection.write().unwrap() = Some(client);
-                    }
-                    Err(e) => {
-                        eprintln!("failed to restore connection: {e}");
-                    }
-                }
-            }
             events::spawn_state_emitter(app.handle().clone());
             #[cfg(desktop)]
             tray::setup(app.handle())?;
@@ -59,9 +45,12 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_version,
-            commands::connection::connect,
+            commands::connection::clear_session,
             commands::connection::connection_status,
-            commands::connection::disconnect,
+            commands::connection::set_session,
+            commands::settings::clear_server_url,
+            commands::settings::get_settings,
+            commands::settings::set_server_url,
             commands::library::get_artists,
             commands::library::get_albums,
             commands::library::get_album,
