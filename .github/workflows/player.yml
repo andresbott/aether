@@ -1,0 +1,58 @@
+# Lint + test the desktop player (player/, Rust + Tauri). The server has its own
+# workflows (golang, golangci-lint, license-check); this is their Rust
+# counterpart and the only CI that compiles src-tauri outside a release.
+name: player
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # webkit2gtk + appindicator for tauri, alsa for rodio, dbus for the
+      # keyring's secret-service backend. Same list as release.yml's player job,
+      # player/Makefile and docs/agents/player/testing.md — keep them in sync.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            libasound2-dev libdbus-1-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: player
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: webui/package-lock.json
+
+      - name: Install NPM dependencies
+        working-directory: webui
+        run: npm ci
+
+      # src-tauri embeds webui/dist at compile time (see player/Makefile), so
+      # the SPA is built before cargo runs.
+      - name: Build frontend
+        run: make build-ui
+
+      - name: Lint
+        run: make player-lint
+
+      - name: Test
+        run: make player-test

@@ -128,3 +128,94 @@ jobs:
           args: release --clean --config .goreleaser-darwin.yaml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ===========================================================================
+  # Desktop player (player/, Tauri): one bundle job per OS/arch, uploaded to
+  # the release the Linux job created. deb + AppImage, an NSIS installer and a
+  # dmg per Mac arch — docs/agents/releasing.md says why these and not others.
+  # ===========================================================================
+  player:
+    needs: release-linux
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Oldest Ubuntu GitHub still hosts: the deb and the AppImage link
+          # against the runner's glibc and webkit2gtk, so building here keeps
+          # them installable on Debian 12 / Ubuntu 22.04 and newer.
+          - os: ubuntu-22.04
+            bundles: deb,appimage
+          - os: windows-latest
+            bundles: nsis
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: dmg
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # One set of steps for all three OSes (Windows defaults to PowerShell).
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same list as player.yml plus patchelf for the AppImage.
+      - name: Install system dependencies (linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            libasound2-dev libdbus-1-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: player
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            webui/package-lock.json
+            player/package-lock.json
+
+      - name: Install NPM dependencies
+        run: |
+          npm --prefix webui ci
+          npm --prefix player ci
+
+      # The version is the tag's (v1.2.3 → 1.2.3), overriding the 0.1.0 in
+      # tauri.conf.json. `tauri build` runs the webui production build itself
+      # (beforeBuildCommand) and embeds webui/dist.
+      - name: Build bundles
+        working-directory: player
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          target_flag=""
+          if [ -n "${{ matrix.target }}" ]; then
+            target_flag="--target ${{ matrix.target }}"
+          fi
+          npx tauri build --bundles "${{ matrix.bundles }}" $target_flag --config "{\"version\":\"$version\"}"
+
+      # --clobber: a rerun replaces the files instead of failing on them.
+      - name: Upload bundles to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bundle_dir="player/target/${{ matrix.target }}/release/bundle"
+          shopt -s nullglob
+          files=("$bundle_dir"/deb/*.deb "$bundle_dir"/appimage/*.AppImage "$bundle_dir"/nsis/*-setup.exe "$bundle_dir"/dmg/*.dmg)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::no bundles found under $bundle_dir"
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" --clobber "${files[@]}"

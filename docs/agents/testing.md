@@ -3,10 +3,11 @@
 The full gate is `make verify` from the repo root — run it before calling any
 work done. It runs the server gate (`make -C server verify`: `test` →
 `license-check` → `lint` → `benchmark` → `coverage`), then `ui-test` →
-`spec-lint`, collects all failures, and fails if any target failed. CI runs the
-same pieces (`.github/workflows/test.yml`: `make test`, `make coverage`,
-`make ui-test`, `make package-ui`; separate golangci-lint, license-check and
-spec-lint workflows).
+`spec-lint` → `player-lint` → `player-test`, collects all failures, and fails
+if any target failed. CI runs the same pieces (`.github/workflows/test.yml`:
+`make test`, `make coverage`, `make ui-test`, `make package-ui`; separate
+golangci-lint, license-check and spec-lint workflows; `player.yml` for the
+desktop player's lint + tests).
 
 The Go targets live in `server/Makefile` (run them there, e.g.
 `cd server && make verify` for a Go-only gate); the root `Makefile` delegates
@@ -21,8 +22,15 @@ to it, so every target below also works from the repo root.
 | `make benchmark` | `go test -bench=. ./...` |
 | `make license-check` | `go-licence-detector` against `server/allowedLicenses.json` / `server/overrideLicenses.json` |
 | `make spec-lint` | Spectral over `docs/openapi/aether-v0.yaml` (root only) |
+| `make player-lint` | `cargo fmt --all -- --check` + `cargo clippy --workspace -- -D warnings` in `player/` |
+| `make player-test` | `cargo test --workspace` in `player/` |
 | `make verify` | all of the above; the definition of done (in `server/`: the Go checks only) |
 
+- The two player gates need a Rust toolchain (rustup, stable) and, on Linux,
+  the webkit2gtk / appindicator / alsa / dbus development packages —
+  `make -C player check-deps` names what is missing and the apt line. They
+  compile `src-tauri`, which embeds `webui/dist`; `player/Makefile` builds it
+  when absent. Conventions and layout: [player/testing.md](player/testing.md).
 - The coverage gate is per `internal/` package, not a repo total. A new
   `internal/` package below 70% fails `verify` — write the tests, don't lower
   `COVERAGE_THRESHOLD`. `app/`, `libs/`, and `webui` are outside this gate.

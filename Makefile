@@ -7,6 +7,8 @@ PWD_DIR := ${CURDIR}
 IN_SERVER := --no-print-directory -C server
 # Same for the website: site/Makefile holds its targets (theme-update, new, …).
 IN_SITE := --no-print-directory -C site
+# And for the desktop player: player/Makefile (prepare, run, lint, test, build, …).
+IN_PLAYER := --no-print-directory -C player
 
 default: help
 
@@ -36,11 +38,11 @@ license-check: ## check for invalid licenses
 	@$(MAKE) $(IN_SERVER) license-check
 
 .PHONY: verify
-verify: ## run all checks (server verify + webui); runs every check and fails if any fail
+verify: ## run all checks (server verify + webui + player); runs every check and fails if any fail
 	@fail=0; \
 	echo "==================== make -C server verify ===================="; \
 	$(MAKE) $(IN_SERVER) verify || fail=1; \
-	for target in ui-test spec-lint; do \
+	for target in ui-test spec-lint player-lint player-test; do \
 		echo "==================== make $$target ===================="; \
 		$(MAKE) --no-print-directory $$target || fail=1; \
 	done; \
@@ -95,6 +97,25 @@ build: package-ui ## use goreleaser to build to current OS/Arch
 .PHONY: icons
 icons: ## re-render the SPA icon set from server/zarf/icon into webui/public (needs inkscape + imagemagick)
 	@./server/zarf/icon/render.sh
+
+#==========================================================================================
+##@ Player
+#==========================================================================================
+.PHONY: player-prepare player-run player-test player-lint player-build
+player-prepare: ## install the desktop player's tooling (tauri CLI) and the webui dependencies
+	@$(MAKE) $(IN_PLAYER) prepare
+
+player-run: ## run the desktop player in dev mode (vite dev server + app window; `make run` the server for data)
+	@$(MAKE) $(IN_PLAYER) run
+
+player-test: ## run the desktop player's rust tests
+	@$(MAKE) $(IN_PLAYER) test
+
+player-lint: ## format check + clippy for the desktop player
+	@$(MAKE) $(IN_PLAYER) lint
+
+player-build: ## build the desktop player bundles for this OS into player/target/release/bundle
+	@$(MAKE) $(IN_PLAYER) build
 
 #==========================================================================================
 ##@ Site

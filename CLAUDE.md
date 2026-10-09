@@ -1,6 +1,6 @@
 # Aether
 
-Music server written in Go with a Vue 3 frontend.
+Music server written in Go with a Vue 3 frontend, plus a Tauri 2 desktop player (`player/`) that opens the same frontend.
 
 ## Agent docs — read before implementing
 
@@ -9,7 +9,10 @@ and the subsystem doc for the area you're changing:
 [`subsonic-api.md`](docs/agents/subsonic-api.md) (anything under `/rest`),
 [`api-conventions.md`](docs/agents/api-conventions.md) (anything under `/api/v0`),
 [`scanning.md`](docs/agents/scanning.md) (scanner/tags/store reconcile),
-[`frontend.md`](docs/agents/frontend.md) (webui). Check
+[`frontend.md`](docs/agents/frontend.md) (webui),
+[`player/architecture.md`](docs/agents/player/architecture.md) (anything under
+`player/`, the desktop app — and [`player/playback.md`](docs/agents/player/playback.md)
+before touching its audio code). Check
 [`docs/agents/features.md`](docs/agents/features.md) before adding a
 capability — gaps are catalogued with chosen directions — and
 [`docs/agents/testing.md`](docs/agents/testing.md) for the verification gates.
@@ -19,7 +22,14 @@ capability — gaps are catalogued with chosen directions — and
 - **No backwards compatibility — until further notice.** No users, no live deployment. Do not write migration code, schema bridges, config compat layers, or "if old shape, fall back to..." branches. When the schema or config shape changes, just change it; the user will drop the DB manually if needed. Structure can change freely.
 - SQLite + GORM for persistence, gorilla/mux for routing, PrimeVue for UI.
 - Single binary deployment with embedded SPA.
-- **Repo layout:** the Go module lives in `server/` (`go.mod`, `main.go`, `app/`, `internal/`, `libs/`, `zarf/`, plus its own `Makefile` and tool configs `.golangci.yaml` and the license-check JSONs); the SPA in `webui/`; the public website (Hugo landing page + user docs, deployed on release — see `site/README.md`) in `site/`, while `docs/` stays internal; `docs/`, the root `Makefile`, `.goreleaser*.yaml` and `.github/` at the root. Go paths in the docs (`app/…`, `internal/…`, `libs/…`, `zarf/…`) are relative to `server/`. `server/Makefile` holds the server-only targets (`test`, `lint`, `coverage`, `benchmark`, `license-check`, a Go-only `verify`, `run`, `proxy`, …); the root `Makefile` delegates to it and adds the webui, build and release targets — `make verify` at the root is the full gate. Run raw `go`/`golangci-lint` commands inside `server/`.
+- **Repo layout:** the Go module lives in `server/` (`go.mod`, `main.go`, `app/`, `internal/`, `libs/`, `zarf/`, plus its own `Makefile` and tool configs `.golangci.yaml` and the license-check JSONs); the SPA in `webui/`; the desktop player (a Rust/Tauri 2 workspace: `Cargo.toml`, `crates/aether-core`, `src-tauri`, its own `Makefile`, and a `package.json` that only pins the tauri CLI — it opens the `webui/` build, there is no vendored copy) in `player/`; the public website (Hugo landing page + user docs, deployed on release — see `site/README.md`) in `site/`, while `docs/` stays internal; `docs/`, the root `Makefile`, `.goreleaser*.yaml` and `.github/` at the root. Go paths in the docs (`app/…`, `internal/…`, `libs/…`, `zarf/…`) are relative to `server/`; the paths in `docs/agents/player/` are relative to `player/`. `server/Makefile` holds the server-only targets (`test`, `lint`, `coverage`, `benchmark`, `license-check`, a Go-only `verify`, `run`, `proxy`, …); the root `Makefile` delegates to it (and to `player/Makefile` through the `player-*` targets) and adds the webui, build and release targets — `make verify` at the root is the full gate, player included. Run raw `go`/`golangci-lint` commands inside `server/`, raw `cargo`/`npx tauri` commands inside `player/`.
+
+## Desktop player (`player/`)
+
+- A Tauri 2 app: `crates/aether-core` (pure Rust — Subsonic client, queue/player, engine trait; **must never depend on `tauri`**) and `src-tauri` (thin shell: IPC commands, rodio engine, tray, keyring). Logic and its tests belong in core; handlers stay thin.
+- **Its window is the shared `webui/` build** — no vendored or forked copy, and no player-only components dropped into `webui/` ad hoc: a UI change for the player follows the frontend conventions below, keeps working in the browser, and keeps the SPA origin-agnostic (inside the app it is served from a `tauri://` origin, not by the Go binary). The UI is not on IPC yet; read `docs/agents/player/features.md` before wiring it.
+- The bundle identifier `dev.andresbott.aether.player` is immutable (it is the OS keyring service name).
+- fmt-clean and clippy-clean (`-D warnings`) at every commit: `make player-lint && make player-test`, both part of `make verify`.
 
 ## API Compatibility
 

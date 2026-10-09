@@ -3,7 +3,13 @@
 `webui/` is a Vue 3 + TypeScript SPA (Vite, PrimeVue 4, Pinia, TanStack
 vue-query, vue-router). Built output is copied into `app/spa/files/ui` and
 embedded in the Go binary (`make package-ui`); in the binary the SPA is the
-catch-all route behind `/api/v0` and `/rest`.
+catch-all route behind `/api/v0` and `/rest`. **The same `webui/dist` is also
+the desktop player's window** (`player/`, Tauri — see
+[player/architecture.md](player/architecture.md)), served there from a
+`tauri://` origin rather than by the Go binary: keep the SPA origin-agnostic
+(no hardcoded origins, no server-side `index.html` templating, no cookie-only
+auth assumptions), and never add player-only components ad hoc — the player
+retrofit has its own plan.
 
 ## The three convention registries (read before UI work)
 

@@ -1,0 +1,25 @@
+[package]
+name = "aether-app"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "aether_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+aether-core = { path = "../crates/aether-core" }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+serde.workspace = true
+serde_json.workspace = true
+rodio = "0.21"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# StatusNotifierItem tray with a real left-click activate callback;
+# Tauri's libappindicator tray is menu-only on Linux.
+ksni = { version = "0.3", features = ["blocking"] }
