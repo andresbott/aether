@@ -9,25 +9,24 @@ Write an entry here — rather than burying a note in a code comment — when a 
 deployment assumption rather than by code, or (c) has candidate fixes worth
 recording but no chosen direction.
 
-This is not a work list. `TODO.md` carries the scheduled work and links here; every
-gap it lists under **Won't implement** should have an entry here, because that
-section records a decision and this file records the consequence.
+This is not a work list. `TODO.md` carries the scheduled work and links here, and
+the site's [Known limitations](../../site/content/docs/about/limitations.md) page
+tells users about the gaps recorded here that reach them.
 
 ---
 
 ## Vanished sub-trees inside a present library root
 
-*This heading (and the `TODO.md` item title quoted just below) keep their
-original wording because `TODO.md` links this entry by that exact anchor.
-"Library root" there means a **scan folder**'s root — the directory on disk a
+*This heading keeps its original wording because other docs link this entry by
+that exact anchor. "Library root" there means a **scan folder**'s root — the directory on disk a
 `ScanFolders` entry names, not a `libraries` row — and the rest of this entry
 says "scan folder" throughout.*
 
-**Status:** accepted — out of reach under the mount assumption below. Marked
-*won't implement* in `TODO.md` ("Guarding a vanished or unreadable sub-tree inside a
-present library root"), which merged the separate "unreadable subtree" item into
-this one: an unreadable subtree and an unattached one fail identically from the
-scanner's side, and the EACCES flavour is already declined (see *Not this caveat*).
+**Status:** accepted — out of reach under the mount assumption below, and listed
+for users on the site's [Known limitations](../../site/content/docs/about/limitations.md)
+page. This entry merged the separate "unreadable subtree" item into it: an
+unreadable subtree and an unattached one fail identically from the scanner's side,
+and the EACCES flavour is already declined (see *Not this caveat*).
 **Affects:** `internal/scanner` — `planTrackContinuity` (`trackcontinuity.go`) and
 step 5 cleanup (`store.Cleanup` → `store.DeleteOrphanedAggregates`).
 **Failure mode:** silent misattribution of user data. No error, nothing in the logs.
@@ -180,8 +179,9 @@ mounted into an empty NTFS folder, or a junction. Fix 1 is portable; fix 3 is no
 
 ## A move that straddles two scan runs
 
-**Status:** accepted — *won't implement* in `TODO.md` ("Recovering a move that
-straddles two scan runs"). The fix is a feature with a UI, not a repair.
+**Status:** accepted — listed for users on the site's
+[Known limitations](../../site/content/docs/about/limitations.md) page. The fix is a
+feature with a UI, not a repair.
 **Affects:** `internal/scanner` — `planTrackContinuity` (`trackcontinuity.go`) vs.
 step 5 cleanup (`store.Cleanup`).
 **Failure mode:** silent data loss, bounded to the moved tracks. No error.
@@ -235,9 +235,9 @@ paid and cross-run re-linking is nearly free on top. It is not worth paying for 
 
 ## Artist id churn on rename
 
-**Status:** accepted — *won't implement* in `TODO.md` ("Stable artist identity across
-a rename"). Genres have the same root cause and **remain scheduled** there, as does
-the positional-id cover key that shrinks this entry's blast radius.
+**Status:** accepted — listed for users on the site's
+[Known limitations](../../site/content/docs/about/limitations.md) page. Genres have the
+same root cause.
 **Affects:** `internal/store/artist.go:21`, `internal/model/artist.go:8` (identity),
 `scan_helpers.go:75,83` (orphan cleanup), `internal/assetkey/assetkey.go:74-79`
 (cover key), `subsonic/media.go:141,153` (imagecache key).
@@ -423,8 +423,8 @@ which the design kept as its escape hatch.
 ## Tag text that is not valid UTF-8
 
 **Status:** accepted — upstream go-taglib's behaviour (sentriz/go-taglib `ed9dfe2`,
-"don't fail on tags with invalid UTF-8 or UTF-16"). *Won't implement* in `TODO.md`
-("Decoding tag text that is not valid UTF-8").
+"don't fail on tags with invalid UTF-8 or UTF-16"). Listed for users on the site's
+[Known limitations](../../site/content/docs/about/limitations.md) page.
 **Affects:** `internal/tags` (`TaglibReader.Read`, `ReadRawTags`) and every
 `internal/metadataedit` write — tags, raw tags, embedded pictures.
 **Failure mode:** silent data loss. A read drops the field; for invalid UTF-8 the

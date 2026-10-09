@@ -1,6 +1,9 @@
 ---
 title: "Pre-release status"
-weight: 30
+weight: 10
+# Its first address, linked from the README that ships with v0.12 releases.
+aliases:
+  - /docs/getting-started/pre-release/
 ---
 
 # Pre-release status

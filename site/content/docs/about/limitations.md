@@ -1,11 +1,11 @@
 ---
 title: "Known limitations"
-weight: 40
+weight: 20
 ---
 
 # Known limitations
 
-What Aether does not do yet, or does with a catch, and what to do about it. Most entries link to the page with the details.
+What Aether does not do yet, or does with a catch, and what to do about it. Most entries link to the page with the details. A few things it leaves out on purpose are under [Not planned](#not-planned).
 
 ## Apps
 
@@ -45,3 +45,11 @@ The details are in [Scanning](/docs/guides/scanning.md) and under [Scan folders]
 
 - **Library filters only include**, and hiding a library's artists hides them from the whole catalog only, see [Libraries](/docs/guides/libraries.md#worth-knowing).
 - **Login names cannot be changed**, and a user renamed in your identity provider arrives as a new user, see [Authentication](/docs/guides/authentication.md).
+
+## Not planned
+
+These were considered and turned down, so don't wait for them in a later version.
+
+- **Share links.** Some apps can ask the server for a link that plays a song or album for anyone who opens it, without signing in. Aether does not create them, because such a link gets around sign-in.
+- **Chat.** Subsonic's chat is a single message board for everyone on the server, and hardly any app still offers it.
+- **Managing users from an app.** Apps cannot add, change or delete users, or change a password. Do that in the web player, see [Authentication](/docs/guides/authentication.md). An app can still read your own account, which is all it needs to play music.

@@ -93,5 +93,6 @@ play), negated library filters.
 
 `getUser` **is** implemented (`getuser.go`) — the caller's own record with a
 fixed role table, `adminRole` the only variable. `getUsers` is a deliberate
-non-goal: user administration lives on `/api/v0`, not `/rest` (see TODO.md and
+non-goal: user administration lives on `/api/v0`, not `/rest` (see "Not planned" on the site's
+[Known limitations](../../site/content/docs/about/limitations.md#not-planned) page and
 `CLAUDE.md`'s API split).

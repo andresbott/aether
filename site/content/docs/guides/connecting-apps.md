@@ -38,8 +38,8 @@ Apps offer a few features Aether does not serve yet. Most of them come up empty,
 - **Ratings.** An app can set them and is told it worked, but they are not saved.
 - **Artist and album information** — biographies, similar artists, album notes — and **top or similar songs**, so mixes an app builds from them stay empty too.
 - **Lyrics**, even when your files carry them.
-- **Podcasts, jukebox mode, bookmarks, sharing and chat.** To resume, the play queue keeps your position in the current track instead of a bookmark.
-- **Managing users and changing passwords.** Do that in the web player, see [Authentication](/docs/guides/authentication.md).
+- **Podcasts, jukebox mode and bookmarks.** To resume, the play queue keeps your position in the current track instead of a bookmark.
+- **Sharing, chat, and managing users and passwords** — these are [not planned](/docs/about/limitations.md#not-planned). Manage users and passwords in the web player, see [Authentication](/docs/guides/authentication.md).
 
 Two things also work differently from what an app may expect:
 

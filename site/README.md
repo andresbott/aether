@@ -71,7 +71,7 @@ page's hero is `heroShot` in its front matter):
 | File | Where |
 |---|---|
 | `library` | landing page hero: album grid, play queue, player bar (desktop) |
-| `settings-tasks` | Getting started: Settings → Tasks |
+| `settings-tasks` | Quickstart: Settings → Tasks |
 | `settings-scan-folders` | Configuration: the read-only scan folders panel on Settings → Libraries |
 | `library-dialog` | Libraries: the library dialog with its filters |
 | `sidebar-libraries` | Libraries: the sidebar with the main library and a library per view |
