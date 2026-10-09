@@ -64,7 +64,7 @@ and `todo list --json` cover the common actions — run `todo --help`.
 # Player
 
 - [ ] select server
-- [ ] icon
+- [x] icon
 - [ ] run without xatrr
 
 # Future releases
