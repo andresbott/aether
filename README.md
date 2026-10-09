@@ -5,7 +5,7 @@ them over an OpenSubsonic-compatible API. It ships as a single Go binary with th
 Vue 3 web player embedded.
 
 > **Pre-release:** under active development.
-> [More details](https://andresbott.github.io/aether/docs/getting-started/pre-release/)
+> [More details](https://andresbott.github.io/aether/docs/about/pre-release/)
 
 ![The library: album grid, play queue and player bar](site/assets/screenshots/library.png)
 
