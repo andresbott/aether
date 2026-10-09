@@ -4,6 +4,8 @@ use thiserror::Error;
 pub enum CoreError {
     #[error("not connected to a server")]
     NotConnected,
+    #[error("invalid server url: {0}")]
+    InvalidServerUrl(String),
     #[error("server unreachable: {0}")]
     ServerUnreachable(String),
     #[error("authentication failed")]

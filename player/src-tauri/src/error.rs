@@ -24,6 +24,9 @@ impl From<CoreError> for AppError {
             CoreError::ServerUnreachable(_) => ErrorCode::ServerUnreachable,
             CoreError::AuthFailed => ErrorCode::AuthFailed,
             CoreError::Api { .. } | CoreError::InvalidResponse(_) => ErrorCode::ServerError,
+            // Transitional: a bad url used to surface as InvalidResponse, so it keeps
+            // that code until Task 2 gives it its own.
+            CoreError::InvalidServerUrl(_) => ErrorCode::ServerError,
             CoreError::Decode(_) => ErrorCode::DecodeError,
             CoreError::Engine(_) => ErrorCode::Internal,
         };
