@@ -61,6 +61,12 @@ and `todo list --json` cover the common actions — run `todo --help`.
 
 - [ ] When identifying albums sometimes the track position is wrong — can we improve that?
 
+# Player
+
+- [ ] select server
+- [ ] icon
+- [ ] run without xatrr
+
 # Future releases
 
 ## Frontend - Metadata editor
