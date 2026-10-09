@@ -25,7 +25,7 @@ with a chosen direction in the bootstrap spec
 | Android playback (ExoPlayer/Media3) | Stub by design | `src-tauri/src/engine/android.rs` compiles, `load`/`seek` return `Engine` errors. Real impl is a Kotlin plugin follow-up; needs `tauri android init` first |
 | iOS playback (AVPlayer) | Stub by design | `src-tauri/src/engine/ios.rs`, same pattern; requires macOS |
 | Minimize-to-tray refinement | Catalogued | Noted in the bootstrap's review round (its scratch notes were not migrated); today's behavior is close-to-tray via `on_window_event` |
-| Code signing (macOS notarization, Windows Authenticode) | **Not configured** | Bundles are unsigned; see [releasing.md](releasing.md) |
+| Code signing (macOS notarization, Windows Authenticode) | **Partial** | The macOS `.app` is ad-hoc signed (`bundle.macOS.signingIdentity: "-"` — no identity, no notarization; Gatekeeper still asks for Open Anyway once), the Windows installer is unsigned; see [releasing.md](releasing.md#cautions) |
 
 ## The webui's feature set (shared, out of scope for backend tasks)
 

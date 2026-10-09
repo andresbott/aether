@@ -54,11 +54,23 @@ bundle set is what it is:
 - **Never change the bundle identifier `dev.andresbott.aether.player`.** It is
   the OS keyring service name — changing it orphans every user's stored
   password — and a different identifier is a different app to the OS.
-- **The macOS bundles are unsigned and not notarized** (no Apple Developer
-  certificate in CI): Gatekeeper refuses them on first open until the user
-  right-clicks → Open, or runs `xattr -cr` on the app. Signing is a
-  `tauri.conf.json` `bundle.macOS.signingIdentity` + repository-secrets
-  change when there is a certificate. The Windows installer is unsigned too
+- **The macOS bundles are ad-hoc signed, not notarized.** `tauri.conf.json`
+  sets `bundle.macOS.signingIdentity: "-"`, Tauri's pseudo-identity for
+  ad-hoc signing: the bundler runs `codesign -s -` (hardened runtime on, no
+  certificate, no keychain) over the `.app` and leaves the dmg itself
+  unsigned for that identity. Keep it. Apple Silicon requires a signature on
+  anything downloaded, and a bundle without one is reported by Gatekeeper as
+  "damaged" with no way to open it; ad-hoc signed, Gatekeeper says it "could
+  not verify" the app and offers **Open Anyway** in System Settings → Privacy
+  & Security (or the user runs `xattr -cr` on the `.app`), once per machine.
+  Real signing is an Apple Developer ID certificate: set
+  `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` and
+  `APPLE_SIGNING_IDENTITY` (the env var overrides the `-`), plus
+  `APPLE_ID`/`APPLE_PASSWORD`/`APPLE_TEAM_ID` for notarization, as `env` of
+  the macOS matrix entries from repository secrets. Trap: an
+  `APPLE_SIGNING_IDENTITY` that is set but *empty* — an unset secret expanded
+  with `${{ secrets.… }}` — overrides the `-` with `""` and breaks codesign, so
+  only export it when the secret exists. The Windows installer is unsigned
   (SmartScreen warning).
 - **Build the Linux bundles on the oldest runner GitHub hosts** (`ubuntu-22.04`
   today): the deb and the AppImage link against the runner's glibc and

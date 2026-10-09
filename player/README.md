@@ -36,4 +36,13 @@ Linux build prerequisites (Debian/Ubuntu):
 
 `make -C player check-deps` names what is missing.
 
+## Installing the macOS build
+
+The dmg is ad-hoc signed, not notarized (there is no Apple Developer
+certificate), so macOS blocks the first launch: "Apple could not verify
+aether-player is free of malware". Open the app once, close that dialog, then
+in System Settings → Privacy & Security click **Open Anyway** — or run
+`xattr -cr /Applications/aether-player.app` once. Windows shows the SmartScreen
+warning for the same reason.
+
 Before contributing (human or agent), read `docs/agents/player/architecture.md`.

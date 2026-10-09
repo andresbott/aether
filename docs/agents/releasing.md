@@ -170,11 +170,16 @@ view is [player/releasing.md](player/releasing.md); what is easy to get wrong:
   hosts**: the deb and the AppImage link against the runner's glibc and
   webkit2gtk, which sets the oldest system they install on (Debian 12 / Ubuntu
   22.04). Bump it when GitHub retires the image, knowing that raises the floor.
-- **Unsigned.** No Apple certificate or Windows signing key is configured, so
-  Gatekeeper and SmartScreen warn on first launch (macOS: right-click → Open,
-  or `xattr -cr` the app). Wire signing through `tauri.conf.json`'s
-  `bundle.macOS` / `bundle.windows` settings and repository secrets when there
-  is a certificate.
+- **Ad-hoc signed on macOS, unsigned on Windows.** No Apple certificate or
+  Windows signing key is configured. `player/src-tauri/tauri.conf.json` sets
+  `bundle.macOS.signingIdentity: "-"`, so the `.app` carries an ad-hoc
+  signature: Gatekeeper still blocks the first launch, but with the **Open
+  Anyway** route in System Settings → Privacy & Security (or `xattr -cr`),
+  where it reports an unsigned bundle as "damaged" with no way through.
+  SmartScreen warns on Windows. Real signing is a repository-secrets change
+  (`APPLE_SIGNING_IDENTITY` overrides the `-`); the variables and the
+  empty-variable trap are in
+  [player/releasing.md](player/releasing.md#cautions).
 - `npx tauri build` runs the webui production build itself
   (`beforeBuildCommand: npm --prefix ../webui run build`) and embeds
   `webui/dist`, so the job only needs `npm ci` in both `webui/` and `player/`.
