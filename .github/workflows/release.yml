@@ -1,4 +1,4 @@
-name: Release
+name: release
 on:
   push:
     tags:
@@ -13,7 +13,8 @@ jobs:
   # ===========================================================================
   # Linux + Windows (runs on Ubuntu, creates the GitHub release)
   # ===========================================================================
-  release-linux:
+  server-linux:
+    name: server (linux + windows)
     runs-on: ubuntu-latest
     # Pure-Go builds (CGO_ENABLED=0 in .goreleaser.yaml) produce static binaries
     # with no glibc floor, so the runner image no longer constrains which
@@ -77,7 +78,7 @@ jobs:
   # release. See site.yml for the one-time Pages setup it needs.
   # ===========================================================================
   site:
-    needs: release-linux
+    needs: server-linux
     if: ${{ !contains(github.ref_name, '-') }}
     uses: ./.github/workflows/site.yml
     permissions:
@@ -88,8 +89,9 @@ jobs:
   # ===========================================================================
   # macOS (runs on macOS, appends to existing release)
   # ===========================================================================
-  release-darwin:
-    needs: release-linux
+  server-darwin:
+    name: server (macos)
+    needs: server-linux
     runs-on: macos-latest
     env:
       CGO_ENABLED: 0
@@ -135,7 +137,8 @@ jobs:
   # dmg per Mac arch — docs/agents/releasing.md says why these and not others.
   # ===========================================================================
   player:
-    needs: release-linux
+    name: player (${{ matrix.name }})
+    needs: server-linux
     strategy:
       fail-fast: false
       matrix:
@@ -143,14 +146,18 @@ jobs:
           # Oldest Ubuntu GitHub still hosts: the deb and the AppImage link
           # against the runner's glibc and webkit2gtk, so building here keeps
           # them installable on Debian 12 / Ubuntu 22.04 and newer.
-          - os: ubuntu-22.04
+          - name: linux
+            os: ubuntu-22.04
             bundles: deb,appimage
-          - os: windows-latest
+          - name: windows
+            os: windows-latest
             bundles: nsis
-          - os: macos-latest
+          - name: macos arm64
+            os: macos-latest
             target: aarch64-apple-darwin
             bundles: dmg
-          - os: macos-latest
+          - name: macos x64
+            os: macos-latest
             target: x86_64-apple-darwin
             bundles: dmg
     runs-on: ${{ matrix.os }}

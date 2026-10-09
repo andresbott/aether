@@ -4,10 +4,12 @@ The full gate is `make verify` from the repo root — run it before calling any
 work done. It runs the server gate (`make -C server verify`: `test` →
 `license-check` → `lint` → `benchmark` → `coverage`), then `ui-test` →
 `spec-lint` → `player-lint` → `player-test`, collects all failures, and fails
-if any target failed. CI runs the same pieces (`.github/workflows/test.yml`:
-`make test`, `make coverage`, `make ui-test`, `make package-ui`; separate
-golangci-lint, license-check and spec-lint workflows; `player.yml` for the
-desktop player's lint + tests).
+if any target failed. CI runs the same pieces, one workflow per component in
+`.github/workflows/`, each on pushes to `main` and on pull requests, so a check
+reads `<component> / <job>` on a PR: `server.yml` (`test` = `make test` +
+`make coverage`, `lint` = golangci-lint, `license-check`, `spec-lint`),
+`webui.yml` (`test` = `make ui-test` + `make package-ui`) and `player.yml`
+(`lint + test`). `release.yml` and `site.yml` are the tag-time workflows.
 
 The Go targets live in `server/Makefile` (run them there, e.g.
 `cd server && make verify` for a Go-only gate); the root `Makefile` delegates

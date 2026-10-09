@@ -4,14 +4,14 @@
 # runs on, it builds the latest stable tag (v1.2.3, not v1.2.3-rc1), so the
 # live site tracks the latest release and main can be ahead of it: a patch tag
 # on an older line does not roll the site back, and a manual run
-# (Actions → Site → Run workflow, from any branch) republishes that tag rather
+# (Actions → site → Run workflow, from any branch) republishes that tag rather
 # than main.
 #
 # One-time repository setup: Settings → Pages → Source "GitHub Actions", and
 # Settings → Environments → github-pages → add a tag rule `v*` (by default the
 # environment accepts deployments from the default branch only, so a tag run
 # is rejected).
-name: Site
+name: site
 
 on:
   workflow_call:

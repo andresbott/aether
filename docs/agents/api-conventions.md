@@ -355,7 +355,7 @@ Validate any spec edit with `make spec-lint` (`cd webui && npm run
 spec-lint`, which runs `spectral lint ../docs/openapi/aether-v0.yaml -r
 ../.spectral.yaml --fail-severity=error` — `spectral` is only installed as a
 `webui` devDependency, so it must run from there); it runs as part of `make
-verify` and in CI (`.github/workflows/spec-lint.yml`). The negative fixtures
+verify` and in CI (the `spec-lint` job of `.github/workflows/server.yml`). The negative fixtures
 that prove the two bounded-URL rules actually fire live under
 `docs/openapi/testdata/` and are never linted by `make spec-lint` itself,
 which only targets `aether-v0.yaml` — lint them directly (from `webui/`:

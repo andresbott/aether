@@ -17,7 +17,7 @@ yourself first.
 
 ## What CI does on a tag
 
-- **Linux + Windows job** (ubuntu-latest): `npm ci` + `make package-ui` (build
+- **`server (linux + windows)`** (ubuntu-latest): `npm ci` + `make package-ui` (build
   the SPA and copy it into `server/app/spa/files/ui/` — the `//go:embed files/ui/*`
   in `app/spa/spa.go` picks it up), then goreleaser with `.goreleaser.yaml`
   (its builds set `dir: server`, the Go module root)
@@ -25,12 +25,12 @@ yourself first.
   container image, the `aether-spa.zip` web UI archive — see below). QEMU + Buildx + a ghcr.io login (the
   built-in `GITHUB_TOKEN`, `packages: write`) run before goreleaser for the
   image.
-- **macOS job**: same UI build, goreleaser with `.goreleaser-darwin.yaml`.
-- **Player job** (a matrix: `ubuntu-22.04`, `windows-latest`, `macos-latest`
-  once per Mac arch), after the Linux job: `npm ci` in `webui/` and `player/`,
-  `npx tauri build` with the tag's version, then `gh release upload` of the
-  bundles onto the release goreleaser created — see below.
-- **Site job**: after the Linux job, for stable tags only (no `-` in the tag),
+- **`server (macos)`**: same UI build, goreleaser with `.goreleaser-darwin.yaml`.
+- **`player (…)`**, one job per OS/arch (`linux` on `ubuntu-22.04`, `windows`,
+  `macos arm64`, `macos x64`), after the Linux job: `npm ci` in `webui/` and
+  `player/`, `npx tauri build` with the tag's version, then `gh release upload`
+  of the bundles onto the release goreleaser created — see below.
+- **`site`**: after the Linux job, for stable tags only (no `-` in the tag),
   builds `site/` with Hugo and deploys it to GitHub Pages — see below.
 
 ## Build artifacts
@@ -194,11 +194,11 @@ the `site` job, so the live site tracks the **latest stable release**, not
 - **It always builds the latest stable tag**, whatever ref it runs on: it
   checks out the highest `v*.*.*` tag without a `-` suffix before building.
   So a patch tag on an older release line does not roll the site back, and
-  running the Site workflow by hand (from any branch) republishes that tag,
+  running the `site` workflow by hand (from any branch) republishes that tag,
   never `main`. It fails if that tag predates `site/`.
 - **Not triggered by the `release` event**: goreleaser publishes the release
   with `GITHUB_TOKEN`, and events caused by that token start no workflows.
-  Hence the job inside `release.yml`, `needs: release-linux`.
+  Hence the job inside `release.yml`, `needs: server-linux`.
 - **One-time repository setup** (without it the `site` job fails, after the
   release itself is already out): Settings → Pages → Source "GitHub Actions";
   then Settings → Environments → `github-pages` → add a tag rule `v*`. The

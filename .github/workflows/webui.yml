@@ -1,26 +1,18 @@
-name: golang
-on: [push]
+# Web UI (webui/) checks: type-check + unit tests, then the production build
+# the server embeds and the player opens, so a build break is caught before a
+# release. Shows up on a PR as `webui / test`.
+name: webui
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
-    env:
-      CGO_ENABLED: 1
-    steps:
-      - uses: actions/checkout@v4
-      ## Setup GO
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: 'server/go.mod'
-          cache-dependency-path: server/go.sum
-
-      - name: run tests
-        run: make test
-
-      - name: ensure test coverage
-        run: make coverage
-
-  build-ui:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
