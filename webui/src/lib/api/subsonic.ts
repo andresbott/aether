@@ -21,6 +21,7 @@ import type {
     MusicFolders
 } from '@/types/subsonic'
 import { ref } from 'vue'
+import { httpFetch, isDesktopApp, serverUrl } from '@/lib/host'
 
 // The apiKey is REACTIVE on purpose. getCoverArtUrl/getStreamUrl are called
 // from component computeds, which bake the key into the URL they return; a
@@ -44,14 +45,16 @@ class SubsonicClient {
 
     /** Auth method "none": no credentials on any /rest call. */
     initWithDefaults(): void {
-        this.serverUrl = window.location.origin
+        // The host's server is only null in the app before one is chosen, and
+        // nothing configures the client then.
+        this.serverUrl = serverUrl.value ?? ''
         this.authSkipped = true
         this.apiKey = null
     }
 
     /** Native mode: authenticate every /rest call with the minted PAT. */
     setApiKey(key: string): void {
-        this.serverUrl = window.location.origin
+        this.serverUrl = serverUrl.value ?? ''
         this.apiKey = key
         this.authSkipped = false
     }
@@ -118,7 +121,7 @@ class SubsonicClient {
     }
 
     private async fetchJson(url: string, init?: RequestInit): Promise<any> {
-        const response = await fetch(url, init)
+        const response = await httpFetch(url, init)
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`)
         }
@@ -131,7 +134,7 @@ class SubsonicClient {
             const result = await remintApiKey()
             if (result === 'ok') {
                 const retryUrl = this.rebuildWithFreshKey(url)
-                const retry = await fetch(retryUrl, init)
+                const retry = await httpFetch(retryUrl, init)
                 if (!retry.ok) {
                     throw new Error(`HTTP error! status: ${retry.status}`)
                 }
@@ -627,8 +630,10 @@ class SubsonicClient {
         if (!this.isConfigured()) return
         try {
             await this.request('scrobble.view', { id, submission: true })
-        } catch (err) {
-            console.warn('scrobble failed', err)
+        } catch {
+            // A label only: the failure text can name the request URL, apiKey
+            // included (the desktop app's transport rejects with it).
+            console.warn('scrobble failed')
         }
     }
 
@@ -655,8 +660,8 @@ class SubsonicClient {
             if (data['subsonic-response'].status === 'failed') {
                 this.handleFailedResponse(data)
             }
-        } catch (err) {
-            console.warn('savePlayQueue failed', err)
+        } catch {
+            console.warn('savePlayQueue failed') // label only, as in scrobble
         }
     }
 
@@ -671,11 +676,20 @@ class SubsonicClient {
         if (!this.isConfigured()) return false
         if (songIds.length === 0) return false
         try {
-            if (typeof navigator?.sendBeacon !== 'function') return false
+            const desktopApp = isDesktopApp()
+            if (!desktopApp && typeof navigator?.sendBeacon !== 'function') return false
             const url = new URL(this.buildUrl('savePlayQueueByIndex.view'))
             songIds.forEach((id) => url.searchParams.append('id', id))
             url.searchParams.append('currentIndex', String(currentIndex))
             url.searchParams.append('position', String(Math.max(0, Math.round(positionMs))))
+            if (desktopApp) {
+                // The app window's CSP confines connect-src to IPC, so a beacon
+                // could not leave. Best effort through the transport instead: the
+                // window hides on close rather than unloading, so this runs only
+                // on a reload or a quit.
+                void httpFetch(url.toString()).catch(() => {})
+                return true
+            }
             return navigator.sendBeacon(url.toString())
         } catch {
             return false
@@ -693,8 +707,8 @@ class SubsonicClient {
             const queue = response.playQueueByIndex
             if (!queue || !queue.entry || queue.entry.length === 0) return null
             return queue
-        } catch (err) {
-            console.warn('getPlayQueue failed', err)
+        } catch {
+            console.warn('getPlayQueue failed') // label only, as in scrobble
             return null
         }
     }

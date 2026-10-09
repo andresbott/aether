@@ -13,6 +13,7 @@ import CustomTheme from './theme'
 import { useTheme } from './composables/useTheme'
 import { apiErrorMessage, NETWORK_MESSAGE } from './lib/apiError'
 import { reportNetworkError, dismissBanner } from './composables/useConnectivity'
+import { initHost } from './lib/host'
 import 'primeflex/primeflex.css'
 import 'virtual:material-symbols.css'
 import '@fontsource-variable/inter'
@@ -97,4 +98,13 @@ const queryClient = new QueryClient({
 
 app.use(VueQueryPlugin, { queryClient })
 
-app.mount('#app')
+// The host settles where the server is — and inside the desktop app how requests
+// reach it — before anything renders, so the first /me request already goes to
+// the right place. An async function rather than a top-level await, which Vite's
+// default build target rejects.
+async function bootstrap(): Promise<void> {
+    await initHost()
+    app.mount('#app')
+}
+
+void bootstrap()

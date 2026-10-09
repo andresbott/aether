@@ -50,10 +50,12 @@ describe('subsonicClient.savePlayQueue', () => {
     it('never rejects when the request fails, and warns instead', async () => {
         vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))))
         // The warn is the intended behaviour, so assert it rather than let it
-        // print: an expected failure must not look like a broken test run.
+        // print: an expected failure must not look like a broken test run. It
+        // is the label alone: in the desktop app the error text names the
+        // request URL, apiKey included.
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
         await expect(subsonicClient.savePlayQueue(['tr-1'], 0, 0)).resolves.toBeUndefined()
-        expect(warn).toHaveBeenCalledWith('savePlayQueue failed', expect.any(Error))
+        expect(warn).toHaveBeenCalledWith('savePlayQueue failed')
         warn.mockRestore()
     })
 })
@@ -142,7 +144,7 @@ describe('subsonicClient.getPlayQueue', () => {
         vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))))
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
         await expect(subsonicClient.getPlayQueue()).resolves.toBeNull()
-        expect(warn).toHaveBeenCalledWith('getPlayQueue failed', expect.any(Error))
+        expect(warn).toHaveBeenCalledWith('getPlayQueue failed')
         warn.mockRestore()
     })
 })
