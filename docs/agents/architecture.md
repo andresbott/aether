@@ -85,7 +85,7 @@ A Tauri 2 app, documented in [player/architecture.md](player/architecture.md):
 
     webui/dist  (the same vite build the Go binary embeds, opened as the app window)
        |
-    player/src-tauri            crate `aether-app` — thin shell: IPC commands, rodio engine, tray, keyring
+    player/src-tauri            crate `aether-app` — thin shell: IPC commands, server setting, HTTP plugin, rodio engine, tray
        |
     player/crates/aether-core   pure Rust: Subsonic client, Player/Queue, PlaybackEngine trait — no tauri
 
@@ -94,9 +94,13 @@ A Tauri 2 app, documented in [player/architecture.md](player/architecture.md):
   player fork of the SPA. The flip side is a constraint on `webui/`: it must
   stay **origin-agnostic** — no hardcoded origins, no server-side `index.html`
   templating, no cookie-only auth assumptions — because inside the app it is
-  served from a `tauri://` origin, not by the Go binary. The UI does not drive
-  the player over IPC yet (it still speaks HTTP, see
-  [player/features.md](player/features.md)); do not wire that ad hoc.
+  served from a `tauri://` origin, not by the Go binary. Inside the app the SPA
+  still speaks HTTP, but through `tauri-plugin-http` (Rust holds the session
+  cookie), and still plays in the webview; it learns it is in the app, and
+  reaches Rust, only through `webui/src/lib/host/` (see
+  [frontend.md](frontend.md#desktop-app-mode-libhost)). Moving playback onto
+  IPC is the open follow-up ([player/features.md](player/features.md)); do not
+  wire it ad hoc.
 - **It never imports from `server/`**, and the server knows nothing about it.
   The only contract between the two is the OpenSubsonic API — the player is
   just another `/rest` client, so whatever it needs from the server goes
