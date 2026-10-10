@@ -3,9 +3,10 @@
 // nothing else notices when one slips: the code still works in a browser tab and
 // breaks later, in the player, as a request to the wrong host.
 //
-//   1. window.location.origin is read only under lib/host/. Inside the app the
-//      page comes from a tauri:// origin, so the page's own origin is the wrong
-//      answer to "where is the server"; everything else asks `serverUrl`.
+//   1. The page's own origin (location.origin, however it is reached) is read
+//      only under lib/host/. Inside the app the page comes from a tauri:// origin,
+//      so it is the wrong answer to "where is the server"; everything else asks
+//      `serverUrl`.
 //   2. @tauri-apps/* is imported only under lib/host/, so the rest of the SPA is
 //      the same code in a tab and in the player, and the dependency on the app
 //      stays behind one seam.
@@ -30,9 +31,11 @@ const COMMENT_OR_STRING =
 const stripComments = (text: string): string =>
     text.replace(COMMENT_OR_STRING, (_, quoted?: string) => quoted ?? ' ')
 
-/** True when code (not a comment) reads the page's own origin. */
-const readsPageOrigin = (text: string): boolean =>
-    /\bwindow\.location\.origin\b/.test(stripComments(text))
+/**
+ * True when code (not a comment) reads the page's own origin: any location.origin,
+ * however it is reached (window., document., globalThis. or bare).
+ */
+const readsPageOrigin = (text: string): boolean => /\blocation\.origin\b/.test(stripComments(text))
 
 /**
  * True when code imports @tauri-apps/*: static (a re-export too), side-effect or
@@ -74,6 +77,9 @@ describe('the @tauri-apps import matcher', () => {
 describe('the page-origin matcher', () => {
     it.each([
         ['a plain read', 'serverUrl.value = window.location.origin'],
+        ['a read through document', 'const here = document.location.origin'],
+        ['a read through globalThis', 'const here = globalThis.location.origin'],
+        ['a bare read', 'const here = location.origin'],
         [
             'a read after a string holding //',
             "const base = dev ? 'http://dev:8075' : window.location.origin"
@@ -90,6 +96,7 @@ describe('the page-origin matcher', () => {
         ['a doc comment', '/**\n * The server, not window.location.origin.\n */'],
         ['an unprefixed block comment', '/*\n  window.location.origin is wrong in the app\n*/'],
         ['an HTML comment', '<!-- window.location.origin is the tab, not the server -->'],
+        ['a comment naming the bare form', '// location.origin is the tab, not the server'],
         ['another location read', 'window.location.reload()'],
         ['another origin', 'const origin = new URL(url).origin']
     ])('skips %s', (_, code) => {
@@ -122,10 +129,10 @@ function expectNone(offenders: string[], rule: string): void {
 }
 
 describe('code outside lib/host/', () => {
-    it('never reads window.location.origin', () => {
+    it('never reads location.origin', () => {
         expectNone(
             outsideHost(readsPageOrigin),
-            "window.location.origin is read outside src/lib/host/ (ask serverUrl from '@/lib/host' instead)"
+            "location.origin is read outside src/lib/host/ (ask serverUrl from '@/lib/host' instead)"
         )
     })
 
