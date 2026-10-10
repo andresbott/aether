@@ -63,9 +63,15 @@ and `todo list --json` cover the common actions — run `todo --help`.
 
 # Player
 
-- [ ] select server
+- [x] select server
 - [x] icon
-- [ ] run without xatrr
+- [x] run without xatrr
+- [ ] Proxy-header login in the desktop app (system browser + cookie hand-off)
+  Servers behind an auth portal (Authelia) are refused at the app's server step today: the portal signs in through a browser redirect the app cannot follow, and its ACL keeps /api/v0 closed to anonymous callers (docs/agents/player/features.md). Direction (server-selection plan, D7): sign in through the system browser, then hand the session cookie over into tauri-plugin-http's cookie jar.
+- [ ] Playback retrofit: Rust engine, tray, state events (narrowed follow-up #1)
+  The bootstrap spec's follow-up #1, narrowed by server selection to playback: the SPA still plays through its own <audio> while the Rust Player/rodio engine stays idle. Move playback into the engine over IPC (player://state, queue commands), point the tray at it, and decide the fate of the browsing/playback commands nothing calls today (docs/agents/player/architecture.md, Known debt).
+- [ ] Metadata editor picture previews in the desktop app (fetch through the plugin + object URLs)
+  Picture previews and the artist image build <img> URLs from apiClient.defaults.baseURL, and copy-picture calls a raw fetch (webui/src/lib/api/Metadata.ts:128,187, webui/src/views/settings/metadata-editor/PicturesSection.vue:207). The /api/v0 picture endpoints are cookie-authenticated, so none of it loads in the app. Fix: fetch through the host transport (httpFetch) and render object URLs.
 
 # Future releases
 
