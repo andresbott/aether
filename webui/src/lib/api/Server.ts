@@ -7,12 +7,16 @@ import { httpFetch } from '@/lib/host'
 import type { AuthMethod, MeResponse } from '@/types/users'
 
 /**
- * What answered at a server address. `aether`: its /me answered, so the app can
- * connect (and sign in, if the server asks). `portal`: Aether is there, but an
- * auth portal in front of it keeps /api/v0 closed to the app, which cannot sign
- * in through a portal yet.
+ * What answered at a server address, and where: `url` is the address as the
+ * probe settled it, normalised and on https when the server redirected there —
+ * the one to save. `aether`: its /me answered, so the app can connect (and sign
+ * in, if the server asks). `portal`: Aether is there, but an auth portal in
+ * front of it keeps /api/v0 closed to the app, which cannot sign in through a
+ * portal yet.
  */
-export type ProbeResult = { kind: 'aether'; me: MeResponse } | { kind: 'portal' }
+export type ProbeResult =
+    | { kind: 'aether'; url: string; me: MeResponse }
+    | { kind: 'portal'; url: string }
 
 /** The typed text does not name a server the app may connect to. */
 export class InvalidServerAddressError extends Error {
@@ -77,55 +81,117 @@ const PING = '/rest/ping?f=json&v=1.16.1&c=aether-player'
 
 /**
  * Asks the server at `address` (normalised first) who it is. Its /me answering
- * with a known auth method is Aether. Any other answer may still be Aether behind
- * an auth portal, which redirects or refuses anonymous /api/v0 calls: every proxy
- * setup leaves /rest open for Subsonic clients, and there Aether answers a ping
- * without credentials with an error envelope (code 40).
+ * with a known auth method is Aether. A server that redirects /me from http to
+ * https on the same host is asked again there, once. Any other answer may still
+ * be Aether behind an auth portal, which redirects or refuses anonymous /api/v0
+ * calls: every proxy setup leaves /rest open for Subsonic clients, and there
+ * Aether answers a ping without credentials with an error envelope (code 40).
  *
  * Throws InvalidServerAddressError before any request, ServerUnreachableError
- * when a request fails, NotAetherServerError when neither answer is Aether's.
+ * when a request fails or takes over ten seconds, NotAetherServerError when
+ * neither answer is Aether's.
  */
 export async function probeServer(address: string): Promise<ProbeResult> {
-    const url = normalizeServerUrl(address)
+    return probeAt(normalizeServerUrl(address))
+}
+
+async function probeAt(url: string): Promise<ProbeResult> {
     const me = await probe(url, `${url}/api/v0/me`)
-    if (me.ok && isMeResponse(me.body)) return { kind: 'aether', me: me.body }
+    if (me.ok && isMeResponse(me.body)) return { kind: 'aether', url, me: me.body }
+    // Only an http address upgrades, so the https one asked instead never does:
+    // one upgrade at most.
+    const secure = httpsUpgrade(url, me)
+    if (secure !== null) return probeAt(secure)
     const ping = await probe(url, `${url}${PING}`)
-    if (isSubsonicEnvelope(ping.body)) return { kind: 'portal' }
+    if (isSubsonicEnvelope(ping.body)) return { kind: 'portal', url }
     throw new NotAetherServerError(url)
 }
 
 interface ProbeAnswer {
     ok: boolean
+    status: number
+    /** Where a redirect points; null without a Location header. */
+    location: string | null
     /** The body parsed as JSON; undefined when it is not JSON. */
     body: unknown
 }
 
-// RequestInit plus tauri-plugin-http's client option; a browser's fetch ignores
-// the extra key.
-type ProbeRequestInit = RequestInit & { maxRedirections: number }
+// Each request — connecting, the answer, its body — gets this long in all.
+// Without a bound, an address whose packets are dropped holds Connect until the
+// system gives up on the connection, minutes later.
+const PROBE_TIMEOUT_MS = 10_000
+
+// RequestInit plus tauri-plugin-http's client options; a browser's fetch
+// ignores the extra keys.
+type ProbeRequestInit = RequestInit & { maxRedirections: number; connectTimeout: number }
 
 async function probe(url: string, target: string): Promise<ProbeAnswer> {
+    const deadline = timeoutSignal(PROBE_TIMEOUT_MS)
     let response: Response
     let text: string
     try {
-        response = await httpFetch(target, noRedirects())
+        response = await httpFetch(target, probeInit(deadline.signal))
         text = await response.text()
     } catch {
-        // The transport's rejection names the request URL; report only the
-        // address the user typed.
+        // Refused, unresolved, timed out: the transport's rejection names the
+        // request URL, so only the address being probed is reported.
         throw new ServerUnreachableError(url)
+    } finally {
+        deadline.clear()
     }
-    return { ok: response.ok, body: parseJson(text) }
+    return {
+        ok: response.ok,
+        status: response.status,
+        location: response.headers.get('Location'),
+        body: parseJson(text)
+    }
 }
 
 // A redirect is an answer to look at, not to follow: a portal sends anonymous
 // callers to its login page, and a followed redirect would report what answers
-// somewhere else (an http-to-https redirect would pass for a portal). The plugin
-// takes maxRedirections and hands the 3xx back; `redirect: 'manual'` is the
-// standard spelling. Built per request, because the plugin deletes its options
-// from the init it is given.
-function noRedirects(): ProbeRequestInit {
-    return { redirect: 'manual', maxRedirections: 0 }
+// somewhere else. The plugin takes maxRedirections and hands the 3xx back;
+// `redirect: 'manual'` is the standard spelling. Built per request, because the
+// plugin deletes its options from the init it is given.
+function probeInit(signal: AbortSignal): ProbeRequestInit {
+    return {
+        redirect: 'manual',
+        signal,
+        maxRedirections: 0,
+        connectTimeout: PROBE_TIMEOUT_MS
+    }
+}
+
+// AbortSignal.timeout where the webview has it; elsewhere a timer of our own,
+// cleared once the request settles.
+function timeoutSignal(ms: number): { signal: AbortSignal; clear: () => void } {
+    if (typeof AbortSignal.timeout === 'function') {
+        return { signal: AbortSignal.timeout(ms), clear: () => {} }
+    }
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), ms)
+    return { signal: controller.signal, clear: () => clearTimeout(timer) }
+}
+
+const REDIRECT_STATUSES = [301, 302, 307, 308]
+
+/**
+ * The https address to ask instead, when /me at an http address redirects to
+ * https on the same host name (the port may change): the origin the redirect
+ * names, with the typed path prefix. Null for any other answer — a portal on
+ * another host above all.
+ */
+function httpsUpgrade(url: string, me: ProbeAnswer): string | null {
+    if (!REDIRECT_STATUSES.includes(me.status) || me.location === null) return null
+    const from = new URL(url)
+    let to: URL
+    try {
+        to = new URL(me.location, `${url}/api/v0/me`)
+    } catch {
+        return null
+    }
+    if (from.protocol !== 'http:' || to.protocol !== 'https:') return null
+    if (to.hostname !== from.hostname) return null
+    return `${to.origin}${from.pathname}`.replace(/\/+$/, '')
 }
 
 function parseJson(text: string): unknown {

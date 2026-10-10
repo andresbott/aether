@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { defineComponent } from 'vue'
+import { defineComponent, nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
@@ -57,6 +57,7 @@ let subsonicReady: (typeof import('@/lib/subsonicSession'))['subsonicReady']
 let spaTokenId: (typeof import('@/lib/subsonicSession'))['spaTokenId']
 let MAX_MINT_ATTEMPTS: (typeof import('@/lib/subsonicSession'))['MAX_MINT_ATTEMPTS']
 let serverUrl: (typeof import('@/lib/host'))['serverUrl']
+let lastServerUrl: (typeof import('@/lib/authState'))['lastServerUrl']
 
 function withAuth() {
     let auth!: ReturnType<UseAuth>
@@ -105,7 +106,10 @@ describe('useAuth', () => {
         ;({ subsonicReady, spaTokenId, MAX_MINT_ATTEMPTS } = await import(
             '@/lib/subsonicSession'
         ))
+        // The mocked host outlives resetModules: its serverUrl is reset by hand.
         ;({ serverUrl } = await import('@/lib/host'))
+        serverUrl.value = 'http://localhost:3000'
+        ;({ lastServerUrl } = await import('@/lib/authState'))
         host.desktopApp = false
         host.clearServerUrl.mockReset()
         sessionExpired.value = false
@@ -579,6 +583,75 @@ describe('useAuth', () => {
             expect(getMe).toHaveBeenCalledTimes(1)
         })
 
+        // Down, or moved: without this the window stays blank, with no way to
+        // reach another server.
+        describe('when the saved server does not answer', () => {
+            beforeEach(() => {
+                getMe.mockRejectedValueOnce(new Error('Network Error'))
+            })
+
+            it('asks for a server again', async () => {
+                const auth = withAuth()
+                await flushPromises()
+
+                expect(auth.needsServer.value).toBe(true)
+                expect(auth.isLoading.value).toBe(false)
+            })
+
+            it('stays out of the way in the browser', async () => {
+                host.desktopApp = false
+                const auth = withAuth()
+                await flushPromises()
+
+                expect(auth.needsServer.value).toBe(false)
+            })
+
+            // The same address saved again changes nothing /me watches.
+            it('asks /me again once a server is saved, even the same one', async () => {
+                getMe.mockResolvedValue(meNone)
+                const auth = withAuth()
+                await flushPromises()
+                expect(getMe).toHaveBeenCalledTimes(1)
+
+                auth.serverSaved()
+                await flushPromises()
+
+                expect(getMe).toHaveBeenCalledTimes(2)
+                expect(auth.needsServer.value).toBe(false)
+                expect(subsonicReady.value).toBe(true)
+            })
+        })
+
+        // The flip from no server enables /me by itself; a reset on top would
+        // cancel that request and ask again.
+        it('asks a first saved server for /me once', async () => {
+            serverUrl.value = null
+            getMe.mockResolvedValue(meNone)
+            const auth = withAuth()
+            await flushPromises()
+
+            // As setServerUrl resolves: the flip has enabled /me by the time the
+            // login view tells the gate.
+            serverUrl.value = SERVER
+            await nextTick()
+            auth.serverSaved()
+            await flushPromises()
+
+            expect(getMe).toHaveBeenCalledTimes(1)
+            expect(subsonicReady.value).toBe(true)
+        })
+
+        it('forgets the server switched away from once another is saved', async () => {
+            lastServerUrl.value = 'http://old.lan:8075'
+            getMe.mockResolvedValue(meNone)
+            const auth = withAuth()
+            await flushPromises()
+
+            auth.serverSaved()
+
+            expect(lastServerUrl.value).toBeNull()
+        })
+
         // A proxy that lets an anonymous /me through: the app cannot reach the
         // portal, so the login view explains instead of a blank window.
         it('flags a portal-only server when /me answers proxy-header without a user', async () => {
@@ -646,26 +719,49 @@ describe('useAuth', () => {
                 expect(auth.needsServer.value).toBe(true)
             })
 
+            // Nobody to sign out, but the old server's queue must not play on,
+            // nor its track ids reach the next server through the queue sync.
             it.each([
                 ['without login', meNone],
                 ['with nobody signed in', meAnonymous]
-            ])(
-                'signs nobody out %s, but drops the cache and the /rest session',
-                async (_case, me) => {
-                    getMe.mockResolvedValue(me)
-                    const auth = withAuth()
-                    await flushPromises()
-                    expect(subsonicReady.value).toBe(me === meNone)
+            ])('signs nobody out %s, but purges all the same', async (_case, me) => {
+                getMe.mockResolvedValue(me)
+                const events: string[] = []
+                stopSync.mockImplementation(() => {
+                    events.push(`purge, server ${serverUrl.value}`)
+                })
+                host.clearServerUrl.mockImplementation(() => {
+                    events.push('setting cleared')
+                })
+                const { DEVICE_ID_KEY } = await import('@/lib/deviceIdentity')
+                localStorage.setItem(DEVICE_ID_KEY, '"device-1"')
+                const auth = withAuth()
+                await flushPromises()
+                localStorage.setItem('musicPlayer:queue', '[{"id":"s1"}]')
+                expect(subsonicReady.value).toBe(me === meNone)
 
-                    await auth.switchServer()
+                await auth.switchServer()
 
-                    expect(logout).not.toHaveBeenCalled()
-                    expect(getMe).toHaveBeenCalledTimes(1)
-                    expect(subsonicReady.value).toBe(false)
-                    expect(host.clearServerUrl).toHaveBeenCalledTimes(1)
-                    expect(auth.needsServer.value).toBe(true)
-                }
-            )
+                expect(logout).not.toHaveBeenCalled()
+                expect(events).toEqual(['purge, server null', 'setting cleared'])
+                expect(clearQueue).toHaveBeenCalled()
+                expect(localStorage.getItem('musicPlayer:queue')).toBeNull()
+                expect(localStorage.getItem(DEVICE_ID_KEY)).toBe('"device-1"')
+                expect(getMe).toHaveBeenCalledTimes(1)
+                expect(subsonicReady.value).toBe(false)
+                expect(auth.needsServer.value).toBe(true)
+            })
+
+            it('remembers the server it switched away from', async () => {
+                getMe.mockResolvedValue(meNone)
+                const auth = withAuth()
+                await flushPromises()
+
+                await auth.switchServer()
+
+                expect(lastServerUrl.value).toBe(SERVER)
+                expect(serverUrl.value).toBeNull()
+            })
 
             it('forgets the server even when the logout fails', async () => {
                 getMe.mockResolvedValue(meAlice)

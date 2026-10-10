@@ -4,7 +4,7 @@ import * as AuthApi from '@/lib/api/Auth'
 import { useMe, userQueryKeys } from '@/composables/useUsers'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSync } from '@/composables/useQueueSync'
-import { explicitLogout, sessionExpired } from '@/lib/authState'
+import { explicitLogout, lastServerUrl, sessionExpired } from '@/lib/authState'
 import { DEVICE_ID_KEY } from '@/lib/deviceIdentity'
 import { clearServerUrl, isDesktopApp, serverUrl } from '@/lib/host'
 import {
@@ -179,8 +179,12 @@ export function useAuth() {
 
     // Inside the desktop app the server is the user's choice: until there is
     // one, /me has no one to ask, and the login view asks for a server first.
+    // It asks again when the chosen server does not answer /me (down, moved),
+    // where the window would otherwise stay blank with no way to pick another.
     // Never in the browser, where the server is the page's own origin.
-    const needsServer = computed(() => isDesktopApp() && serverUrl.value === null)
+    const needsServer = computed(
+        () => isDesktopApp() && (serverUrl.value === null || me.isError.value)
+    )
 
     // A proxy-header server signs users in through its portal, which the
     // desktop app cannot open yet. Its proxy normally keeps /me closed to the
@@ -233,8 +237,7 @@ export function useAuth() {
      * view's server step. Never rejects: the step asks for a server either way.
      */
     async function switchServer(): Promise<void> {
-        const signedIn = authRequired.value && currentUser.value !== null
-        if (signedIn) {
+        if (authRequired.value && currentUser.value !== null) {
             // Best-effort, and while the server is still set: the api client
             // refuses every request once it is forgotten. Clears the session
             // cookie in the app's jar and revokes the spa token.
@@ -244,15 +247,14 @@ export function useAuth() {
                 // The local session ends whatever the server answered.
             }
         }
+        // The server step offers the address back, to correct rather than retype.
+        if (serverUrl.value !== null) lastServerUrl.value = serverUrl.value
         // Before any cache reset: with no server the /me query is disabled, so
         // the reset cannot refetch it from the server being left.
         serverUrl.value = null
-        if (signedIn) {
-            await purgeLocalSession(qc)
-        } else {
-            resetSubsonicSession()
-            qc.clear()
-        }
+        // Signed in or not, nothing of this server may play on: its queue and
+        // the queue sync would carry its track ids over to the next server.
+        await purgeLocalSession(qc)
         // Nothing of this server's session may carry over: an expiry flag
         // left set would keep a next server without login from ever rendering.
         startFreshSession()
@@ -262,6 +264,17 @@ export function useAuth() {
             // Only the saved setting is stale; the next server chosen replaces it.
             console.warn('Could not forget the saved server')
         }
+    }
+
+    /**
+     * Desktop app: the login view's server step saved a server. Saving a first
+     * one enables /me by itself; saving over one whose /me failed — even the
+     * same address — changes nothing /me watches, so its error is reset and the
+     * server just saved is asked again.
+     */
+    function serverSaved(): void {
+        lastServerUrl.value = null
+        if (me.isError.value) void qc.resetQueries({ queryKey: userQueryKeys.me })
     }
 
     return {
@@ -275,13 +288,15 @@ export function useAuth() {
         isAdmin,
         /** Render the login view instead of the app. */
         needsLogin,
-        /** Desktop app without a server: the login view asks for one first. */
+        /** Desktop app without a server, or its /me failed: the login view asks for one. */
         needsServer,
         /** Desktop app on a proxy-header server it cannot sign in to. */
         needsPortal,
         login: loginMutation,
         logout: logoutMutation,
         /** Desktop app: sign out of the server and choose another. */
-        switchServer
+        switchServer,
+        /** Desktop app: the server step saved a server; /me asks it. */
+        serverSaved
     }
 }

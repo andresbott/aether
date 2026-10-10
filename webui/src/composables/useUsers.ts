@@ -21,7 +21,13 @@ export function useMe() {
         // Inside the desktop app there is no one to ask until the login view's
         // server step has picked a server. A disabled query is not loading, so
         // the gate renders that step instead of waiting.
-        enabled: computed(() => !isDesktopApp() || serverUrl.value !== null)
+        enabled: computed(() => !isDesktopApp() || serverUrl.value !== null),
+        // A failed /me is asked again only on purpose (the server step's
+        // Connect). The login view mounting on that failure would otherwise
+        // refetch it, which clears the error, unmounts the view, fails again and
+        // mounts it again, round after round. (In the browser nothing mounts on
+        // a failed /me, so nothing changes there.)
+        retryOnMount: false
     })
 }
 

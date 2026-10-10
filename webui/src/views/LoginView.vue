@@ -1,15 +1,5 @@
-<script lang="ts">
-import { ref } from 'vue'
-
-// The server step's address, kept at module level: the gate unmounts this view
-// while a new server's /me loads, and whoever comes back through Change must
-// find the address they had, to correct it rather than type it again.
-const serverAddress = ref('')
-</script>
-
 <script setup lang="ts">
-// `ref` comes from the module block above: both blocks share one module scope.
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
@@ -17,13 +7,12 @@ import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
 import { useAuth } from '@/composables/useAuth'
 import { apiErrorMessage } from '@/lib/apiError'
-import { sessionLostUnexpectedly } from '@/lib/authState'
+import { lastServerUrl, sessionLostUnexpectedly } from '@/lib/authState'
 import { isDesktopApp, serverUrl, setServerUrl } from '@/lib/host'
 import {
     InvalidServerAddressError,
     NotAetherServerError,
     ServerUnreachableError,
-    normalizeServerUrl,
     probeServer
 } from '@/lib/api/Server'
 import BrandMark from '@/components/common/BrandMark.vue'
@@ -33,7 +22,7 @@ import BrandMark from '@/components/common/BrandMark.vue'
 // bookmark. A successful login always lands on the home page, regardless
 // of the URL the browser sat on while logged out.
 
-const { login, needsServer, needsPortal, switchServer } = useAuth()
+const { login, needsServer, needsPortal, switchServer, serverSaved } = useAuth()
 const router = useRouter()
 
 // Which card shows. Only the desktop app ever needs the first two: the server
@@ -90,11 +79,28 @@ const PORTAL_MESSAGE =
     'This server signs you in through a web portal, which the desktop app cannot open yet. ' +
     'Open it in a browser, or connect to another server.'
 
+const serverAddress = ref('')
 const connecting = ref(false)
 const serverError = ref('')
 // The address answered as Aether behind a portal: nothing was saved, and the
 // field stays open for another address.
 const behindPortal = ref(false)
+
+// Entering the server step, the field offers the address the user left through
+// Change, else the saved server that did not answer — saying so — else nothing.
+// What the user types is kept while the step stays up.
+watch(
+    card,
+    (now) => {
+        if (now !== 'server') return
+        serverAddress.value = lastServerUrl.value ?? serverUrl.value ?? ''
+        behindPortal.value = false
+        // A server still set means the step is up because its /me failed.
+        serverError.value =
+            serverUrl.value === null ? '' : new ServerUnreachableError(serverUrl.value).message
+    },
+    { immediate: true }
+)
 
 const canConnect = computed(() => serverAddress.value.trim().length > 0 && !connecting.value)
 
@@ -104,15 +110,17 @@ async function onConnect() {
     behindPortal.value = false
     connecting.value = true
     try {
-        const url = normalizeServerUrl(serverAddress.value)
-        const answer = await probeServer(url)
+        const answer = await probeServer(serverAddress.value)
         if (answer.kind === 'portal') {
             behindPortal.value = true
             return
         }
-        // Saving is all: the server enables /me, and the gate takes it from
-        // there — the app for auth "none", this card's credentials for "native".
-        await setServerUrl(url)
+        // The address as the probe settled it: normalised, and on https when
+        // the server redirected there.
+        await setServerUrl(answer.url)
+        // The gate takes it from here: /me asks the saved server, then the app
+        // shows for auth "none", this card's credentials for "native".
+        serverSaved()
     } catch (err) {
         serverError.value = connectErrorMessage(err)
     } finally {
@@ -152,12 +160,6 @@ const serverHost = computed(() => {
         return url
     }
 })
-
-// Back to the server step, with the address being left in the field.
-function changeServer() {
-    if (serverUrl.value !== null) serverAddress.value = serverUrl.value
-    void switchServer()
-}
 </script>
 
 <template>
@@ -212,7 +214,7 @@ function changeServer() {
                     type="button"
                     label="Change server"
                     class="login-submit"
-                    @click="changeServer"
+                    @click="switchServer()"
                 />
             </template>
 
@@ -229,7 +231,7 @@ function changeServer() {
                         type="button"
                         class="login-link"
                         :disabled="login.isPending.value"
-                        @click="changeServer"
+                        @click="switchServer()"
                     >
                         Change
                     </button>

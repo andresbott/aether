@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { ref, nextTick } from 'vue'
 import PrimeVue from 'primevue/config'
-import { explicitLogout, sessionExpired } from '@/lib/authState'
+import { explicitLogout, lastServerUrl, sessionExpired } from '@/lib/authState'
 
 const isPending = ref(false)
 const mutateAsync = vi.fn()
@@ -10,12 +10,14 @@ const mutateAsync = vi.fn()
 const needsServer = ref(false)
 const needsPortal = ref(false)
 const switchServer = vi.fn()
+const serverSaved = vi.fn()
 vi.mock('@/composables/useAuth', () => ({
     useAuth: () => ({
         login: { isPending, mutateAsync },
         needsServer,
         needsPortal,
-        switchServer
+        switchServer,
+        serverSaved
     })
 }))
 
@@ -49,7 +51,11 @@ vi.mock('@/lib/api/Server', async (importOriginal) => ({
 
 import LoginView from '@/views/LoginView.vue'
 import { serverUrl } from '@/lib/host'
-import { NotAetherServerError, ServerUnreachableError } from '@/lib/api/Server'
+import {
+    InvalidServerAddressError,
+    NotAetherServerError,
+    ServerUnreachableError
+} from '@/lib/api/Server'
 
 const mountView = () =>
     mount(LoginView, {
@@ -61,9 +67,11 @@ beforeEach(() => {
     host.desktopApp = false
     host.setServerUrl.mockReset()
     serverUrl.value = null
+    lastServerUrl.value = null
     needsServer.value = false
     needsPortal.value = false
     switchServer.mockReset()
+    serverSaved.mockReset()
     probeServer.mockReset()
 })
 
@@ -215,38 +223,64 @@ describe('LoginView in the desktop app', () => {
             expect(connectButton.attributes('disabled')).toBeUndefined()
         })
 
-        // Saving the server is the whole job: the gate enables /me and goes on
-        // to the app or to this card's credentials by itself.
-        it('saves the address as normalised once Aether answers', async () => {
-            probeServer.mockResolvedValue({ kind: 'aether', me: { authMethod: 'native' } })
-            host.setServerUrl.mockResolvedValue(SERVER)
+        // Saving the server is the whole job: the gate then asks its /me and
+        // goes on to the app or to this card's credentials by itself.
+        it('saves the address the probe settled on, then hands over to the gate', async () => {
+            const order: string[] = []
+            probeServer.mockResolvedValue({
+                kind: 'aether',
+                url: SERVER,
+                me: { authMethod: 'native' }
+            })
+            host.setServerUrl.mockImplementation(async (url) => {
+                order.push(`saved ${url}`)
+                return url
+            })
+            serverSaved.mockImplementation(() => order.push('gate told'))
             const w = mountView()
 
             await connect(w, '  aether.local:8075/ ')
 
-            expect(probeServer).toHaveBeenCalledWith(SERVER)
-            expect(host.setServerUrl).toHaveBeenCalledTimes(1)
-            expect(host.setServerUrl).toHaveBeenCalledWith(SERVER)
+            expect(probeServer).toHaveBeenCalledWith('  aether.local:8075/ ')
+            expect(order).toEqual([`saved ${SERVER}`, 'gate told'])
             expect(w.find('.login-error').exists()).toBe(false)
+        })
+
+        // A server that redirected http to https is saved on https.
+        it('saves the https address the probe moved to', async () => {
+            probeServer.mockResolvedValue({
+                kind: 'aether',
+                url: 'https://aether.example.org',
+                me: { authMethod: 'none' }
+            })
+            host.setServerUrl.mockImplementation(async (url) => url)
+            const w = mountView()
+
+            await connect(w, 'aether.example.org')
+
+            expect(host.setServerUrl).toHaveBeenCalledWith('https://aether.example.org')
         })
 
         it.each([
             ['an unreachable server', ServerUnreachableError, `Could not reach ${SERVER}.`],
             ['no Aether there', NotAetherServerError, `No Aether server answered at ${SERVER}.`]
-        ])('reports %s at the normalised address', async (_case, ErrorClass, message) => {
-            probeServer.mockImplementation(async (url) => {
-                throw new ErrorClass(url)
-            })
+        ])('reports %s', async (_case, ErrorClass, message) => {
+            probeServer.mockRejectedValue(new ErrorClass(SERVER))
             const w = mountView()
 
             await connect(w, 'aether.local:8075/')
 
             expect(w.find('.login-error[role="alert"]').text()).toBe(message)
             expect(host.setServerUrl).not.toHaveBeenCalled()
+            expect(serverSaved).not.toHaveBeenCalled()
         })
 
         it("shows the player's own reason when it refuses to save the address", async () => {
-            probeServer.mockResolvedValue({ kind: 'aether', me: { authMethod: 'none' } })
+            probeServer.mockResolvedValue({
+                kind: 'aether',
+                url: SERVER,
+                me: { authMethod: 'none' }
+            })
             host.setServerUrl.mockRejectedValue({
                 code: 'Internal',
                 message: 'could not save the settings: permission denied'
@@ -258,6 +292,7 @@ describe('LoginView in the desktop app', () => {
             expect(w.find('.login-error').text()).toBe(
                 'could not save the settings: permission denied'
             )
+            expect(serverSaved).not.toHaveBeenCalled()
         })
 
         // The plugin's rejection is a bare string naming the request URL.
@@ -270,22 +305,27 @@ describe('LoginView in the desktop app', () => {
             expect(w.find('.login-error').text()).toBe('Could not connect to the server.')
         })
 
-        it('refuses credentials in the address before asking anyone', async () => {
+        // The probe refuses it before any request (Server.spec); the view only
+        // relays why, and never the password typed.
+        it('relays why an address with credentials is refused', async () => {
+            probeServer.mockRejectedValue(
+                new InvalidServerAddressError(
+                    'Enter the server address without a username or password.'
+                )
+            )
             const w = mountView()
 
             await connect(w, 'http://ada:s3cret@aether.local:8075')
 
-            expect(w.find('.login-error').text()).toBe(
-                'Enter the server address without a username or password.'
-            )
-            expect(probeServer).not.toHaveBeenCalled()
+            const error = w.find('.login-error').text()
+            expect(error).toBe('Enter the server address without a username or password.')
             expect(host.setServerUrl).not.toHaveBeenCalled()
         })
 
         // Aether behind an auth portal: the app cannot sign in there, so nothing
         // is saved and the user can try another address straight away.
         it('explains a portal-only server and saves nothing', async () => {
-            probeServer.mockResolvedValue({ kind: 'portal' })
+            probeServer.mockResolvedValue({ kind: 'portal', url: 'http://aether.example.org' })
             const w = mountView()
 
             await connect(w, 'aether.example.org')
@@ -308,6 +348,62 @@ describe('LoginView in the desktop app', () => {
             expect(connectButton.attributes('disabled')).toBeDefined()
             expect(connectButton.classes()).toContain('p-button-loading')
         })
+
+        it('offers back the address the user switched away from', () => {
+            lastServerUrl.value = 'http://old.lan:8075'
+
+            const w = mountView()
+
+            const field = w.find('#login-server').element as HTMLInputElement
+            expect(field.value).toBe('http://old.lan:8075')
+            expect(w.find('.login-error').exists()).toBe(false)
+        })
+    })
+
+    // The saved server did not answer /me (down, or moved): the step comes back
+    // on that address and says why, instead of a blank window.
+    describe('when the saved server does not answer', () => {
+        beforeEach(() => {
+            serverUrl.value = SERVER
+            needsServer.value = true
+        })
+
+        it('opens on the saved address, saying it could not be reached', () => {
+            const w = mountView()
+
+            expect((w.find('#login-server').element as HTMLInputElement).value).toBe(SERVER)
+            expect(w.find('.login-error[role="alert"]').text()).toBe(`Could not reach ${SERVER}.`)
+        })
+
+        // Saving the same address changes nothing /me watches; the gate is told,
+        // and asks /me again (useAuth.spec, App.serverGate.spec).
+        it('connects to the same address again and has the gate ask /me', async () => {
+            probeServer.mockResolvedValue({
+                kind: 'aether',
+                url: SERVER,
+                me: { authMethod: 'none' }
+            })
+            host.setServerUrl.mockImplementation(async (url) => url)
+            const w = mountView()
+
+            await w.find('form').trigger('submit')
+            await flushPromises()
+
+            expect(host.setServerUrl).toHaveBeenCalledWith(SERVER)
+            expect(serverSaved).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps what the user typed when another address fails too', async () => {
+            probeServer.mockRejectedValue(new ServerUnreachableError('http://other.lan:8075'))
+            const w = mountView()
+
+            await connect(w, 'other.lan:8075')
+
+            expect((w.find('#login-server').element as HTMLInputElement).value).toBe(
+                'other.lan:8075'
+            )
+            expect(w.find('.login-error').text()).toBe('Could not reach http://other.lan:8075.')
+        })
     })
 
     describe('with a server known', () => {
@@ -327,10 +423,11 @@ describe('LoginView in the desktop app', () => {
             expect(switchServer).toHaveBeenCalledTimes(1)
         })
 
-        // The gate unmounts the view while a server's /me loads, so the address
-        // must outlive the component to be there when the user comes back.
+        // switchServer remembers the server it left (useAuth.spec); the step
+        // offers it back, also after the gate has remounted the view.
         it('comes back to the server step with the address to correct', async () => {
             switchServer.mockImplementation(async () => {
+                lastServerUrl.value = serverUrl.value
                 serverUrl.value = null
                 needsServer.value = true
             })
@@ -339,6 +436,7 @@ describe('LoginView in the desktop app', () => {
             await w.find('.login-server button').trigger('click')
             await nextTick()
             expect((w.find('#login-server').element as HTMLInputElement).value).toBe(SERVER)
+            expect(w.find('.login-error').exists()).toBe(false)
 
             w.unmount()
             const remounted = mountView()

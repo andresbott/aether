@@ -21,3 +21,10 @@ export const explicitLogout = ref(false)
 export const sessionLostUnexpectedly = computed(
     () => sessionExpired.value && !explicitLogout.value
 )
+
+/**
+ * Desktop app: the server the user last switched away from. The login view's
+ * server step offers it back, so a mistyped or moved address can be corrected
+ * rather than typed again. Cleared once another server is saved.
+ */
+export const lastServerUrl = ref<string | null>(null)
