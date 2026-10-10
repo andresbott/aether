@@ -13,7 +13,7 @@ layering. Paths are relative to `player/`.
 | `make player-lint` | `cargo fmt --all -- --check` + `cargo clippy --workspace -- -D warnings` |
 | `make player-test` | `cargo test --workspace` |
 | `make player-prepare` | `npm install` in `player/` (the tauri CLI) and in `webui/` |
-| `make player-run` | `npx tauri dev` (vite dev server on :5173 + the app window; `make run` the server for data) |
+| `make player-run` | `npx tauri dev` (vite dev server on :5173 + the app window; `make run` the server for data, then give the window's server step `http://localhost:8075` — the dev window is still the app, so vite's proxy is not in its path) |
 | `make player-build` | `npx tauri build` (production bundles, see [releasing.md](releasing.md)) |
 | `make -C player check-deps` | names the missing native libraries (Linux) and the apt line that installs them |
 
@@ -33,7 +33,7 @@ only matters for `make player-build`, which rebuilds it anyway.
 
 ## System prerequisites (Linux)
 
-Building tauri / rodio / keyring needs (Debian/Ubuntu): `libwebkit2gtk-4.1-dev
+Building tauri / rodio needs (Debian/Ubuntu): `libwebkit2gtk-4.1-dev
 build-essential curl wget file libxdo-dev libssl-dev
 libayatana-appindicator3-dev librsvg2-dev libasound2-dev libdbus-1-dev`
 (`patchelf` too for AppImage bundles). The runtime libraries alone are not
@@ -45,15 +45,27 @@ tools and WebView2 (preinstalled on Windows 10+).
 ## Where tests live
 
 - **`aether-core`** — the bulk of coverage; fast, no Tauri, no audio device.
-  - Subsonic client: `wiremock` mock server; tests assert auth query params
-    (`u`, `t`, `s`, `v`, `c`, `f=json`) and response parsing.
+  - Subsonic client: `wiremock` mock server; tests assert the auth query
+    params of both schemes (`u`, `t`, `s` for password auth; `apiKey` alone,
+    never mixed with them, for key auth; `v`, `c`, `f=json` on both), error
+    codes 40 and 44 → `AuthFailed`, an unreachable server's error text without
+    the key, requests under a path prefix, response parsing, and the
+    `normalize_server_url` table (trailing slashes, port and path prefix kept,
+    other schemes, a missing scheme or host, query, fragment, credentials).
   - Player/queue: table-of-behavior unit tests with `FakeEngine` /
     `FakeResolver` (see [playback.md](playback.md)) — extend the fakes, don't
     add real-engine deps to core.
-- **`src-tauri`** — deliberately thin; only contract tests live here:
-  error-code mapping/serialization (`error.rs`), connection-status JSON
-  shape (`commands/connection.rs`), keyring service name (`credentials.rs`).
-  If a handler needs real logic tests, that logic probably belongs in core.
+- **`src-tauri`** — deliberately thin, mostly contract tests:
+  error-code mapping/serialization (`error.rs`, `InvalidServerUrl` and
+  `Internal` included), the connection-status JSON shape without `username`
+  (`commands/connection.rs`), the settings JSON shape and its file round trip
+  — missing or damaged file → defaults (`settings.rs`), and the event names and
+  tray payloads the webview listens for (`events.rs`). One exception:
+  `engine/desktop.rs` carries three `download` tests — two against a one-shot
+  loopback stub (plain `std::net`, no mock crate, no audio device), one
+  against a closed port — pinning that the body comes back and that neither a
+  failed send nor a bad status leaks the key into the error text. If a handler
+  needs real logic tests, that logic probably belongs in core.
 - **`webui`** — the shared SPA's suite is the root's `make ui-test`, not a
   player gate; a player-motivated UI change is tested there, under
   [../frontend.md](../frontend.md)'s and [../testing.md](../testing.md)'s
@@ -62,12 +74,19 @@ tools and WebView2 (preinstalled on Windows 10+).
 ## Conventions
 
 - Serialization shapes are contracts: when a struct crosses the IPC boundary,
-  add a serde round-trip/shape test (see `ConnectionStatus` and `AppError`
-  tests) — the webui retrofit will depend on these exact shapes
-  ([ipc.md](ipc.md)).
+  add a serde round-trip/shape test (see the `ConnectionStatus`, `Settings`
+  and `AppError` tests) — the webui reads these exact shapes (`Settings` and
+  `AppError` today, [ipc.md](ipc.md)), and nothing links the two sides at
+  build time. The same goes for event names and payloads (`events.rs`'s test,
+  mirrored in `webui/src/lib/host/events.ts`).
 - No audio device in CI: nothing in `cargo test --workspace` may require one.
   Real-audio verification is manual (user acceptance), historically deferred
-  explicitly in the bootstrap's task reports.
-- Known untested paths (catalogued, fine to add tests for): `build_url` with
-  a base URL containing a path prefix, `cover_art_url` with `size: None`,
-  resolver-failure paths in `Player`.
+  explicitly in the bootstrap's task reports. The same holds for the app
+  window: the SPA's desktop mode (server step, switch, tray bridge) is
+  unit-tested in `webui/` against a faked host layer or `@tauri-apps/*`, and
+  the real-window run is user acceptance.
+- Known untested paths (catalogued, fine to add tests for): `cover_art_url`
+  with `size: None`, resolver-failure paths in `Player`, and the
+  settings/session command guarantees — `set_session` answering
+  `NotConnected` without a server, `set_server_url` / `clear_server_url`
+  dropping the session, a failed settings write leaving both untouched.

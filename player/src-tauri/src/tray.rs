@@ -1,5 +1,6 @@
-//! System tray: closing the window hides it while playback continues in the
-//! backend; the tray icon restores the UI or quits for real.
+//! System tray: closing the window hides it rather than destroying it, so
+//! playback continues in the webview; the tray icon restores the UI or quits
+//! for real.
 //! Desktop only — mobile has no tray.
 //!
 //! Two implementations:

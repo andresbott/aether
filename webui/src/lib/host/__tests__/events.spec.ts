@@ -101,8 +101,8 @@ describe('onTrayCommand in the desktop app', () => {
         expect(unlisten).toHaveBeenCalledOnce()
     })
 
-    // The caller decides what a missing tray bridge means (the layout logs it and
-    // carries on), so a refusal reaches it as the rejection it is.
+    // The caller decides what a missing tray bridge means (useTrayBridge logs it
+    // and carries on), so a refusal reaches it as the rejection it is.
     it('rejects with the error when the app refuses the subscription', async () => {
         const refusal = new Error('event.listen not allowed')
         tauri.listen.mockRejectedValue(refusal)

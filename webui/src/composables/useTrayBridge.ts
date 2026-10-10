@@ -3,11 +3,13 @@ import { usePlayer } from '@/composables/usePlayer'
 import { isDesktopApp, onTrayCommand } from '@/lib/host'
 
 // The desktop app's tray menu lives in Rust, but the player that plays is this
-// SPA's: the menu's Play / Pause and Next arrive as events and act through the
-// same player actions the media keys use (useMediaSession), so the tray and the
-// keys cannot diverge. Bound once from App.vue and for good, not per layout: the
-// player is a module-level singleton that keeps playing on the settings routes,
-// where PlayerLayout is unmounted, so the tray has to keep working there too.
+// SPA's: the menu's Play / Pause and Next arrive as events and call the player's
+// own togglePlayPause() and playNext() — what the player bar's buttons and the
+// Space / N shortcuts call — so the tray cannot diverge from them. (The media
+// keys bind play and pause separately; only their nexttrack shares playNext.)
+// Bound once from App.vue and for good, not per layout: the player is a
+// module-level singleton that keeps playing on the settings routes, where
+// PlayerLayout is unmounted, so the tray has to keep working there too.
 let installed = false
 // Detached, like useMediaSession's: no component adopts it, so the unmount of
 // whichever one called us cannot dispose what the bridge owns.
@@ -18,7 +20,8 @@ export function useTrayBridge(): void {
     installed = true
     scope = effectScope(true)
     // usePlayer() registers its watchers in whatever scope is active, so it runs
-    // in this one rather than in the caller's.
+    // in this one rather than in the caller's. Intentional: one set of the
+    // player's persistence watchers thereby lives as long as the app does.
     scope.run(() => {
         void subscribe(usePlayer())
     })

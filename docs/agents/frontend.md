@@ -8,8 +8,9 @@ the desktop player's window** (`player/`, Tauri — see
 [player/architecture.md](player/architecture.md)), served there from a
 `tauri://` origin rather than by the Go binary: keep the SPA origin-agnostic
 (no hardcoded origins, no server-side `index.html` templating, no cookie-only
-auth assumptions), and never add player-only components ad hoc — the player
-retrofit has its own plan.
+auth assumptions). Whatever differs inside the app goes through the host layer
+(`lib/host/`, see "Desktop app mode" below), and player-only components are
+never added ad hoc — the playback retrofit has its own plan.
 
 ## The three convention registries (read before UI work)
 
@@ -107,12 +108,19 @@ When a view diverges from these registries, the registry wins.
   The editor works in file paths, so there is no precise key set to target. The
   server re-indexes synchronously, so a resolved write already means the DB is
   current; no polling needed.
-- `lib/api/` — HTTP clients: `client.ts` (axios, `/api/v0`, overridable via
-  `VITE_SERVER_URL_V0`) and `subsonic.ts` (`SubsonicClient`; same-origin
-  default; `initWithDefaults()` is the **auth-method-`none`** path only —
+- `lib/api/` — HTTP clients: `client.ts` (axios `apiClient`, `/api/v0`,
+  overridable via `VITE_SERVER_URL_V0` in the browser; in the desktop app it
+  rides the host transport — `adapter: 'fetch'` with `env.fetch` →
+  `httpFetch` — and an interceptor sets `baseURL` to `${serverUrl}/api/v0` on
+  every request, since the server can change while the app runs, and refuses
+  to send while none is chosen) and `subsonic.ts` (`SubsonicClient`; its
+  server is the host layer's `serverUrl` — the page's origin in the browser —
+  read when the client is configured, and every call goes through
+  `httpFetch`; `initWithDefaults()` is the **auth-method-`none`** path only —
   authenticated modes call `setApiKey()` with the PAT minted by
   `lib/subsonicSession.ts` — see [subsonic-api.md](subsonic-api.md) and
-  [authentication.md](authentication.md)).
+  [authentication.md](authentication.md)). `Server.ts` is the desktop app's
+  server probe (see "Desktop app mode" below).
 - `types/` — one file per API domain, mirroring backend response shapes.
 - `lib/apiError.ts` — **the only place a thrown API error becomes text.** Use
   `apiErrorMessage(err, fallback)` instead of re-deriving
@@ -244,8 +252,10 @@ matching the sidebar: a library is a saved filter, so even the only one is
 narrower than the catalog the Library shelf samples.
 Two things have no shelf to fill and sit in the header: Search, and
 the account entries the desktop keeps in `UserMenu` (User settings → Admin →
-About → Log out) behind a `⋮` PrimeVue `Menu` — the phone's **only** way to log
-out. Now Playing and the queue stay reachable through `MiniPlayer`. Mobile only:
+About → Change server, in the desktop app only → Log out) behind a `⋮`
+PrimeVue `Menu` — the phone's **only** way to log out, and, in the app, its
+only way back to the server step. Now Playing and the queue stay reachable
+through `MiniPlayer`. Mobile only:
 at desktop width the view `replace()`s the route with `/library`, the mirror of
 `HomeView`'s guard.
 
@@ -256,6 +266,157 @@ plus artwork at 96/256/512px), mirrors `isPlaying` into `playbackState`, wires
 play/pause/previoustrack/nexttrack/seekto actions, and updates `setPositionState`
 on duration/seek changes — not on every `currentTime` tick (the browser
 extrapolates between updates).
+
+## Desktop app mode (`lib/host/`)
+
+Inside the desktop player the SPA runs from a `tauri://localhost` /
+`http://tauri.localhost` origin, so the server is not the page's origin, and a
+request the webview sends itself cannot reach it: cross-site, it would need
+CORS and would never carry the `SameSite=Lax` session cookie, and the window's
+CSP confines `connect-src` to IPC anyway (the Rust side and the why:
+[player/architecture.md](player/architecture.md)). **`lib/host/` is the one
+place that knows** — `index.ts` (the API, imported as `@/lib/host`),
+`serverUrl.ts`, `transport.ts`, `events.ts`. Everything else asks it and stays
+the same code in a tab and in the app.
+
+- `isDesktopApp()` — `isTauri()`, cached. `initHost()` settles the server
+  before anything renders: `main.ts`'s `bootstrap()` awaits it before
+  `app.mount` (an async function rather than a top-level await, which Vite's
+  default build target rejects). In the app it imports
+  `@tauri-apps/plugin-http` lazily (the browser never evaluates it), installs
+  the plugin's `fetch` as the transport and reads `get_settings`. It never
+  throws: a failure leaves the server unset, so the login view asks for one
+  instead of the window staying blank.
+- `serverUrl` (a ref) — where every `/api/v0` and `/rest` request goes, with
+  no trailing slash: the page's origin in a tab (never null); in the app the
+  saved server (an origin, plus a path prefix when the server sits under one),
+  null until one is chosen. `setServerUrl(url)` saves it and adopts the URL as
+  Rust normalised it; `clearServerUrl()` forgets it; both throw in a tab, where
+  only the page decides the server.
+  `setSession`/`clearSession` hand the `/rest` key to the Rust client and take
+  it back (no-ops in a tab); `appVersion()` is the player's version (null in a
+  tab).
+- `httpFetch` — `fetch` through the installed transport, else the global one,
+  resolved on every call (specs stub the global after import). The plugin
+  cancels only through `init.signal`, so `initHost`'s wrapper lifts the signal
+  a `Request` carries — where axios's fetch adapter puts it — into `init`: an
+  aborted request (a superseded preview, a cancelled identify) stops in Rust
+  and rejects, as in a tab.
+- `onTrayCommand(cb)` — subscribes to `tray://command` (`play_pause` or
+  `next`; any other payload is dropped; a no-op in a tab). Its one caller is
+  `useTrayBridge` (below).
+
+**Every request to the server goes through `httpFetch`.** `apiClient` does in
+the app (see `lib/api/` above), `subsonic.ts` always does, and the final
+play-queue save on `pagehide` (`savePlayQueueBeacon`) takes it in the app
+instead of `sendBeacon`, which the CSP blocks. Media is the deliberate
+exception: `getStreamUrl` / `getCoverArtUrl` are plain URLs on the server with
+the `apiKey` in the query, loaded by `<audio>` / `<img>` straight from it.
+**Never show or log a transport rejection's text**: the plugin rejects with a
+plain string that names the request URL, `apiKey` included. The server step
+renders only its own copy, `subsonic.ts`'s warnings are bare labels, and
+`apiErrorMessage` turns a request that got no response into
+`NETWORK_MESSAGE`. Known gap: the metadata
+editor's picture previews and copy-picture bypass the transport and do not
+load in the app ([player/features.md](player/features.md)).
+
+**Two rules, pinned off disk by `lib/host/__tests__/originAgnostic.spec.ts`.**
+Outside `lib/host/`, no code reads `location.origin` — however it is reached
+(`window.`, `document.`, `globalThis.` or bare): inside the app it is the wrong
+answer to "where is the server", so ask `serverUrl` — and none imports
+`@tauri-apps/*`, so the dependency on the app stays behind one seam. A
+string-aware stripper tells code from comments and strings, so prose may quote
+either, and a vacuity check asserts that the host layer's own files trip both
+matchers, so a pass is never for lack of looking.
+
+**The gate** (`useAuth`, `App.vue`, `LoginView`). The login view replaces the
+app while any of three holds:
+
+- `needsServer` — app only: no server is chosen, or the `/me` query errored
+  (the saved server is down or has moved), where the window would otherwise
+  stay blank with no way to pick another.
+- `needsLogin` — unchanged: auth method `native` with no user, or an expired
+  session.
+- `needsPortal` — app only: `/me` reports `proxy-header` and no user (a proxy
+  that lets an anonymous `/me` through). The portal card explains that the app
+  cannot sign in through a portal yet and offers *Change server*.
+
+`useMe` is disabled until a server is known (`enabled` — a disabled query is
+not loading, so the gate renders the server step instead of waiting), does not
+retry on mount (`retryOnMount: false` — the login view mounting on a failed
+`/me` would refetch it, clear the error, unmount, fail and mount again, a
+flicker loop), and `getMe` carries a 10 s timeout so a server that drops
+packets cannot hold the window blank for minutes.
+
+**The server step** (`LoginView`, app only) is a "Server address" field
+(placeholder `http://aether.local:8075`) and Connect. Entering the step, the
+field offers `lastServerUrl` (`lib/authState.ts`: the server last left through
+Change), else the saved server that did not answer — saying "Could not reach
+{url}." under it. Connect runs `probeServer` (`lib/api/Server.ts`), which talks
+through `httpFetch` directly rather than `apiClient` (that client refuses to
+send without a server, and its 401 handling would read the probe's answers as
+a lost session):
+
+1. Normalise: trim, prepend `http://` when no scheme is typed, refuse another
+   scheme, refuse embedded credentials up front ("Enter the server address
+   without a username or password." — a typed password is never sent or shown
+   back), keep the origin and a path prefix, drop query, fragment and trailing
+   slashes.
+2. `GET /api/v0/me` with `redirect: 'manual'` + `maxRedirections: 0` (a
+   redirect is an answer to look at, not to follow) and a 10 s timeout. An ok
+   JSON answer with a known `authMethod` is Aether. A 301/302/307/308 from an
+   http address to `https` on the same host re-runs the probe once there, and
+   that https address is the one saved.
+3. Anything else: `GET /rest/ping?f=json&v=1.16.1&c=aether-player`. `/rest`
+   stays open in every proxy setup, and Aether stamps `type: "Aether"` on every
+   envelope, errors included — such an envelope (compared without case) is
+   Aether behind a portal: the step shows the portal message and saves nothing.
+   Any other envelope (Navidrome, gonic…) or body gives "No Aether server
+   answered at {url}.", and a request that fails or times out "Could not reach
+   {url}."
+
+An Aether answer is saved (`setServerUrl`) and `serverSaved()` resets an
+errored `/me`, so the address is asked again even when unchanged; the gate
+then shows the app (auth `none`, or a session the cookie jar still holds), the
+sign-in card (`native` without one) or the portal card (`proxy-header` without
+a user). In the app the sign-in card carries a muted `Server · host` line with
+a *Change* link above the username.
+
+**Leaving a server** is `switchServer()` in `useAuth`, which never rejects: a
+best-effort logout when signed in (bounded by the logout request's 10 s
+timeout, and sent while the server is still set, since `apiClient` refuses
+once it is forgotten) → remember it in `lastServerUrl` → `serverUrl = null`
+before any cache reset (the now-disabled `/me` cannot refetch from the server
+being left) → `purgeLocalSession` on every path, signed in or not (the old
+server's queue, and the queue sync, would otherwise carry its track ids over to
+the next one) → `startFreshSession()` → `clearServerUrl()`, best effort. The
+sign-in card's *Change* calls it directly. The account menus go through
+`composables/useChangeServer.ts`: `confirmChangeServer()` asks "Disconnect from
+{host}? You will be signed out." in the `change-server` confirm group, which the
+one grouped `ConfirmDialog` that `PlayerLayout.vue` mounts in the app answers —
+outside the shell swap, so it serves both shells, and grouped so the views' own
+ungrouped dialogs do not show the question too. *Change server* (`ms-dns`)
+sits in `UserMenu` and in `MobileBrowseView`'s `⋮`, rendered in the app only.
+About (`AboutView`) adds *App* (the player's version, from `appVersion()`) and
+*Server* (the full address) rows in the app, and relabels *Version* as *Server
+version*.
+
+**The session hand-off** (`lib/subsonicSession.ts`): `remintApiKey` pushes
+each new `spa` token to Rust (`setSession`) only inside its generation-checked
+branch — Rust takes a bare key for whatever server is set, so a key minted for
+a server the user has since left must never reach it — and
+`resetSubsonicSession` withdraws it (`clearSession`). A failed hand-off only
+warns, with neither the key nor an error text that could hold it. In the app
+`getDeviceName()` (`lib/deviceIdentity.ts`) answers "Aether Player on
+<platform>" — the webview's user agent would read as a browser — so Connected
+apps names the player.
+
+**`useTrayBridge`** (`composables/useTrayBridge.ts`) is bound once from
+`App.vue`, which is always mounted, in a detached effect scope like
+`useMediaSession`'s: the tray's `play_pause` calls `usePlayer().togglePlayPause()`
+and `next` calls `playNext()` on every layout — the settings routes unmount
+`PlayerLayout` while the music plays on. A refused subscription only warns;
+the app works without the tray.
 
 ## Admin — libraries and scan folders
 

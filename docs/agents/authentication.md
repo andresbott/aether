@@ -140,9 +140,31 @@ mint (`app/router/handlers/tokens/tokens.go`) sweeps only:
 Other apps' live sessions survive, which is what keeps one app signing in from
 signing another out. `deviceId` is required and validated (1–64 chars of
 `[A-Za-z0-9_-]`, no `:` so it cannot forge a scope) — a bad one is a 400.
-`deviceName` is cosmetic ("Firefox on Linux", derived from the UA), truncated to
-100 runes rather than rejected, and falls back to `aether-web`; it is the row
-label in User settings → Connected apps → Your Aether apps.
+`deviceName` is cosmetic ("Firefox on Linux", derived from the UA; "Aether
+Player on Linux" in the desktop app), truncated to 100 runes rather than
+rejected, and falls back to `aether-web`; it is the row label in User settings
+→ Connected apps → Your Aether apps.
+
+**The desktop app runs the same native flow** (`player/`, the SPA as its
+window). Its `/api/v0` and `/rest` requests leave from Rust through
+`tauri-plugin-http`, whose cookie jar (`app_cache_dir()/.cookies`, saved when
+the app exits) holds the session cookie — the webview itself could not send
+it: every request from its `tauri://` origin is cross-site and the cookie is
+`SameSite=Lax`. So login, `/me`, the boot mint and the per-device sweep run
+unchanged, with no server-side branch, and `getDeviceName()` names the app
+("Aether Player on <platform>", `webui/src/lib/deviceIdentity.ts`) rather than
+the webview's browser. The minted `spa` token is also handed to the player's
+Rust client, in memory only (`set_session`, inside the mint's generation
+check), and withdrawn on logout, expiry and a server switch; the player stores
+no password. **Proxy-header servers are not supported in the app**: the
+portal signs users in through a browser redirect the app cannot follow, and
+its ACL keeps `/api/v0` closed to anonymous callers. The login view's server
+step recognises them with a two-step probe — `/api/v0/me`, then the bypassed
+`/rest/ping`, whose error envelope carries Aether's `type: "Aether"` — and
+says so instead of saving the address
+([frontend.md](frontend.md#desktop-app-mode-libhost); the follow-up,
+system-browser login plus a cookie hand-off into the app's jar, is in
+TODO.md).
 
 Token classes — implemented in `userauth`'s `pat` service with a `scope` tag
 distinguishing behavior:
@@ -219,7 +241,10 @@ Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
   because aether commonly runs plain-HTTP on a LAN.
 - The SPA gate lives in `App.vue` + `useAuth()`: `/me` bootstraps, the login
   view replaces the whole app (not a route) while `authMethod` is `native`
-  and `user` is null, and an axios interceptor flips a shared
+  and `user` is null (in the desktop app also while no server is chosen or
+  the chosen one does not answer, and on a proxy-header server — see
+  [frontend.md](frontend.md#desktop-app-mode-libhost)), and an axios
+  interceptor flips a shared
   `sessionExpired` flag on any `/api/v0` 401 so an expired session re-opens
   the gate mid-flight. Logout and session expiry both purge the device
   (`purgeLocalSession` in `useAuth`): stop playback (queue sync unbinds first
@@ -363,7 +388,9 @@ header-authorized mint endpoint. On 401 from `/api/v0` (Authelia session
 expired): full-page reload so the portal redirect kicks in (the expiry
 watcher in `useAuth` branches on `authMethod === 'proxy-header'`). Configure
 Authelia to answer non-HTML requests with 401 instead of 302 (it keys off
-`Accept`) so the SPA sees a clean failure, not portal HTML.
+`Accept`) so the SPA sees a clean failure, not portal HTML. The desktop app
+cannot take this flow yet (see "The desktop app runs the same native flow"
+above).
 
 Implementation (`app/router/proxy_auth.go`, `app/cmd/users.go
 setupProxyAuth`): `userauth`'s `auth/headerauth` handler validates the

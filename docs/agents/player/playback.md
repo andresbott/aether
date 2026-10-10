@@ -22,8 +22,10 @@ Consequences, documented on the `PlaybackEngine` trait
   `Player` lock is held, so `state()`/`poll()`/every other player method
   stalls — this is the accepted v0 trade-off; progressive streaming is the
   catalogued follow-up. Because of this, every IPC command that can reach
-  `load` runs on `spawn_blocking` (see [ipc.md](ipc.md)), and the tray's
-  "Next Track" does the same — copy that pattern for any new caller.
+  `load` runs on `spawn_blocking` (see [ipc.md](ipc.md)) — copy that pattern
+  for any new caller. The tray's "Next Track" used to be one; since server
+  selection (2026-10-10) it emits `tray://command` to the webview's player
+  instead and never reaches the Rust `Player`.
 
 ## Roles
 

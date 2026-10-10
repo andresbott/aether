@@ -33,8 +33,8 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Close-to-tray: hide the window instead of exiting so playback
-            // keeps running in the backend. Quit via the tray menu.
+            // Close-to-tray: hide the window instead of exiting. The webview is
+            // not destroyed, so playback keeps running in it. Quit via the tray menu.
             #[cfg(desktop)]
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
