@@ -60,7 +60,8 @@ tools and WebView2 (preinstalled on Windows 10+).
   `Internal` included), the connection-status JSON shape without `username`
   (`commands/connection.rs`), the settings JSON shape and its file round trip
   — missing or damaged file → defaults (`settings.rs`), and the event names and
-  tray payloads the webview listens for (`events.rs`). One exception:
+  tray payloads (`events.rs`; of those, the webview listens only for
+  `tray://command` so far). One exception:
   `engine/desktop.rs` carries three `download` tests — two against a one-shot
   loopback stub (plain `std::net`, no mock crate, no audio device), one
   against a closed port — pinning that the body comes back and that neither a
@@ -77,8 +78,9 @@ tools and WebView2 (preinstalled on Windows 10+).
   add a serde round-trip/shape test (see the `ConnectionStatus`, `Settings`
   and `AppError` tests) — the webui reads these exact shapes (`Settings` and
   `AppError` today, [ipc.md](ipc.md)), and nothing links the two sides at
-  build time. The same goes for event names and payloads (`events.rs`'s test,
-  mirrored in `webui/src/lib/host/events.ts`).
+  build time. The same goes for event names and payloads: `events.rs`'s test
+  pins them, and `webui/src/lib/host/events.ts` mirrors `tray://command` and
+  its payloads (`player://state` has no SPA listener yet).
 - No audio device in CI: nothing in `cargo test --workspace` may require one.
   Real-audio verification is manual (user acceptance), historically deferred
   explicitly in the bootstrap's task reports. The same holds for the app

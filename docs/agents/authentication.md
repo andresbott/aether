@@ -147,8 +147,8 @@ rejected, and falls back to `aether-web`; it is the row label in User settings
 
 **The desktop app runs the same native flow** (`player/`, the SPA as its
 window). Its `/api/v0` and `/rest` requests leave from Rust through
-`tauri-plugin-http`, whose cookie jar (`app_cache_dir()/.cookies`, saved when
-the app exits) holds the session cookie — the webview itself could not send
+`tauri-plugin-http`, whose cookie jar (`app_cache_dir()/.cookies`, saved as
+cookies are set) holds the session cookie — the webview itself could not send
 it: every request from its `tauri://` origin is cross-site and the cookie is
 `SameSite=Lax`. So login, `/me`, the boot mint and the per-device sweep run
 unchanged, with no server-side branch, and `getDeviceName()` names the app

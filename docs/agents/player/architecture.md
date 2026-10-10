@@ -111,10 +111,12 @@ Rules each layer enforces:
   (`src-tauri/src/settings.rs`), the normalised address of the server the
   user picked; a missing or damaged file yields the defaults, so it can never
   keep the app from starting. The session is not the player's to store: it is
-  the HTTP plugin's cookie jar (`app_cache_dir()/.cookies`, loaded at startup,
-  saved when the app exits — a crash loses the cookies set since launch) plus
-  the SPA's 48h `spa` token, pushed to Rust in memory (`set_session`) and
-  dropped on logout, expiry or a server change. **No password is ever
+  the HTTP plugin's cookie jar (`app_cache_dir()/.cookies`, loaded at startup
+  and rewritten whenever a response sets a cookie, and once more on exit, so a
+  crash loses at most a save still in flight; only persistent cookies are
+  written, and Aether's session cookie is one) plus the SPA's 48h `spa`
+  token, pushed to Rust in memory (`set_session`) and dropped on logout,
+  expiry or a server change. **No password is ever
   stored**: it travels once, in the login request the plugin carries, and
   `normalize_server_url` refuses an address with credentials in it. The
   keyring, `credentials.rs` and `connection.json` are gone; at startup

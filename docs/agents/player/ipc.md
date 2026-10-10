@@ -49,10 +49,11 @@ threads — see [playback.md](playback.md).
 
 ## Events (Rust → UI)
 
-Two events. Their names and the tray payloads are pinned on both sides —
+Two events. `tray://command` and its payloads are pinned on both sides —
 `events.rs`'s `event_names_and_tray_commands_are_the_ones_the_webview_listens_for`
 test and `webui/src/lib/host/events.ts` — because nothing links the two at
-build time. `core:default` already allows the webview to listen.
+build time; `player://state` only by the Rust test, since nothing in the SPA
+listens to it yet. `core:default` already allows the webview to listen.
 
 - **`player://state`** (`events::PLAYER_STATE_EVENT`), carrying the full
   `PlayerState` — no deltas, so the UI replaces state and cannot drift.
