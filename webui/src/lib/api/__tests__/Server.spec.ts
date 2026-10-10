@@ -24,14 +24,27 @@ const meNative: MeResponse = {
     features: { userManagement: true }
 }
 
-// What Aether answers a ping without credentials: HTTP 200, error 40.
+// What Aether answers a ping without credentials: HTTP 200, error 40, and its
+// name as the envelope's type (server/app/router/handlers/subsonic/response.go).
 const pingEnvelope = {
     'subsonic-response': {
         status: 'failed',
         version: '1.16.1',
-        type: 'aether',
+        type: 'Aether',
         openSubsonic: true,
         error: { code: 40, message: 'authentication required' }
+    }
+}
+
+// Another OpenSubsonic server's answer to the same ping: an envelope too.
+function otherServerEnvelope(type?: string) {
+    return {
+        'subsonic-response': {
+            status: 'failed',
+            version: '1.16.1',
+            ...(type === undefined ? {} : { type }),
+            error: { code: 40, message: 'Wrong username or password' }
+        }
     }
 }
 
@@ -125,6 +138,29 @@ describe('probeServer', () => {
         answer(json({ authMethod: 'oauth' }), json({ status: 'ok' }))
 
         await expect(probeServer(SERVER)).rejects.toBeInstanceOf(NotAetherServerError)
+    })
+
+    // Navidrome, gonic, Airsonic: no /api/v0/me, and an anonymous ping answered
+    // with an error envelope that is not Aether's. Not a portal in front of
+    // Aether — simply not Aether.
+    it.each([
+        ['names another server', otherServerEnvelope('navidrome')],
+        ['names no server', otherServerEnvelope()]
+    ])('reports no Aether when the ping envelope %s', async (_case, envelope) => {
+        answer(html(404), json(envelope))
+
+        const probe = probeServer(SERVER)
+        await expect(probe).rejects.toBeInstanceOf(NotAetherServerError)
+        await expect(probe).rejects.toThrow(`No Aether server answered at ${SERVER}.`)
+    })
+
+    it('reads the envelope type without regard to case', async () => {
+        const lowercase = {
+            'subsonic-response': { ...pingEnvelope['subsonic-response'], type: 'aether' }
+        }
+        answer(portalRedirect(), json(lowercase))
+
+        await expect(probeServer(SERVER)).resolves.toEqual({ kind: 'portal', url: SERVER })
     })
 
     it('reports an unreachable server when the request fails, without its text', async () => {

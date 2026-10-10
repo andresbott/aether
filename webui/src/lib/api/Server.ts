@@ -85,7 +85,8 @@ const PING = '/rest/ping?f=json&v=1.16.1&c=aether-player'
  * https on the same host is asked again there, once. Any other answer may still
  * be Aether behind an auth portal, which redirects or refuses anonymous /api/v0
  * calls: every proxy setup leaves /rest open for Subsonic clients, and there
- * Aether answers a ping without credentials with an error envelope (code 40).
+ * Aether answers a ping without credentials with an error envelope (code 40)
+ * that names it (`type: "Aether"`) — another Subsonic server's does not.
  *
  * Throws InvalidServerAddressError before any request, ServerUnreachableError
  * when a request fails or takes over ten seconds, NotAetherServerError when
@@ -103,7 +104,7 @@ async function probeAt(url: string): Promise<ProbeResult> {
     const secure = httpsUpgrade(url, me)
     if (secure !== null) return probeAt(secure)
     const ping = await probe(url, `${url}${PING}`)
-    if (isSubsonicEnvelope(ping.body)) return { kind: 'portal', url }
+    if (isAetherEnvelope(ping.body)) return { kind: 'portal', url }
     throw new NotAetherServerError(url)
 }
 
@@ -210,6 +211,15 @@ function isMeResponse(body: unknown): body is MeResponse {
     return isObject(body) && AUTH_METHODS.includes(body.authMethod as AuthMethod)
 }
 
-function isSubsonicEnvelope(body: unknown): boolean {
-    return isObject(body) && isObject(body['subsonic-response'])
+// Any OpenSubsonic server (Navidrome, gonic, Airsonic…) answers a ping without
+// credentials with an error envelope; only Aether's names it as its `type`, on
+// every response, errors included. Compared without case.
+function isAetherEnvelope(body: unknown): boolean {
+    if (!isObject(body)) return false
+    const envelope = body['subsonic-response']
+    return (
+        isObject(envelope) &&
+        typeof envelope.type === 'string' &&
+        envelope.type.toLowerCase() === 'aether'
+    )
 }

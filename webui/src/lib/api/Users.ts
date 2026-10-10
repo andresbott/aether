@@ -7,8 +7,14 @@ import type {
     ListUsersResponse
 } from '@/types/users'
 
+// The SPA's bootstrap, so it is bounded: a server that silently drops packets
+// would otherwise hold the window blank until the system gave up on the
+// connection, minutes later, and again for every retry. A healthy server
+// answers in milliseconds.
+const ME_TIMEOUT_MS = 10_000
+
 export async function getMe(): Promise<MeResponse> {
-    const { data } = await apiClient.get<MeResponse>('/me')
+    const { data } = await apiClient.get<MeResponse>('/me', { timeout: ME_TIMEOUT_MS })
     return data
 }
 
