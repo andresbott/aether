@@ -118,7 +118,9 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   call); if the mint call itself 401s, the *session* is gone → mode-specific
   reaction (below). Surface "session expired" in the player instead of a
   generic error when a stream's next range request fails. Generation counter
-  discards mints resolving after logout.
+  discards mints resolving after a logout, an expiry or a server switch —
+  their success and their refusal alike (a stale 401 flags no expiry) — and
+  the reset lets go of such a mint, so the next session mints its own.
 
 **One session per device.** The same user may be signed in from several
 first-party Aether apps at once — browsers today, native apps later — so a `spa`
@@ -245,9 +247,10 @@ Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
   the chosen one does not answer as Aether, and on a proxy-header server —
   see [frontend.md](frontend.md#desktop-app-mode-libhost)), and an axios
   interceptor flips a shared `sessionExpired` flag on any `/api/v0` 401 (in
-  the desktop app, not while no server is configured: a 401 a server switch
-  overtook speaks for no session) so an expired session re-opens the gate
-  mid-flight. Logout and session expiry both purge the device
+  the desktop app only for a request sent to the server still configured: a
+  401 a server switch overtook speaks for a session already over) so an
+  expired session re-opens the gate mid-flight. Logout and session expiry
+  both purge the device
   (`purgeLocalSession` in `useAuth`): stop playback (queue sync unbinds first
   so the emptied queue is not pushed to the server), clear localStorage, and
   reset the query cache.

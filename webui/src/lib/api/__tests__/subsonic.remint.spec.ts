@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { subsonicClient } from '@/lib/api/subsonic'
-import { remintApiKey, resetSubsonicSession, spaTokenId } from '@/lib/subsonicSession'
+import {
+    MAX_MINT_ATTEMPTS,
+    mintRetriesExhausted,
+    remintApiKey,
+    resetMintAttempts,
+    resetSubsonicSession,
+    spaTokenId
+} from '@/lib/subsonicSession'
 import { sessionExpired } from '@/lib/authState'
 import * as TokensApi from '@/lib/api/Tokens'
 
@@ -79,6 +86,71 @@ describe('transparent re-mint', () => {
         expect(result).toBe('failed')
         expect(subsonicClient.hasApiKey()).toBe(false)
         expect(spaTokenId.value).toBeNull()
+    })
+
+    // A failure belongs to its session just as a result does: a mint that a
+    // logout, an expiry or a server switch overtook flags nothing when it is
+    // refused, and is no failure of the session running now.
+    describe('a mint the session reset overtook', () => {
+        let failMint!: (reason: unknown) => void
+
+        beforeEach(() => {
+            resetMintAttempts()
+            vi.mocked(TokensApi.mintSpaToken).mockImplementation(
+                () =>
+                    new Promise((_resolve, reject) => {
+                        failMint = reject
+                    })
+            )
+        })
+
+        it('flags no expiry when it answers 401', async () => {
+            const mint = remintApiKey()
+            resetSubsonicSession()
+            failMint({ response: { status: 401 } })
+
+            await expect(mint).resolves.toBe('failed')
+            expect(sessionExpired.value).toBe(false)
+        })
+
+        it('spends none of the retry budget when it fails', async () => {
+            for (let i = 0; i < MAX_MINT_ATTEMPTS; i++) {
+                const mint = remintApiKey()
+                resetSubsonicSession()
+                failMint({ response: { status: 500 } })
+                await expect(mint).resolves.toBe('failed')
+            }
+
+            expect(mintRetriesExhausted()).toBe(false)
+        })
+    })
+
+    // The next session mints for itself. Joining the mint still out would hand
+    // it that mint's discarded outcome, which its caller reads as a failure.
+    it('mints afresh after a reset rather than joining the mint still out', async () => {
+        const minted = (id: string) => ({
+            token: `aether_${id}`,
+            tokenId: id,
+            expiresAt: '2999-01-01T00:00:00Z'
+        })
+        let finishOvertaken!: (value: ReturnType<typeof minted>) => void
+        let finishFresh!: (value: ReturnType<typeof minted>) => void
+        vi.mocked(TokensApi.mintSpaToken)
+            .mockReturnValueOnce(new Promise((resolve) => (finishOvertaken = resolve)))
+            .mockReturnValueOnce(new Promise((resolve) => (finishFresh = resolve)))
+        const overtaken = remintApiKey()
+        resetSubsonicSession()
+
+        const fresh = remintApiKey()
+        finishOvertaken(minted('tid-overtaken'))
+        await expect(overtaken).resolves.toBe('failed')
+        // Settling, the overtaken mint leaves the fresh one in place to join.
+        expect(remintApiKey()).toBe(fresh)
+        finishFresh(minted('tid-fresh'))
+
+        await expect(fresh).resolves.toBe('ok')
+        expect(TokensApi.mintSpaToken).toHaveBeenCalledTimes(2)
+        expect(spaTokenId.value).toBe('tid-fresh')
     })
 
     it('re-mints and retries through submitMultipart (FormData path)', async () => {

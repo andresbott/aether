@@ -16,12 +16,24 @@ export const spaTokenId = ref<string | null>(null)
 
 // Single-flight: a burst of 40s after wake must produce ONE mint, not one
 // per in-flight query. The generation is bumped by resetSubsonicSession so a
-// mint started before logout discards its result rather than re-installing a
-// live credential the server never knew to revoke.
+// mint started before logout discards its outcome rather than re-installing a
+// live credential the server never knew to revoke — or flagging an expiry on a
+// session that is already over. The reset also lets go of the mint still out,
+// so the next session mints for itself instead of joining a discarded one.
 let mintInFlight: Promise<'ok' | 'session-gone' | 'failed'> | null = null
 let mintGeneration = 0
 
 type MintResult = 'ok' | 'session-gone' | 'failed'
+
+/**
+ * The current session's generation, bumped by every resetSubsonicSession.
+ * Whoever awaits a mint compares it before and after: when it moved, a logout,
+ * an expiry or a server switch ended the session the mint was for, and its
+ * outcome speaks for that session only.
+ */
+export function sessionGeneration(): number {
+    return mintGeneration
+}
 
 /**
  * How many consecutive 'failed' mints are tolerated before the SPA stops
@@ -51,12 +63,13 @@ export function resetMintAttempts(): void {
  * Mint a fresh spa token and install it on the subsonic client.
  * - 'ok': minted and installed
  * - 'session-gone': mint answered 401 (sessionExpired is flipped)
- * - 'failed': other failure (409 ErrTooManyTokens, 500, network blip)
+ * - 'failed': other failure (409 ErrTooManyTokens, 500, network blip), or a
+ *   mint whose session was reset while it was out, whatever it answered
  */
 export function remintApiKey(): Promise<MintResult> {
     if (!mintInFlight) {
         const generation = mintGeneration
-        mintInFlight = mintSpaToken()
+        const mint: Promise<MintResult> = mintSpaToken()
             .then((r) => {
                 // Discard the result if a logout happened mid-flight: the old
                 // tokenId was revoked and the server never learns of this new one.
@@ -73,6 +86,12 @@ export function remintApiKey(): Promise<MintResult> {
                 return 'ok' as const
             })
             .catch((err: unknown) => {
+                // Discard a failure the same way: a 401 for a session already
+                // reset (a server switch overtook the mint) must not flag the
+                // one running now, nor any failure spend its retry budget.
+                if (generation !== mintGeneration) {
+                    return 'failed' as const
+                }
                 const status = (err as { response?: { status?: number } })?.response?.status
                 if (status === 401) {
                     sessionExpired.value = true
@@ -85,8 +104,10 @@ export function remintApiKey(): Promise<MintResult> {
                 return 'failed' as const
             })
             .finally(() => {
-                mintInFlight = null
+                // A reset may have let go of this mint, and another may be out.
+                if (mintInFlight === mint) mintInFlight = null
             })
+        mintInFlight = mint
     }
     return mintInFlight
 }
@@ -102,6 +123,9 @@ export function resetSubsonicSession(): void {
     spaTokenId.value = null
     subsonicReady.value = false
     mintGeneration++
+    // A mint still out belongs to the session just ended; it settles on its own
+    // and its outcome is discarded.
+    mintInFlight = null
 }
 
 // The desktop player's Rust client calls the same server with the SPA's key;

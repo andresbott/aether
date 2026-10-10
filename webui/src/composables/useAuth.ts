@@ -13,7 +13,8 @@ import {
     remintApiKey,
     resetSubsonicSession,
     mintRetriesExhausted,
-    resetMintAttempts
+    resetMintAttempts,
+    sessionGeneration
 } from '@/lib/subsonicSession'
 import { subsonicClient } from '@/lib/api/subsonic'
 
@@ -125,7 +126,15 @@ export function useAuth() {
                             // gate stays up (sessionExpired is still true from
                             // the last failure) instead of minting forever.
                             if (mintRetriesExhausted()) return
+                            const generation = sessionGeneration()
                             const result = await remintApiKey()
+                            // A logout, an expiry or a server switch reset the
+                            // session while the mint was out, and its outcome
+                            // speaks for that session only: acted on here, it
+                            // would expire or unready whatever runs now (a
+                            // server chosen since, without login, would never
+                            // render). That one has watcher runs of its own.
+                            if (sessionGeneration() !== generation) return
                             // A boot-mint failure for any non-401 reason (409
                             // ErrTooManyTokens, 500, network blip) would leave
                             // subsonicReady=false and sessionExpired=false,

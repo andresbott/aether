@@ -41,19 +41,31 @@ if (isDesktopApp()) {
 // A 401 from any /api/v0 call means the session is gone (expired, or the
 // server restarted with fresh cookie keys) — flag it so the SPA renders the
 // login view. The login endpoint itself is exempt: its 401 is the uniform
-// wrong-credentials answer, not a lost session. So is a 401 that lands in the
-// app once the server has been forgotten (a request a server switch overtook):
-// with no server configured there is no session to expire, and the flag would
-// hold back the gate of the server chosen next.
+// wrong-credentials answer, not a lost session. So is, in the app, a 401 from a
+// server that is no longer the configured one.
 apiClient.interceptors.response.use(
     (response) => response,
     (error) => {
         const status = error?.response?.status
         const url: string = error?.config?.url ?? ''
-        const noServer = isDesktopApp() && serverUrl.value === null
-        if (status === 401 && !url.includes('/auth/login') && !noServer) {
+        if (
+            status === 401 &&
+            !url.includes('/auth/login') &&
+            answersForConfiguredServer(error?.config?.baseURL)
+        ) {
             sessionExpired.value = true
         }
         return Promise.reject(error)
     }
 )
+
+// In the app a 401 speaks for the server its request was sent to, which the
+// request interceptor stamped into its baseURL. A request a server switch
+// overtook (a poll sent while the logout was out) answers for a session that is
+// already over: with no server configured nothing can expire, and a server
+// chosen since has a session of its own the flag would hold back. A tab's
+// server is the page's own and never changes, so every 401 speaks for it.
+function answersForConfiguredServer(baseURL: string | undefined): boolean {
+    if (!isDesktopApp()) return true
+    return serverUrl.value !== null && baseURL === `${serverUrl.value}/api/v0`
+}

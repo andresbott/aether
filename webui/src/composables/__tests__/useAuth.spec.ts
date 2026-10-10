@@ -835,68 +835,97 @@ describe('useAuth', () => {
                 expect(sessionLostUnexpectedly.value).toBe(false)
             })
 
+            // As the login view's Connect does once the probe has answered.
+            async function connectTo(url: string, me: MeResponse, auth: ReturnType<UseAuth>) {
+                getMe.mockResolvedValue(me)
+                serverUrl.value = url
+                await nextTick()
+                auth.serverSaved()
+                await flushPromises()
+            }
+
             // A poll on the wire when the switch starts answers 401 only once
-            // the switch is over. It speaks for the session just ended: it
-            // flags nothing, and a next server without login renders.
-            it('lets a 401 that lands after the switch hold nothing back', async () => {
-                getMe.mockResolvedValue(meAlice)
-                const auth = withAuth()
-                await flushPromises()
-                let answer!: (response: Response) => void
-                vi.stubGlobal(
-                    'fetch',
-                    vi.fn(
-                        () =>
-                            new Promise<Response>((resolve) => {
-                                answer = resolve
-                            })
+            // the switch is over — before the next server is chosen or after.
+            // It speaks for the session just ended: it flags nothing, and a
+            // next server without login renders.
+            it.each(['before', 'after'])(
+                'lets a 401 that lands after the switch, %s Connect, hold nothing back',
+                async (when) => {
+                    getMe.mockResolvedValue(meAlice)
+                    const auth = withAuth()
+                    await flushPromises()
+                    let answer!: (response: Response) => void
+                    vi.stubGlobal(
+                        'fetch',
+                        vi.fn(
+                            () =>
+                                new Promise<Response>((resolve) => {
+                                    answer = resolve
+                                })
+                        )
                     )
-                )
-                const { apiClient } = await import('@/lib/api/client')
-                const poll = apiClient.get('/tasks/executions').catch((err: unknown) => err)
-                await flushPromises()
+                    const { apiClient } = await import('@/lib/api/client')
+                    const poll = apiClient.get('/tasks/executions').catch((err: unknown) => err)
+                    await flushPromises()
+                    const late401 = async () => {
+                        answer(new Response(null, { status: 401 }))
+                        await expect(poll).resolves.toMatchObject({ response: { status: 401 } })
+                        await flushPromises()
+                    }
 
-                await auth.switchServer()
-                answer(new Response(null, { status: 401 }))
-                await expect(poll).resolves.toMatchObject({ response: { status: 401 } })
-                await flushPromises()
+                    await auth.switchServer()
+                    if (when === 'before') await late401()
+                    await connectTo('http://other.lan:8075', meNone, auth)
+                    if (when === 'after') await late401()
 
-                expect(sessionExpired.value).toBe(false)
+                    expect(sessionExpired.value).toBe(false)
+                    expect(subsonicReady.value).toBe(true)
+                }
+            )
 
-                getMe.mockResolvedValue(meNone)
-                serverUrl.value = 'http://other.lan:8075'
-                await nextTick()
-                auth.serverSaved()
-                await flushPromises()
+            // A mint the switch overtook is refused once the switch is over —
+            // before the next server is chosen or after. Its outcome belongs
+            // to the session just ended: it flags nothing, and a next server
+            // without login renders.
+            it.each(['before', 'after'])(
+                'lets a mint the switch overtook fail, %s Connect, without holding anything back',
+                async (when) => {
+                    let failMint!: (reason: unknown) => void
+                    mintSpaToken.mockReturnValue(
+                        new Promise((_resolve, reject) => {
+                            failMint = reject
+                        })
+                    )
+                    getMe.mockResolvedValue(meAlice)
+                    const auth = withAuth()
+                    await flushPromises()
+                    const lateRefusal = async () => {
+                        failMint({ response: { status: 401 } })
+                        await flushPromises()
+                    }
 
-                expect(subsonicReady.value).toBe(true)
-            })
+                    await auth.switchServer()
+                    if (when === 'before') await lateRefusal()
+                    await connectTo('http://other.lan:8075', meNone, auth)
+                    if (when === 'after') await lateRefusal()
 
-            // A mint the switch overtook answers 401 by itself and flags the
-            // session it was minting for. The flag belongs to the server left
-            // behind: the server saved next starts afresh, and without login
-            // it renders.
-            it('starts the server saved next afresh, whatever landed after the switch', async () => {
-                let failMint!: (reason: unknown) => void
-                mintSpaToken.mockReturnValue(
-                    new Promise((_resolve, reject) => {
-                        failMint = reject
-                    })
-                )
+                    expect(sessionExpired.value).toBe(false)
+                    expect(subsonicReady.value).toBe(true)
+                }
+            )
+
+            // Whatever still flagged the old session between the switch and
+            // Connect belongs to the server left behind: the server saved next
+            // starts afresh, and without login it renders.
+            it('starts the server saved next afresh, whatever flagged the old session', async () => {
                 getMe.mockResolvedValue(meAlice)
                 const auth = withAuth()
                 await flushPromises()
 
                 await auth.switchServer()
-                failMint({ response: { status: 401 } })
+                sessionExpired.value = true
                 await flushPromises()
-                expect(sessionExpired.value).toBe(true)
-
-                getMe.mockResolvedValue(meNone)
-                serverUrl.value = 'http://other.lan:8075'
-                await nextTick()
-                auth.serverSaved()
-                await flushPromises()
+                await connectTo('http://other.lan:8075', meNone, auth)
 
                 expect(sessionExpired.value).toBe(false)
                 expect(subsonicReady.value).toBe(true)

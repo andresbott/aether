@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import axios, { type InternalAxiosRequestConfig } from 'axios'
+import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 import { ref } from 'vue'
 
 const SERVER = 'http://music.lan:8075'
@@ -127,6 +127,33 @@ describe('apiClient in the desktop app', () => {
         await expect(poll).rejects.toMatchObject({ response: { status: 401 } })
         expect(sessionExpired.value).toBe(false)
     })
+
+    // Once another server is chosen, a 401 a switch overtook still answers for
+    // the server its request went to, and has no say over the new session.
+    it('flags an expiry only for a 401 from the server configured now', async () => {
+        const host = fakeHost(true, SERVER)
+        let answer!: (response: Response) => void
+        host.httpFetch.mockReturnValueOnce(
+            new Promise<Response>((resolve) => {
+                answer = resolve
+            })
+        )
+        const { apiClient, sessionExpired } = await loadClient(host)
+
+        const overtaken = apiClient.get('/tasks/executions')
+        await vi.waitFor(() => expect(host.httpFetch).toHaveBeenCalled())
+        host.serverUrl.value = 'https://aether.example.org'
+        answer(jsonResponse({ title: 'Unauthorized' }, 401))
+
+        await expect(overtaken).rejects.toMatchObject({ response: { status: 401 } })
+        expect(sessionExpired.value).toBe(false)
+
+        host.httpFetch.mockResolvedValueOnce(jsonResponse({ title: 'Unauthorized' }, 401))
+        await expect(apiClient.get('/libraries')).rejects.toMatchObject({
+            response: { status: 401 }
+        })
+        expect(sessionExpired.value).toBe(true)
+    })
 })
 
 describe('apiClient in the browser', () => {
@@ -146,5 +173,27 @@ describe('apiClient in the browser', () => {
         expect(sent?.baseURL).toBe('/api/v0')
         expect(apiClient.defaults.adapter).toEqual(axios.defaults.adapter)
         expect(host.httpFetch).not.toHaveBeenCalled()
+    })
+
+    // A tab's server is the page's own and never changes: every 401 speaks for
+    // it, whatever base the request was sent with.
+    it('flags the session as expired on a 401', async () => {
+        const host = fakeHost(false, 'http://localhost:3000')
+        const { apiClient, sessionExpired } = await loadClient(host)
+
+        const request = apiClient.get('/libraries', {
+            adapter: async (config) => {
+                throw new AxiosError('Unauthorized', AxiosError.ERR_BAD_REQUEST, config, null, {
+                    data: {},
+                    status: 401,
+                    statusText: 'Unauthorized',
+                    headers: {},
+                    config
+                })
+            }
+        })
+
+        await expect(request).rejects.toMatchObject({ response: { status: 401 } })
+        expect(sessionExpired.value).toBe(true)
     })
 })

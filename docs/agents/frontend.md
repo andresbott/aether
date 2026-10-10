@@ -402,13 +402,16 @@ once it is forgotten) → remember it in `lastServerUrl` → `serverUrl = null`
 before any cache reset (the now-disabled `/me` cannot refetch from the server
 being left) → `purgeLocalSession` on every path, signed in or not (the old
 server's queue, and the queue sync, would otherwise carry its track ids over to
-the next one) → `startFreshSession()` → `clearServerUrl()`, best effort. A
-request the switch overtook (a poll sent while the logout was out) can still
-answer 401 afterwards: with no server configured, `client.ts` flags no expiry
-for it, and `serverSaved()` clears anything else that flagged the old session
-before the next server was saved — kept, an expiry flag would stop a server
-without login from ever rendering. The sign-in card's *Change* calls
-`switchServer()` directly. The account menus go through
+the next one) → `startFreshSession()` → `clearServerUrl()`, best effort. What
+the switch overtook still answers afterwards, before the next server is saved
+or after, speaks for the session just ended and flags nothing — kept, an
+expiry flag would stop a server without login from ever rendering. In the app
+`client.ts` flags an expiry only for a 401 whose request went to the server
+configured now (its stamped `baseURL`); a mint's outcome counts only while
+its session generation is current (see the hand-off below); and
+`serverSaved()` clears anything else that flagged the old session before the
+next server was saved. The sign-in card's *Change* calls `switchServer()`
+directly. The account menus go through
 `composables/useChangeServer.ts`: `confirmChangeServer()` asks "Disconnect from
 {host}? You will be signed out." in the `change-server` confirm group, which the
 one grouped `ConfirmDialog` that `PlayerLayout.vue` mounts in the app answers —
@@ -426,8 +429,12 @@ a server the user has since left must never reach it — and
 `resetSubsonicSession` withdraws it (`clearSession`) and resets the client
 whole (`SubsonicClient.reset()`: the key, auth `none` and the server), so
 nothing addresses the server left behind until the next session configures
-it. A failed hand-off only warns, with neither the key nor an error text that
-could hold it. In the app `getDeviceName()` (`lib/deviceIdentity.ts`) answers
+it. The reset also bumps the session generation and lets go of a mint still
+out: that mint's outcome, success or refusal, is discarded (`'failed'`, no
+expiry flag, no retry budget spent), the next session mints its own instead
+of joining it, and `useAuth`'s mint watcher ignores an outcome whose
+generation moved while it waited (`sessionGeneration()`). A failed hand-off
+only warns, with neither the key nor an error text that could hold it. In the app `getDeviceName()` (`lib/deviceIdentity.ts`) answers
 "Aether Player on <platform>" — the webview's user agent would read as a
 browser — so Connected apps names the player.
 
