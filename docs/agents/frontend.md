@@ -431,12 +431,16 @@ whole (`SubsonicClient.reset()`: the key, auth `none` and the server), so
 nothing addresses the server left behind until the next session configures
 it. The reset also bumps the session generation and lets go of a mint still
 out: that mint's outcome, success or refusal, is discarded (`'failed'`, no
-expiry flag, no retry budget spent), the next session mints its own instead
-of joining it, and `useAuth`'s mint watcher ignores an outcome whose
-generation moved while it waited (`sessionGeneration()`). A failed hand-off
-only warns, with neither the key nor an error text that could hold it. In the app `getDeviceName()` (`lib/deviceIdentity.ts`) answers
-"Aether Player on <platform>" — the webview's user agent would read as a
-browser — so Connected apps names the player.
+expiry flag from `remintApiKey` itself, no retry budget spent), the next
+session mints its own instead of joining it, and `useAuth`'s mint watcher
+ignores an outcome whose generation moved while it waited
+(`sessionGeneration()`). That mint's request rides `apiClient`, though, so the
+`client.ts` interceptor still flags its 401 whenever the request went to the
+configured server (always in a browser tab; in the app when the server did not
+change). A failed hand-off only warns, with neither the key nor an error text
+that could hold it. In the app `getDeviceName()` (`lib/deviceIdentity.ts`)
+answers "Aether Player on <platform>" — the webview's user agent would read as
+a browser — so Connected apps names the player.
 
 **`useTrayBridge`** (`composables/useTrayBridge.ts`) is bound once from
 `App.vue`, which is always mounted, in a detached effect scope like

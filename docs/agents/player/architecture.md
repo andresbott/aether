@@ -161,10 +161,11 @@ git-ignored historical record — nothing here depends on it.
 - **D2 — Transport: HTTP through Rust, with `tauri-plugin-http`.** Its `fetch`
   serialises the request (a `FormData` body keeps its multipart boundary),
   sends it over IPC to reqwest in the Rust process and hands back a real
-  `Response`, with a cookie jar kept in `app_cache_dir()`: no CORS, the native
-  login, `/me` and the token mint work unchanged, the session survives a
-  restart, and the Go server needed no change. The SPA only takes its base URL
-  from the host layer and its `fetch` from `httpFetch`.
+  `Response`, with a cookie jar kept in `app_cache_dir()` (rewritten whenever a
+  response sets a cookie and once more on exit): no CORS, the native login,
+  `/me` and the token mint work unchanged, the session survives a restart, and
+  the Go server needed no change. The SPA only takes its base URL from the host
+  layer and its `fetch` from `httpFetch`.
 - **D3 — Media and playback stay in the webview.** `<audio>` and `<img>` are
   not CORS-gated, so the SPA's own player keeps playing and covers keep
   loading straight from the server (the CSP admits `http:`/`https:` for

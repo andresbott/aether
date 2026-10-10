@@ -84,6 +84,8 @@ and `todo list --json` cover the common actions — run `todo --help`.
     A failed `@tauri-apps/plugin-http` import should install a transport that rejects clearly instead of falling back to the webview's fetch; rename `SubsonicClient`'s field that shadows the imported `serverUrl` in subsonic.ts; specs for a bare-string transport rejection → NETWORK_MESSAGE and for the explicit-signal branch.
   - [ ] Server step wording for a server that answers /me with an error
     A saved server whose /me answers 5xx or 401 is shown as "Could not reach"; the probe calls a server a portal when its /me answers 5xx but its /rest is healthy.
+  - [ ] Server step wording for a 200 that is not Aether
+    A 200 that is not Aether shows "Could not reach" although the server answered.
   - [ ] Server step a11y: label the Change link, focus the address field
     `aria-label="Change server"` on the sign-in card's Change link; focus `#login-server` when the step appears after Change.
   - [ ] One `serverHost(url)` helper for useChangeServer.ts and LoginView.vue
@@ -96,6 +98,8 @@ and `todo list --json` cover the common actions — run `todo --help`.
     AlbumView, ArtistView, PlaylistDetailView and GenreDetailView render `{{ error.message }}`, which a bare-string rejection from the plugin leaves empty; route them through `apiErrorMessage`.
   - [ ] Player docs: the `sendBeacon` exception, `server/` paths, two wordings, IPC body cost
     The browser `sendBeacon` is the sanctioned exception to "everything through the transport"; add `server/` to the player docs' path-convention exceptions; fix ipc.md's "nothing validated" and architecture.md's "travels once" wording; note that request bodies cross IPC as a JSON byte array, so multi-MB uploads are slow.
+  - [ ] The `/rest` 40/44 re-mint retry must skip when the URL's origin or the session generation changed
+    The retry rebuilds the original URL with the fresh key, so a `/rest` request overtaken by a server switch could send the new server's key to the host just left; also `clearApiKey()` in `subsonic.ts` has no production caller any more.
 
 # Future releases
 
