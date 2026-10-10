@@ -7,8 +7,8 @@
 //! - Linux: ksni (StatusNotifierItem). Tauri's tray goes through
 //!   libappindicator, which is menu-only (no activate callback); ksni
 //!   implements SNI directly so KDE/GNOME deliver left-click as `activate`.
-use crate::state::AppState;
-use tauri::{AppHandle, Manager};
+use crate::events::{TRAY_COMMAND_EVENT, TRAY_NEXT, TRAY_PLAY_PAUSE};
+use tauri::{AppHandle, Emitter, Manager};
 
 fn toggle_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -22,24 +22,20 @@ fn toggle_main_window(app: &AppHandle) {
     }
 }
 
-fn toggle_play_pause(app: &AppHandle) {
-    let state = app.state::<AppState>();
-    if state.player.state().paused {
-        state.player.resume();
-    } else {
-        state.player.pause();
+// The SPA's own player is the one playing; the Rust player stays idle, so the
+// transport items ask the webview to act instead of calling it.
+fn send_command(app: &AppHandle, command: &str) {
+    if let Err(e) = app.emit(TRAY_COMMAND_EVENT, command) {
+        eprintln!("tray: emit failed: {e}");
     }
 }
 
+fn toggle_play_pause(app: &AppHandle) {
+    send_command(app, TRAY_PLAY_PAUSE);
+}
+
 fn next_track(app: &AppHandle) {
-    let state = app.state::<AppState>();
-    // load blocks on download; keep the tray menu responsive
-    let player = state.player.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        if let Err(e) = player.queue_next() {
-            eprintln!("tray: next track failed: {e}");
-        }
-    });
+    send_command(app, TRAY_NEXT);
 }
 
 #[cfg(not(target_os = "linux"))]

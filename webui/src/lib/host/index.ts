@@ -6,6 +6,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core'
 import { serverUrl } from './serverUrl'
 import { installTransport } from './transport'
 
+export { onTrayCommand, type TrayCommand } from './events'
 export { serverUrl } from './serverUrl'
 export { httpFetch } from './transport'
 
