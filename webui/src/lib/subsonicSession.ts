@@ -91,9 +91,13 @@ export function remintApiKey(): Promise<MintResult> {
     return mintInFlight
 }
 
-/** Forget the device's /rest credential (logout, session expiry, server switch). */
+/**
+ * Forget the device's /rest session (logout, session expiry, server switch):
+ * the credential and the server the client addresses, so nothing reaches the
+ * server left behind until the next session configures the client again.
+ */
 export function resetSubsonicSession(): void {
-    subsonicClient.clearApiKey()
+    subsonicClient.reset()
     void withdrawFromDesktopApp()
     spaTokenId.value = null
     subsonicReady.value = false

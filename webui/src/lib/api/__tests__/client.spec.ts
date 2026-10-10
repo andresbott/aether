@@ -105,6 +105,28 @@ describe('apiClient in the desktop app', () => {
         })
         expect(sessionExpired.value).toBe(true)
     })
+
+    // A request a server switch overtook (a poll sent while the logout was out)
+    // answers 401 once the server is forgotten. With no server configured there
+    // is no session to expire, and the flag would hold back the next server.
+    it('flags no expiry for a 401 that lands once the server is forgotten', async () => {
+        const host = fakeHost(true, SERVER)
+        let answer!: (response: Response) => void
+        host.httpFetch.mockReturnValue(
+            new Promise<Response>((resolve) => {
+                answer = resolve
+            })
+        )
+        const { apiClient, sessionExpired } = await loadClient(host)
+
+        const poll = apiClient.get('/tasks/executions')
+        await vi.waitFor(() => expect(host.httpFetch).toHaveBeenCalled())
+        host.serverUrl.value = null
+        answer(jsonResponse({ title: 'Unauthorized' }, 401))
+
+        await expect(poll).rejects.toMatchObject({ response: { status: 401 } })
+        expect(sessionExpired.value).toBe(false)
+    })
 })
 
 describe('apiClient in the browser', () => {

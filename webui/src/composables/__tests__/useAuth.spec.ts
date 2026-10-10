@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { defineComponent, nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
@@ -685,6 +685,10 @@ describe('useAuth', () => {
         })
 
         describe('switchServer', () => {
+            afterEach(() => {
+                vi.unstubAllGlobals()
+            })
+
             // The order is the point. The logout goes out while the server is
             // still set (the api client refuses to send once it is forgotten);
             // the server is forgotten before the purge, whose cache reset must
@@ -749,6 +753,8 @@ describe('useAuth', () => {
                 expect(localStorage.getItem(DEVICE_ID_KEY)).toBe('"device-1"')
                 expect(getMe).toHaveBeenCalledTimes(1)
                 expect(subsonicReady.value).toBe(false)
+                // Nothing addresses the server left behind, with or without login.
+                expect(subsonicClient.isConfigured()).toBe(false)
                 expect(auth.needsServer.value).toBe(true)
             })
 
@@ -827,6 +833,73 @@ describe('useAuth', () => {
 
                 expect(auth.needsLogin.value).toBe(true)
                 expect(sessionLostUnexpectedly.value).toBe(false)
+            })
+
+            // A poll on the wire when the switch starts answers 401 only once
+            // the switch is over. It speaks for the session just ended: it
+            // flags nothing, and a next server without login renders.
+            it('lets a 401 that lands after the switch hold nothing back', async () => {
+                getMe.mockResolvedValue(meAlice)
+                const auth = withAuth()
+                await flushPromises()
+                let answer!: (response: Response) => void
+                vi.stubGlobal(
+                    'fetch',
+                    vi.fn(
+                        () =>
+                            new Promise<Response>((resolve) => {
+                                answer = resolve
+                            })
+                    )
+                )
+                const { apiClient } = await import('@/lib/api/client')
+                const poll = apiClient.get('/tasks/executions').catch((err: unknown) => err)
+                await flushPromises()
+
+                await auth.switchServer()
+                answer(new Response(null, { status: 401 }))
+                await expect(poll).resolves.toMatchObject({ response: { status: 401 } })
+                await flushPromises()
+
+                expect(sessionExpired.value).toBe(false)
+
+                getMe.mockResolvedValue(meNone)
+                serverUrl.value = 'http://other.lan:8075'
+                await nextTick()
+                auth.serverSaved()
+                await flushPromises()
+
+                expect(subsonicReady.value).toBe(true)
+            })
+
+            // A mint the switch overtook answers 401 by itself and flags the
+            // session it was minting for. The flag belongs to the server left
+            // behind: the server saved next starts afresh, and without login
+            // it renders.
+            it('starts the server saved next afresh, whatever landed after the switch', async () => {
+                let failMint!: (reason: unknown) => void
+                mintSpaToken.mockReturnValue(
+                    new Promise((_resolve, reject) => {
+                        failMint = reject
+                    })
+                )
+                getMe.mockResolvedValue(meAlice)
+                const auth = withAuth()
+                await flushPromises()
+
+                await auth.switchServer()
+                failMint({ response: { status: 401 } })
+                await flushPromises()
+                expect(sessionExpired.value).toBe(true)
+
+                getMe.mockResolvedValue(meNone)
+                serverUrl.value = 'http://other.lan:8075'
+                await nextTick()
+                auth.serverSaved()
+                await flushPromises()
+
+                expect(sessionExpired.value).toBe(false)
+                expect(subsonicReady.value).toBe(true)
             })
         })
     })

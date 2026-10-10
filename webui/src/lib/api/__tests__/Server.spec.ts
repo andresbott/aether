@@ -140,6 +140,14 @@ describe('probeServer', () => {
         await expect(probeServer(SERVER)).rejects.toBeInstanceOf(NotAetherServerError)
     })
 
+    // The probe holds /me to the shape the gate reads later, as getMe does: a
+    // known auth method alone is not Aether's answer.
+    it('reports no Aether when /me names a known auth method in another shape', async () => {
+        answer(json({ authMethod: 'native', user: 'ada' }), html())
+
+        await expect(probeServer(SERVER)).rejects.toBeInstanceOf(NotAetherServerError)
+    })
+
     // Navidrome, gonic, Airsonic: no /api/v0/me, and an anonymous ping answered
     // with an error envelope that is not Aether's. Not a portal in front of
     // Aether — simply not Aether.

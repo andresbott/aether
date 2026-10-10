@@ -25,7 +25,8 @@ let purgedThisExpiry = false
 
 // Everything that describes one session on one server — whether it expired or
 // was ended on purpose, the purge latch, the mint budget — starts over on a
-// fresh login, and on a switch to another server.
+// fresh login, on a switch to another server, and again once the next server is
+// saved.
 function startFreshSession(): void {
     sessionExpired.value = false
     explicitLogout.value = false
@@ -267,13 +268,17 @@ export function useAuth() {
     }
 
     /**
-     * Desktop app: the login view's server step saved a server. Saving a first
-     * one enables /me by itself; saving over one whose /me failed — even the
-     * same address — changes nothing /me watches, so its error is reset and the
-     * server just saved is asked again.
+     * Desktop app: the login view's server step saved a server. Its session
+     * starts afresh: whatever flagged the old one after the switch — a mint the
+     * switch overtook answers 401 by itself — belongs to the server left behind,
+     * and an expiry flag kept would stop a server without login from rendering.
+     * Saving a first server enables /me by itself; saving over one whose /me
+     * failed — even the same address — changes nothing /me watches, so its error
+     * is reset and the server just saved is asked again.
      */
     function serverSaved(): void {
         lastServerUrl.value = null
+        startFreshSession()
         if (me.isError.value) void qc.resetQueries({ queryKey: userQueryKeys.me })
     }
 

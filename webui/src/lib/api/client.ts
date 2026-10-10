@@ -41,13 +41,17 @@ if (isDesktopApp()) {
 // A 401 from any /api/v0 call means the session is gone (expired, or the
 // server restarted with fresh cookie keys) — flag it so the SPA renders the
 // login view. The login endpoint itself is exempt: its 401 is the uniform
-// wrong-credentials answer, not a lost session.
+// wrong-credentials answer, not a lost session. So is a 401 that lands in the
+// app once the server has been forgotten (a request a server switch overtook):
+// with no server configured there is no session to expire, and the flag would
+// hold back the gate of the server chosen next.
 apiClient.interceptors.response.use(
     (response) => response,
     (error) => {
         const status = error?.response?.status
         const url: string = error?.config?.url ?? ''
-        if (status === 401 && !url.includes('/auth/login')) {
+        const noServer = isDesktopApp() && serverUrl.value === null
+        if (status === 401 && !url.includes('/auth/login') && !noServer) {
             sessionExpired.value = true
         }
         return Promise.reject(error)

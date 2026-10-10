@@ -162,4 +162,29 @@ describe('App gate in the desktop app', () => {
         expect(w.find('.login-view').exists()).toBe(false)
         expect(w.find('.player-layout').exists()).toBe(true)
     })
+
+    // The saved address answers 200, but not as Aether: another web app now on
+    // that port, a captive portal's page. Taken for /me, it would render the app
+    // against it; the server step comes back on the address instead.
+    it('asks for a server again when the saved address answers as something else', async () => {
+        await setServer(SERVER)
+        // The real getMe, with the page answered at the api client: the AbortSignal
+        // getMe's timeout puts on the request is jsdom's, which Node's Request
+        // refuses, so the transport cannot carry it here.
+        const { apiClient } = await import('@/lib/api/client')
+        const get = vi.spyOn(apiClient, 'get').mockResolvedValue({
+            data: '<!doctype html><title>Router login</title>',
+            status: 200
+        })
+        const { getMe: requestMe } =
+            await vi.importActual<typeof import('@/lib/api/Users')>('@/lib/api/Users')
+        getMe.mockImplementation(requestMe)
+
+        const w = await mountApp()
+
+        expect(get).toHaveBeenCalledOnce()
+        expect(get).toHaveBeenCalledWith('/me', expect.anything())
+        expect((w.find('#login-server').element as HTMLInputElement).value).toBe(SERVER)
+        expect(w.find('.player-layout').exists()).toBe(false)
+    })
 })

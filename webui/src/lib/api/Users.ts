@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/api/client'
+import { isMeResponse } from '@/lib/api/meShape'
 import type {
     MeResponse,
     User,
@@ -13,8 +14,17 @@ import type {
 // answers in milliseconds.
 const ME_TIMEOUT_MS = 10_000
 
+/**
+ * The SPA's bootstrap. Rejects an answer that is not Aether's /me: in the
+ * desktop app a saved address can come to answer 200 with something else
+ * (another web app on that port, a captive portal's page), and taken for /me it
+ * would render the app against it. Failing, it brings the server step back.
+ */
 export async function getMe(): Promise<MeResponse> {
-    const { data } = await apiClient.get<MeResponse>('/me', { timeout: ME_TIMEOUT_MS })
+    const { data } = await apiClient.get<unknown>('/me', { timeout: ME_TIMEOUT_MS })
+    if (!isMeResponse(data)) {
+        throw new Error('The server did not answer /api/v0/me as an Aether server.')
+    }
     return data
 }
 

@@ -28,7 +28,7 @@ import { httpFetch, isDesktopApp, serverUrl } from '@/lib/host'
 // transparent re-mint would otherwise leave those URLs pointing at the dead
 // token until the component happened to re-render for another reason. Reading
 // the key through a ref makes every such computed a dependency, so a
-// setApiKey/clearApiKey invalidates them and the URLs are rebuilt.
+// setApiKey/clearApiKey/reset invalidates them and the URLs are rebuilt.
 const apiKeyRef = ref<string | null>(null)
 
 class SubsonicClient {
@@ -61,6 +61,18 @@ class SubsonicClient {
 
     clearApiKey(): void {
         this.apiKey = null
+    }
+
+    /**
+     * Forgets the session whatever its auth (logout, expiry, server switch): the
+     * key, auth "none" and the server. Left configured, a client from a server
+     * without login would keep addressing that server after a switch, until the
+     * next server's session configured it again.
+     */
+    reset(): void {
+        this.apiKey = null
+        this.authSkipped = false
+        this.serverUrl = ''
     }
 
     hasApiKey(): boolean {

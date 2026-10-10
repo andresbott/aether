@@ -27,7 +27,16 @@ export function useMe() {
         // refetch it, which clears the error, unmounts the view, fails again and
         // mounts it again, round after round. (In the browser nothing mounts on
         // a failed /me, so nothing changes there.)
-        retryOnMount: false
+        retryOnMount: false,
+        // Nor, in the app, when the network comes back: the refetch would put
+        // the errored /me back to pending and take the server step away
+        // mid-typing. A tab opened offline recovers through it, so the browser
+        // keeps it.
+        refetchOnReconnect: !isDesktopApp(),
+        // In the app Connect is the retry: three more attempts, each bounded by
+        // getMe's 10 s timeout, would keep the window blank for most of a minute
+        // before the server step could show. The browser keeps its retries.
+        retry: isDesktopApp() ? false : 3
     })
 }
 

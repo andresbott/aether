@@ -4,7 +4,8 @@
 // without a server, and its 401 handling would read the probe's answers as a
 // lost session.
 import { httpFetch } from '@/lib/host'
-import type { AuthMethod, MeResponse } from '@/types/users'
+import { isMeResponse } from '@/lib/api/meShape'
+import type { MeResponse } from '@/types/users'
 
 /**
  * What answered at a server address, and where: `url` is the address as the
@@ -74,19 +75,18 @@ export function normalizeServerUrl(address: string): string {
     return `${url.origin}${url.pathname}`.replace(/\/+$/, '')
 }
 
-const AUTH_METHODS: readonly AuthMethod[] = ['none', 'native', 'proxy-header']
-
 // A Subsonic ping as a client without credentials sends it.
 const PING = '/rest/ping?f=json&v=1.16.1&c=aether-player'
 
 /**
  * Asks the server at `address` (normalised first) who it is. Its /me answering
- * with a known auth method is Aether. A server that redirects /me from http to
- * https on the same host is asked again there, once. Any other answer may still
- * be Aether behind an auth portal, which redirects or refuses anonymous /api/v0
- * calls: every proxy setup leaves /rest open for Subsonic clients, and there
- * Aether answers a ping without credentials with an error envelope (code 40)
- * that names it (`type: "Aether"`) — another Subsonic server's does not.
+ * as Aether's does (`isMeResponse`, the check getMe applies too) is Aether. A
+ * server that redirects /me from http to https on the same host is asked again
+ * there, once. Any other answer may still be Aether behind an auth portal, which
+ * redirects or refuses anonymous /api/v0 calls: every proxy setup leaves /rest
+ * open for Subsonic clients, and there Aether answers a ping without credentials
+ * with an error envelope (code 40) that names it (`type: "Aether"`) — another
+ * Subsonic server's does not.
  *
  * Throws InvalidServerAddressError before any request, ServerUnreachableError
  * when a request fails or takes over ten seconds, NotAetherServerError when
@@ -205,10 +205,6 @@ function parseJson(text: string): unknown {
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null
-}
-
-function isMeResponse(body: unknown): body is MeResponse {
-    return isObject(body) && AUTH_METHODS.includes(body.authMethod as AuthMethod)
 }
 
 // Any OpenSubsonic server (Navidrome, gonic, Airsonic…) answers a ping without

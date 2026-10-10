@@ -16,7 +16,7 @@ describe('subsonic client apiKey auth', () => {
     })
     afterEach(() => {
         vi.unstubAllGlobals()
-        subsonicClient.clearApiKey()
+        subsonicClient.reset()
     })
 
     it('appends apiKey and no u/t/s/p params when a key is set', async () => {
@@ -41,6 +41,22 @@ describe('subsonic client apiKey auth', () => {
         subsonicClient.setApiKey('aether_abc_secret')
         const url = new URL(subsonicClient.getStreamUrl('tr-1'))
         expect(url.searchParams.get('apiKey')).toBe('aether_abc_secret')
+    })
+
+    // A reset ends the session whatever its auth: left configured for a server
+    // without login, the client would still address that server after a switch,
+    // until the next one's session configured it again.
+    it.each([
+        ['without login', () => subsonicClient.initWithDefaults()],
+        ['with a key', () => subsonicClient.setApiKey('aether_abc_secret')]
+    ])('is unconfigured after a reset of a session %s', (_case, configure) => {
+        configure()
+
+        subsonicClient.reset()
+
+        expect(subsonicClient.isConfigured()).toBe(false)
+        expect(subsonicClient.hasApiKey()).toBe(false)
+        expect(() => subsonicClient.getStreamUrl('tr-1')).toThrow('Client not configured')
     })
 
     // The apiKey is held in a ref, so URLs built inside a computed track it: a
