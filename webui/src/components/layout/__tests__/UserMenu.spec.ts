@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { defineComponent, h, nextTick, ref, type Ref } from 'vue'
+import { nextTick, ref, type Ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
-import ConfirmationService from 'primevue/confirmationservice'
-import ConfirmDialog from 'primevue/confirmdialog'
+import type { ConfirmationOptions } from 'primevue/confirmationoptions'
 import type { MeUser } from '@/types/users'
 
 const push = vi.fn()
@@ -36,13 +35,19 @@ vi.mock('@/lib/host', async () => {
     }
 })
 
+// Change server asks through PrimeVue's confirmation service; the dialog showing
+// the question is PlayerLayout's, so here only the question itself is observed.
+const confirmRequire = vi.fn<(options: ConfirmationOptions) => void>()
+vi.mock('primevue/useconfirm', () => ({ useConfirm: () => ({ require: confirmRequire }) }))
+
 import UserMenu from '@/components/layout/UserMenu.vue'
+import { CHANGE_SERVER_GROUP } from '@/composables/useChangeServer'
 import { serverUrl } from '@/lib/host'
 
 const mountMenu = (props: { collapsed?: boolean } = {}) =>
     mount(UserMenu, {
         props,
-        global: { plugins: [PrimeVue, ConfirmationService], directives: { tooltip: {} } },
+        global: { plugins: [PrimeVue], directives: { tooltip: {} } },
         attachTo: document.body
     })
 
@@ -66,6 +71,7 @@ beforeEach(() => {
     push.mockClear()
     logoutMutate.mockClear()
     switchServer.mockClear()
+    confirmRequire.mockClear()
     document.body.innerHTML = ''
 })
 
@@ -174,11 +180,9 @@ describe('UserMenu in a browser tab', () => {
         serverUrl.value = 'http://localhost:8075'
     })
 
-    it('lists no server entry, and mounts no dialog for one', async () => {
-        const w = mountMenu()
-        const menu = await openMenu(w)
+    it('lists no server entry', async () => {
+        const menu = await openMenu(mountMenu())
         expect(outline(menu)).toEqual(['User settings', 'Admin', 'Metadata editor', 'About'])
-        expect(w.findComponent(ConfirmDialog).exists()).toBe(false)
     })
 
     it('still separates Log out, and only Log out, when sessions exist', async () => {
@@ -195,25 +199,13 @@ describe('UserMenu in a browser tab', () => {
     })
 })
 
+// What the question says, how it looks and how it is answered is useChangeServer's
+// own spec; the menu has to put the entry in place and raise the question.
 describe('UserMenu Change server in the desktop app', () => {
     beforeEach(() => {
         host.desktopApp = true
         serverUrl.value = 'http://nas.local:8075'
     })
-
-    // Opens the popup, picks the entry and lets the question render. The spy wraps
-    // the real service: the options are readable and the real dialog still answers.
-    const askToChangeServer = async () => {
-        const w = mountMenu()
-        const confirmRequire = vi.spyOn(w.vm.$confirm, 'require')
-        const menu = await openMenu(w)
-        menuItem(menu, 'Change server')!.click()
-        await nextTick()
-        return { w, confirmRequire }
-    }
-    const dialog = () => document.body.querySelector<HTMLElement>('.p-confirmdialog')
-    const answer = (button: 'accept' | 'reject') =>
-        dialog()!.querySelector<HTMLButtonElement>(`.p-confirmdialog-${button}-button`)!.click()
 
     it('is the only entry below the separator when there is no login to leave', async () => {
         const menu = await openMenu(mountMenu())
@@ -242,125 +234,38 @@ describe('UserMenu Change server in the desktop app', () => {
         ])
     })
 
-    it('asks before leaving, naming the server and warning about the sign-out', async () => {
-        const { confirmRequire } = await askToChangeServer()
+    it('asks before leaving, and closes the popup behind the question', async () => {
+        const menu = await openMenu(mountMenu())
+
+        menuItem(menu, 'Change server')!.click()
+        await nextTick()
 
         expect(confirmRequire).toHaveBeenCalledOnce()
         expect(confirmRequire).toHaveBeenCalledWith(
             expect.objectContaining({
+                group: CHANGE_SERVER_GROUP,
                 header: 'Change server',
                 message: 'Disconnect from nas.local:8075? You will be signed out.',
                 acceptLabel: 'Change server',
                 rejectLabel: 'Cancel'
             })
         )
-        // And it is on screen as the user will read it.
-        const shown = dialog()!
-        expect(shown.querySelector('.p-dialog-title')!.textContent).toBe('Change server')
-        expect(shown.querySelector('.p-confirmdialog-message')!.textContent).toBe(
-            'Disconnect from nas.local:8075? You will be signed out.'
-        )
-        expect(shown.querySelector('.p-confirmdialog-accept-button')!.textContent!.trim()).toBe(
-            'Change server'
-        )
-        expect(shown.querySelector('.p-confirmdialog-reject-button')!.textContent!.trim()).toBe(
-            'Cancel'
-        )
         // Nothing happens before the answer.
         expect(switchServer).not.toHaveBeenCalled()
-    })
-
-    it('closes the popup behind the question', async () => {
-        await askToChangeServer()
         expect(document.body.querySelector('.account-menu')).toBeNull()
     })
 
     it('switches server once the question is accepted, without logging out twice', async () => {
         authRequired.value = true
         currentUser.value = { login: 'alice', role: 'admin' }
-        await askToChangeServer()
+        const menu = await openMenu(mountMenu())
+        menuItem(menu, 'Change server')!.click()
 
-        answer('accept')
-        await nextTick()
+        confirmRequire.mock.calls[0][0].accept!()
 
         expect(switchServer).toHaveBeenCalledOnce()
         expect(switchServer).toHaveBeenCalledWith()
         // switchServer signs out by itself; the Log out mutation would repeat it.
         expect(logoutMutate).not.toHaveBeenCalled()
-        expect(dialog()).toBeNull()
-    })
-
-    it('leaves the session alone when the question is declined', async () => {
-        await askToChangeServer()
-
-        answer('reject')
-        await nextTick()
-
-        expect(switchServer).not.toHaveBeenCalled()
-        expect(dialog()).toBeNull()
-    })
-
-    // {host} is host[:port]: what the user knows the server by, without scheme or path.
-    it.each([
-        ['http://nas.local:8075', 'nas.local:8075'],
-        ['https://music.example.com/aether', 'music.example.com'],
-        // A hand-edited settings file can hold anything; the question shows it as saved.
-        ['not a url', 'not a url']
-    ])('names the server %s as %s', async (saved, shown) => {
-        serverUrl.value = saved
-        const { confirmRequire } = await askToChangeServer()
-        expect(confirmRequire).toHaveBeenCalledWith(
-            expect.objectContaining({
-                message: `Disconnect from ${shown}? You will be signed out.`
-            })
-        )
-    })
-
-    // The views mount ungrouped ConfirmDialogs next to this always-present sidebar,
-    // and PrimeVue shows every ungrouped dialog for every ungrouped question.
-    it('puts the question to its own dialog, not to the ungrouped ones the views mount', async () => {
-        const withViewDialog = defineComponent({
-            render: () => h('div', [h(UserMenu), h(ConfirmDialog)])
-        })
-        const w = mount(withViewDialog, {
-            global: { plugins: [PrimeVue, ConfirmationService], directives: { tooltip: {} } },
-            attachTo: document.body
-        })
-        await w.find('.user-btn').trigger('click')
-        const menu = document.body.querySelector('.account-menu') as HTMLElement
-        menuItem(menu, 'Change server')!.click()
-        await nextTick()
-
-        expect(document.body.querySelectorAll('.p-confirmdialog')).toHaveLength(1)
-        expect(dialog()!.textContent).toContain('Disconnect from nas.local:8075?')
-    })
-
-    // The entry is only rendered in the app; the handler does not rely on that alone.
-    it('does nothing if it is no longer the desktop app', async () => {
-        const w = mountMenu()
-        const confirmRequire = vi.spyOn(w.vm.$confirm, 'require')
-        const entry = menuItem(await openMenu(w), 'Change server')!
-
-        host.desktopApp = false
-        entry.click()
-        await nextTick()
-
-        expect(confirmRequire).not.toHaveBeenCalled()
-        expect(dialog()).toBeNull()
-        expect(switchServer).not.toHaveBeenCalled()
-    })
-
-    it('does nothing when no server is chosen', async () => {
-        const w = mountMenu()
-        const confirmRequire = vi.spyOn(w.vm.$confirm, 'require')
-        const entry = menuItem(await openMenu(w), 'Change server')!
-
-        serverUrl.value = null
-        entry.click()
-        await nextTick()
-
-        expect(confirmRequire).not.toHaveBeenCalled()
-        expect(dialog()).toBeNull()
-        expect(switchServer).not.toHaveBeenCalled()
     })
 })

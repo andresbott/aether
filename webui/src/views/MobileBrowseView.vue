@@ -13,6 +13,7 @@ import GenreCard from '@/components/library/GenreCard.vue'
 import PlaylistCard from '@/components/library/PlaylistCard.vue'
 import RadioStationCard from '@/components/library/RadioStationCard.vue'
 import { useAuth } from '@/composables/useAuth'
+import { useChangeServer } from '@/composables/useChangeServer'
 import { useDiscoveryFeed } from '@/composables/useDiscovery'
 import {
     useGenres,
@@ -22,6 +23,7 @@ import {
 } from '@/composables/useSubsonicQueries'
 import { useViewport } from '@/composables/useViewport'
 import { BROWSE_SHELF_SIZE } from '@/lib/browseShelf'
+import { isDesktopApp } from '@/lib/host'
 
 /**
  * The mobile shell's landing page AND its whole navigation surface — the phone's
@@ -38,8 +40,9 @@ import { BROWSE_SHELF_SIZE } from '@/lib/browseShelf'
  * to fill and live in
  * the header instead: Search (a search box samples nothing) and the account
  * entries the desktop keeps in the `UserMenu` popup — User settings / Admin /
- * About, plus Log out, behind the ⋮. Now Playing and the queue stay reachable
- * through the `MiniPlayer`, which docks here as on any other route.
+ * About, plus Change server (desktop app only) and Log out, behind the ⋮. Now
+ * Playing and the queue stay reachable through the `MiniPlayer`, which docks
+ * here as on any other route.
  *
  * Mobile only: the desktop shell has the sidebar, so arriving at desktop width
  * (bookmark, rotation) replaces the route with /library — the mirror of the guard
@@ -48,6 +51,7 @@ import { BROWSE_SHELF_SIZE } from '@/lib/browseShelf'
 const router = useRouter()
 const { shell } = useViewport()
 const { authRequired, isAdmin, logout } = useAuth()
+const { confirmChangeServer } = useChangeServer()
 
 watch(
     shell,
@@ -113,9 +117,12 @@ const showGenres = computed(() => genreShelf.value.length > 0 || genresError.val
 const showRadio = computed(() => radioShelf.value.length > 0 || stationsError.value)
 
 // Same entries and order as UserMenu's popup, so the two account surfaces read
-// alike: User settings → Admin (admins only) → About → Log out. Log out is gated
-// on there being a session at all (auth method "none" has nothing to leave), and
-// this is the phone's ONLY way out — the UserMenu lives in the desktop sidebar.
+// alike: User settings → Admin (admins only) → About → Change server (desktop app
+// only) → Log out. Log out is gated on there being a session at all (auth method
+// "none" has nothing to leave), and this is the phone's ONLY way out — the
+// UserMenu lives in the desktop sidebar. Change server asks first (see
+// useChangeServer); the dialog that shows the question is the one PlayerLayout
+// mounts for both shells.
 const accountMenu = ref<InstanceType<typeof Menu> | null>(null)
 const accountItems = computed<MenuItem[]>(() => {
     const items: MenuItem[] = [
@@ -129,8 +136,14 @@ const accountItems = computed<MenuItem[]>(() => {
         items.push({ label: 'Admin', icon: 'ms-settings', command: () => void router.push('/settings') })
     }
     items.push({ label: 'About', icon: 'ms-info', command: () => void router.push('/about') })
-    if (authRequired.value) {
+    // One separator for what ends or moves the session, as in UserMenu.
+    if (isDesktopApp() || authRequired.value) {
         items.push({ separator: true })
+    }
+    if (isDesktopApp()) {
+        items.push({ label: 'Change server', icon: 'ms-dns', command: () => confirmChangeServer() })
+    }
+    if (authRequired.value) {
         items.push({ label: 'Log out', icon: 'ms-logout', command: () => logout.mutate() })
     }
     return items

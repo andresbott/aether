@@ -2,10 +2,9 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import Popover from 'primevue/popover'
-import ConfirmDialog from 'primevue/confirmdialog'
-import { useConfirm } from 'primevue/useconfirm'
 import { useAuth } from '@/composables/useAuth'
-import { isDesktopApp, serverUrl } from '@/lib/host'
+import { useChangeServer } from '@/composables/useChangeServer'
+import { isDesktopApp } from '@/lib/host'
 
 // The identity chip is the sidebar's single bottom control: it opens a popup
 // with everything personal (user settings, log out) plus the Admin entry to
@@ -21,14 +20,8 @@ const router = useRouter()
 // The Admin and Metadata editor entries only exist for admins — the routes
 // they open both use the admin-only settings layout, so a non-admin is
 // redirected away and the /api/v0 data behind them answers 403.
-const { authRequired, currentUser, isAdmin, logout, switchServer } = useAuth()
-const confirm = useConfirm()
-
-// The Change server question is addressed to its own ConfirmDialog. PrimeVue
-// shows every ungrouped dialog for every ungrouped question, and the views mount
-// ungrouped ones next to this always-present sidebar, so an ungrouped dialog
-// here would put each of their confirmations on screen twice.
-const CHANGE_SERVER_GROUP = 'change-server'
+const { authRequired, currentUser, isAdmin, logout } = useAuth()
+const { confirmChangeServer } = useChangeServer()
 
 const popoverRef = ref<InstanceType<typeof Popover> | null>(null)
 const isOpen = ref(false)
@@ -62,33 +55,12 @@ const onLogout = () => {
     logout.mutate()
 }
 
-// `host[:port]` of the saved address: how the user knows the server, minus the scheme.
-const hostOf = (url: string): string => {
-    try {
-        return new URL(url).host
-    } catch {
-        // Only a hand-edited settings file gets here; show what it holds.
-        return url
-    }
-}
-
-// Only the desktop app, and only once it has a server, has one to leave. Leaving
-// signs the user out and empties the queue on this device, so it asks first;
-// switchServer() never rejects, which is why accept has nothing to catch.
+// The entry only exists in the desktop app. Leaving a server signs the user out,
+// so useChangeServer asks first; the dialog that shows the question is the one
+// PlayerLayout mounts.
 const onChangeServer = () => {
-    const url = serverUrl.value
-    if (!isDesktopApp() || url === null) return
     popoverRef.value?.hide()
-    confirm.require({
-        group: CHANGE_SERVER_GROUP,
-        header: 'Change server',
-        message: `Disconnect from ${hostOf(url)}? You will be signed out.`,
-        icon: 'ms-warning',
-        acceptLabel: 'Change server',
-        rejectLabel: 'Cancel',
-        acceptClass: 'p-button-danger',
-        accept: () => void switchServer()
-    })
+    confirmChangeServer()
 }
 </script>
 
@@ -167,8 +139,6 @@ const onChangeServer = () => {
                 </template>
             </div>
         </Popover>
-
-        <ConfirmDialog v-if="isDesktopApp()" :group="CHANGE_SERVER_GROUP" />
     </div>
 </template>
 

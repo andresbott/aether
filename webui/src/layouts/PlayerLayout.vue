@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
+import ConfirmDialog from 'primevue/confirmdialog'
 import Toast from 'primevue/toast'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import QueueSidebar from '@/components/layout/QueueSidebar.vue'
 import DesktopShell from '@/layouts/DesktopShell.vue'
 import MobileShell from '@/layouts/MobileShell.vue'
+import { CHANGE_SERVER_GROUP } from '@/composables/useChangeServer'
 import { useQueueSync } from '@/composables/useQueueSync'
 import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
 import { useViewport } from '@/composables/useViewport'
 import { useMediaSession } from '@/composables/useMediaSession'
 import { useNowPlayingSheet } from '@/composables/useNowPlayingSheet'
+import { isDesktopApp } from '@/lib/host'
 
 const route = useRoute()
 const queueSync = useQueueSync()
@@ -63,6 +66,12 @@ onUnmounted(() => {
         <MobileShell v-else />
     </div>
     <Toast />
+    <!-- The desktop app's Change server asks through this one dialog, whichever
+         shell's account menu raised it (UserMenu on the desktop, the phone's ⋮).
+         Here rather than in either menu: it sits outside the shell swap, and its
+         own group keeps the ungrouped dialogs the views mount from showing the
+         question too. -->
+    <ConfirmDialog v-if="isDesktopApp()" :group="CHANGE_SERVER_GROUP" />
 </template>
 
 <style>
