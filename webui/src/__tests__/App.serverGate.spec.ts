@@ -25,12 +25,14 @@ vi.mock('@/composables/useQueueSync', () => ({
 
 // A mocked module outlives vi.resetModules, so its serverUrl ref is one for the
 // whole file: cases set it through the import, not through the factory.
-const host = vi.hoisted(() => ({ desktopApp: true }))
+const host = vi.hoisted(() => ({ desktopApp: true, onTrayCommand: vi.fn() }))
 vi.mock('@/lib/host', async () => {
     const { ref } = await import('vue')
     const serverUrl = ref<string | null>(null)
     return {
         isDesktopApp: () => host.desktopApp,
+        // The tray bridge App wires in the app; what it does is its own spec's.
+        onTrayCommand: host.onTrayCommand,
         serverUrl,
         // As the IPC wrapper does: the saved address becomes the server.
         setServerUrl: async (url: string) => {
@@ -88,6 +90,8 @@ describe('App gate in the desktop app', () => {
         mintSpaToken.mockReset()
         probeServer.mockReset()
         host.desktopApp = true
+        host.onTrayCommand.mockReset()
+        host.onTrayCommand.mockResolvedValue(() => {})
         await setServer(null)
     })
 
@@ -97,6 +101,16 @@ describe('App gate in the desktop app', () => {
 
         expect(w.find('#login-server').exists()).toBe(true)
         expect(getMe).not.toHaveBeenCalled()
+    })
+
+    // The tray drives the player on every layout, so App wires it, not PlayerLayout
+    // (a stub here, and unmounted on the settings routes). The server step is as
+    // far from a player layout as the app gets, and the bridge is up all the same.
+    it('wires the tray bridge itself, with no player layout showing', async () => {
+        const w = await mountApp()
+
+        expect(w.find('.player-layout').exists()).toBe(false)
+        expect(host.onTrayCommand).toHaveBeenCalledOnce()
     })
 
     it('shows the login view instead of a blank window on a portal-only server', async () => {

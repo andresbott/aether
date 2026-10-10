@@ -13,8 +13,7 @@ import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
 import { useViewport } from '@/composables/useViewport'
 import { useMediaSession } from '@/composables/useMediaSession'
 import { useNowPlayingSheet } from '@/composables/useNowPlayingSheet'
-import { usePlayer } from '@/composables/usePlayer'
-import { isDesktopApp, onTrayCommand } from '@/lib/host'
+import { isDesktopApp } from '@/lib/host'
 
 const route = useRoute()
 const queueSync = useQueueSync()
@@ -37,14 +36,6 @@ const sheet = useNowPlayingSheet()
 // rather than in either shell.
 useMediaSession()
 
-// The desktop app's tray menu lives in Rust, but the player that plays is this
-// SPA's: the menu's Play / Pause and Next arrive as events and act through the
-// same player actions the media keys use (useMediaSession), so the tray and the
-// keys cannot diverge.
-const player = usePlayer()
-let unlistenTray: (() => void) | undefined
-let unmounted = false
-
 onMounted(async () => {
     // Adopt the queue saved from another browser/device before arming the save
     // side: starting first would let a debounced local save race the state
@@ -53,27 +44,8 @@ onMounted(async () => {
     queueSync.start()
 })
 
-onMounted(async () => {
-    if (!isDesktopApp()) return
-    try {
-        const unlisten = await onTrayCommand((command) => {
-            if (command === 'play_pause') player.togglePlayPause()
-            else if (command === 'next') player.playNext()
-        })
-        // The layout can unmount while the subscription is still being made: it
-        // would never be released, so release it as soon as it exists.
-        if (unmounted) unlisten()
-        else unlistenTray = unlisten
-    } catch (err) {
-        // Only the tray menu is lost; the window works without it.
-        console.warn('Tray commands unavailable', err)
-    }
-})
-
 onUnmounted(() => {
     queueSync.stop()
-    unmounted = true
-    unlistenTray?.()
 })
 </script>
 

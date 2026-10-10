@@ -6,6 +6,7 @@ import SettingsLayout from '@/layouts/SettingsLayout.vue'
 import LoginView from '@/views/LoginView.vue'
 import ConnectivityBanner from '@/components/layout/ConnectivityBanner.vue'
 import { useAuth } from '@/composables/useAuth'
+import { useTrayBridge } from '@/composables/useTrayBridge'
 import { subsonicReady } from '@/lib/subsonicSession'
 
 declare module 'vue-router' {
@@ -27,6 +28,11 @@ const layouts = {
 } as const
 
 const layout = computed(() => layouts[route.meta.layout ?? 'player'])
+
+// The desktop app's tray menu (Play / Pause, Next) drives the player on every
+// layout, so it is wired here, which is always mounted, and not in PlayerLayout,
+// which the settings routes unmount while the music plays on.
+useTrayBridge()
 
 // The login gate replaces the whole app, not a route: the SPA bootstraps on
 // /me and renders the login view until the server reports an identity (auth

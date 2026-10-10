@@ -61,9 +61,6 @@ vi.mock('@/lib/host', async () => {
     const { ref } = await import('vue')
     return {
         isDesktopApp: () => host.desktopApp,
-        // In the app the layout also subscribes to the tray menu's commands, which
-        // this spec has no interest in (PlayerLayout.trayCommands.spec.ts owns it).
-        onTrayCommand: async () => () => {},
         serverUrl: ref<string | null>('http://nas.local:8075')
     }
 })
