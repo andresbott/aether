@@ -1,5 +1,15 @@
+<script lang="ts">
+import { ref } from 'vue'
+
+// The server step's address, kept at module level: the gate unmounts this view
+// while a new server's /me loads, and whoever comes back through Change must
+// find the address they had, to correct it rather than type it again.
+const serverAddress = ref('')
+</script>
+
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+// `ref` comes from the module block above: both blocks share one module scope.
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
@@ -8,6 +18,14 @@ import Password from 'primevue/password'
 import { useAuth } from '@/composables/useAuth'
 import { apiErrorMessage } from '@/lib/apiError'
 import { sessionLostUnexpectedly } from '@/lib/authState'
+import { isDesktopApp, serverUrl, setServerUrl } from '@/lib/host'
+import {
+    InvalidServerAddressError,
+    NotAetherServerError,
+    ServerUnreachableError,
+    normalizeServerUrl,
+    probeServer
+} from '@/lib/api/Server'
 import BrandMark from '@/components/common/BrandMark.vue'
 
 // Rendered by App.vue in place of the whole app whenever a session is
@@ -15,8 +33,22 @@ import BrandMark from '@/components/common/BrandMark.vue'
 // bookmark. A successful login always lands on the home page, regardless
 // of the URL the browser sat on while logged out.
 
-const { login } = useAuth()
+const { login, needsServer, needsPortal, switchServer } = useAuth()
 const router = useRouter()
+
+// Which card shows. Only the desktop app ever needs the first two: the server
+// comes before anything else, and a portal-only server leaves nothing to sign
+// in to.
+const card = computed<'server' | 'portal' | 'login'>(() => {
+    if (needsServer.value) return 'server'
+    if (needsPortal.value) return 'portal'
+    return 'login'
+})
+
+function onCardSubmit() {
+    if (card.value === 'server') void onConnect()
+    else if (card.value === 'login') void onSubmit()
+}
 
 const username = ref('')
 const password = ref('')
@@ -49,6 +81,83 @@ async function onSubmit() {
         password.value = ''
     }
 }
+
+// --- Server step (desktop app only) ---
+
+const desktopApp = isDesktopApp()
+
+const PORTAL_MESSAGE =
+    'This server signs you in through a web portal, which the desktop app cannot open yet. ' +
+    'Open it in a browser, or connect to another server.'
+
+const connecting = ref(false)
+const serverError = ref('')
+// The address answered as Aether behind a portal: nothing was saved, and the
+// field stays open for another address.
+const behindPortal = ref(false)
+
+const canConnect = computed(() => serverAddress.value.trim().length > 0 && !connecting.value)
+
+async function onConnect() {
+    if (!canConnect.value) return
+    serverError.value = ''
+    behindPortal.value = false
+    connecting.value = true
+    try {
+        const url = normalizeServerUrl(serverAddress.value)
+        const answer = await probeServer(url)
+        if (answer.kind === 'portal') {
+            behindPortal.value = true
+            return
+        }
+        // Saving is all: the server enables /me, and the gate takes it from
+        // there — the app for auth "none", this card's credentials for "native".
+        await setServerUrl(url)
+    } catch (err) {
+        serverError.value = connectErrorMessage(err)
+    } finally {
+        connecting.value = false
+    }
+}
+
+// Only copy written here reaches the screen: a transport's rejection names the
+// request URL. The probe's errors carry their own; the player's refusal of an
+// address (`{ code, message }` over IPC) explains itself without one.
+function connectErrorMessage(err: unknown): string {
+    if (
+        err instanceof InvalidServerAddressError ||
+        err instanceof ServerUnreachableError ||
+        err instanceof NotAetherServerError
+    ) {
+        return err.message
+    }
+    if (isHostError(err)) return err.message
+    return 'Could not connect to the server.'
+}
+
+function isHostError(err: unknown): err is { code: string; message: string } {
+    if (typeof err !== 'object' || err === null) return false
+    const { code, message } = err as { code?: unknown; message?: unknown }
+    return typeof code === 'string' && typeof message === 'string'
+}
+
+// `Server · host[:port]` above the credentials: where they are about to go.
+const serverHost = computed(() => {
+    const url = serverUrl.value
+    if (url === null) return ''
+    try {
+        return new URL(url).host
+    } catch {
+        // Only a hand-edited settings file gets here; show what it holds.
+        return url
+    }
+})
+
+// Back to the server step, with the address being left in the field.
+function changeServer() {
+    if (serverUrl.value !== null) serverAddress.value = serverUrl.value
+    void switchServer()
+}
 </script>
 
 <template>
@@ -58,55 +167,113 @@ async function onSubmit() {
              darkModeSelector and also carries our own --app-* dark tokens,
              making the inputs, checkbox and button render their dark variants
              even while the app is in light mode. -->
-        <form class="login-card dark-mode" @submit.prevent="onSubmit">
+        <form class="login-card dark-mode" @submit.prevent="onCardSubmit">
             <div class="login-brand-row">
                 <BrandMark size="2.5rem" />
                 <h1 class="login-brand">A<span class="login-brand-accent">e</span>ther</h1>
             </div>
-            <!-- Only for a session lost on its own: after a deliberate logout
-                 the user knows why the form is here. -->
-            <p v-if="sessionLostUnexpectedly" class="login-expired">
-                Your session has expired — please sign in again.
-            </p>
 
-            <div class="field">
-                <label for="login-username">Username</label>
-                <InputText
-                    id="login-username"
-                    v-model="username"
-                    autocomplete="username"
-                    autofocus
-                    :disabled="login.isPending.value"
+            <!-- Desktop app, no server yet: only the address, nothing to sign
+                 in to. -->
+            <template v-if="card === 'server'">
+                <div class="field">
+                    <label for="login-server">Server address</label>
+                    <InputText
+                        id="login-server"
+                        v-model="serverAddress"
+                        placeholder="http://aether.local:8075"
+                        autocomplete="url"
+                        inputmode="url"
+                        autocapitalize="off"
+                        spellcheck="false"
+                        autofocus
+                        :disabled="connecting"
+                    />
+                </div>
+
+                <p v-if="behindPortal" class="login-notice" role="status">
+                    {{ PORTAL_MESSAGE }}
+                </p>
+                <p v-if="serverError" class="login-error" role="alert">{{ serverError }}</p>
+
+                <Button
+                    type="submit"
+                    label="Connect"
+                    class="login-submit"
+                    :loading="connecting"
+                    :disabled="!canConnect"
                 />
-            </div>
+            </template>
 
-            <div class="field">
-                <label for="login-password">Password</label>
-                <Password
-                    v-model="password"
-                    input-id="login-password"
-                    :feedback="false"
-                    toggle-mask
-                    autocomplete="current-password"
-                    :disabled="login.isPending.value"
-                    fluid
+            <!-- Desktop app on a server that signs in through its portal. -->
+            <template v-else-if="card === 'portal'">
+                <p class="login-notice">{{ PORTAL_MESSAGE }}</p>
+                <Button
+                    type="button"
+                    label="Change server"
+                    class="login-submit"
+                    @click="changeServer"
                 />
-            </div>
+            </template>
 
-            <div class="field field-inline">
-                <Checkbox v-model="rememberMe" input-id="login-remember" binary />
-                <label for="login-remember">Keep me logged in</label>
-            </div>
+            <template v-else>
+                <!-- Only for a session lost on its own: after a deliberate logout
+                     the user knows why the form is here. -->
+                <p v-if="sessionLostUnexpectedly" class="login-expired">
+                    Your session has expired — please sign in again.
+                </p>
 
-            <p v-if="error" class="login-error" role="alert">{{ error }}</p>
+                <p v-if="desktopApp && serverHost" class="login-server">
+                    <span>Server · {{ serverHost }}</span>
+                    <button
+                        type="button"
+                        class="login-link"
+                        :disabled="login.isPending.value"
+                        @click="changeServer"
+                    >
+                        Change
+                    </button>
+                </p>
 
-            <Button
-                type="submit"
-                label="Sign in"
-                class="login-submit"
-                :loading="login.isPending.value"
-                :disabled="!canSubmit"
-            />
+                <div class="field">
+                    <label for="login-username">Username</label>
+                    <InputText
+                        id="login-username"
+                        v-model="username"
+                        autocomplete="username"
+                        autofocus
+                        :disabled="login.isPending.value"
+                    />
+                </div>
+
+                <div class="field">
+                    <label for="login-password">Password</label>
+                    <Password
+                        v-model="password"
+                        input-id="login-password"
+                        :feedback="false"
+                        toggle-mask
+                        autocomplete="current-password"
+                        :disabled="login.isPending.value"
+                        fluid
+                    />
+                </div>
+
+                <div class="field field-inline">
+                    <Checkbox v-model="rememberMe" input-id="login-remember" binary />
+                    <label for="login-remember">Keep me logged in</label>
+                </div>
+
+                <p v-if="error" class="login-error" role="alert">{{ error }}</p>
+
+                <Button
+                    type="submit"
+                    label="Sign in"
+                    class="login-submit"
+                    :loading="login.isPending.value"
+                    :disabled="!canSubmit"
+                />
+            </template>
         </form>
     </div>
 </template>
@@ -220,6 +387,55 @@ async function onSubmit() {
     text-align: center;
     font-size: 0.85rem;
     color: var(--login-card-dim);
+}
+
+/* The server the credentials go to, muted like the expiry note, with the way
+   back to the server step beside it. */
+.login-server {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: baseline;
+    gap: 0.25rem 0.6rem;
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--login-card-dim);
+    overflow-wrap: anywhere;
+}
+
+/* A text action. --app-accent resolves inside the card's dark-mode scope, so
+   it reads on the dark card in both themes. */
+.login-link {
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-weight: 600;
+    color: var(--app-accent);
+    cursor: pointer;
+}
+
+.login-link:hover:not(:disabled) {
+    color: var(--app-accent-hover);
+    text-decoration: underline;
+}
+
+.login-link:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+.login-link:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+/* Why this server cannot be used from the app. */
+.login-notice {
+    margin: 0;
+    font-size: 0.85rem;
+    line-height: 1.5;
 }
 
 .field {

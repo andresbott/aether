@@ -4,6 +4,7 @@ import { useToast } from 'primevue/usetoast'
 import * as UsersApi from '@/lib/api/Users'
 import type { MeResponse, User, CreateUserInput, UpdateUserInput } from '@/types/users'
 import { apiErrorMessage, apiFieldErrors } from '@/lib/apiError'
+import { isDesktopApp, serverUrl } from '@/lib/host'
 
 export const userQueryKeys = {
     all: ['users'] as const,
@@ -16,7 +17,11 @@ export function useMe() {
     return useQuery<MeResponse>({
         queryKey: userQueryKeys.me,
         queryFn: () => UsersApi.getMe(),
-        staleTime: Infinity
+        staleTime: Infinity,
+        // Inside the desktop app there is no one to ask until the login view's
+        // server step has picked a server. A disabled query is not loading, so
+        // the gate renders that step instead of waiting.
+        enabled: computed(() => !isDesktopApp() || serverUrl.value !== null)
     })
 }
 

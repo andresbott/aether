@@ -32,8 +32,9 @@ const layout = computed(() => layouts[route.meta.layout ?? 'player'])
 // /me and renders the login view until the server reports an identity (auth
 // method "native" only — with "none" nothing is ever gated). While /me is
 // still in flight nothing is rendered, so anonymous visitors never see the
-// app flash before the login form.
-const { isLoading, needsLogin, isAdmin } = useAuth()
+// app flash before the login form. Inside the desktop app the login view also
+// asks for the server first, and explains a portal-only server it cannot use.
+const { isLoading, needsLogin, needsServer, needsPortal, isAdmin } = useAuth()
 
 // The /settings area is administration only: a non-admin who lands there (a
 // typed URL — nothing in their UI links to it) is sent home. Watched rather
@@ -52,6 +53,6 @@ watchEffect(() => {
 
 <template>
     <ConnectivityBanner />
-    <LoginView v-if="needsLogin" />
+    <LoginView v-if="needsServer || needsLogin || needsPortal" />
     <component :is="layout" v-else-if="!isLoading && subsonicReady" />
 </template>

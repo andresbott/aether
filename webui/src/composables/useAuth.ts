@@ -6,6 +6,7 @@ import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSync } from '@/composables/useQueueSync'
 import { explicitLogout, sessionExpired } from '@/lib/authState'
 import { DEVICE_ID_KEY } from '@/lib/deviceIdentity'
+import { clearServerUrl, isDesktopApp, serverUrl } from '@/lib/host'
 import {
     subsonicReady,
     spaTokenId,
@@ -21,6 +22,16 @@ import { subsonicClient } from '@/lib/api/subsonic'
 // explicit logout that transition would trigger the expiry watcher and purge
 // a second time. Re-armed on login (sessionExpired flips back to false).
 let purgedThisExpiry = false
+
+// Everything that describes one session on one server — whether it expired or
+// was ended on purpose, the purge latch, the mint budget — starts over on a
+// fresh login, and on a switch to another server.
+function startFreshSession(): void {
+    sessionExpired.value = false
+    explicitLogout.value = false
+    purgedThisExpiry = false
+    resetMintAttempts()
+}
 
 // The local session is over — explicit logout or expiry — so nothing of the
 // old user may survive on this device: playback stops, localStorage is
@@ -166,6 +177,23 @@ export function useAuth() {
         return currentUser.value === null || sessionExpired.value
     })
 
+    // Inside the desktop app the server is the user's choice: until there is
+    // one, /me has no one to ask, and the login view asks for a server first.
+    // Never in the browser, where the server is the page's own origin.
+    const needsServer = computed(() => isDesktopApp() && serverUrl.value === null)
+
+    // A proxy-header server signs users in through its portal, which the
+    // desktop app cannot open yet. Its proxy normally keeps /me closed to the
+    // app, and the server step reports that; one that lets an anonymous /me
+    // through would otherwise leave the window blank. In the browser the
+    // proxy's own redirect to the portal handles it.
+    const needsPortal = computed(
+        () =>
+            isDesktopApp() &&
+            me.data.value?.authMethod === 'proxy-header' &&
+            currentUser.value === null
+    )
+
     const loginMutation = useMutation({
         mutationFn: ({
             username,
@@ -177,11 +205,8 @@ export function useAuth() {
             rememberMe: boolean
         }) => AuthApi.login(username, password, rememberMe),
         onSuccess: async () => {
-            sessionExpired.value = false
-            explicitLogout.value = false
-            purgedThisExpiry = false
-            // A fresh session gets a fresh mint budget.
-            resetMintAttempts()
+            // A fresh session, with a fresh mint budget.
+            startFreshSession()
             // The cookie is set: refetch /me so the identity (and any queries
             // that 401ed while logged out) repopulate.
             await qc.invalidateQueries({ queryKey: userQueryKeys.me })
@@ -203,6 +228,42 @@ export function useAuth() {
         }
     })
 
+    /**
+     * Signs out of the desktop app's server and forgets it, back to the login
+     * view's server step. Never rejects: the step asks for a server either way.
+     */
+    async function switchServer(): Promise<void> {
+        const signedIn = authRequired.value && currentUser.value !== null
+        if (signedIn) {
+            // Best-effort, and while the server is still set: the api client
+            // refuses every request once it is forgotten. Clears the session
+            // cookie in the app's jar and revokes the spa token.
+            try {
+                await AuthApi.logout(spaTokenId.value ?? undefined)
+            } catch {
+                // The local session ends whatever the server answered.
+            }
+        }
+        // Before any cache reset: with no server the /me query is disabled, so
+        // the reset cannot refetch it from the server being left.
+        serverUrl.value = null
+        if (signedIn) {
+            await purgeLocalSession(qc)
+        } else {
+            resetSubsonicSession()
+            qc.clear()
+        }
+        // Nothing of this server's session may carry over: an expiry flag
+        // left set would keep a next server without login from ever rendering.
+        startFreshSession()
+        try {
+            await clearServerUrl()
+        } catch {
+            // Only the saved setting is stale; the next server chosen replaces it.
+            console.warn('Could not forget the saved server')
+        }
+    }
+
     return {
         /** True while the /me bootstrap is in flight. */
         isLoading: computed(() => me.isLoading.value),
@@ -214,7 +275,13 @@ export function useAuth() {
         isAdmin,
         /** Render the login view instead of the app. */
         needsLogin,
+        /** Desktop app without a server: the login view asks for one first. */
+        needsServer,
+        /** Desktop app on a proxy-header server it cannot sign in to. */
+        needsPortal,
         login: loginMutation,
-        logout: logoutMutation
+        logout: logoutMutation,
+        /** Desktop app: sign out of the server and choose another. */
+        switchServer
     }
 }

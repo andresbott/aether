@@ -23,6 +23,26 @@ vi.mock('@/composables/useQueueSync', () => ({
     useQueueSync: () => ({ stop: stopSync, start: vi.fn(), restore: vi.fn() })
 }))
 
+// Where the SPA runs: a browser tab on the server's origin unless a case moves
+// it into the desktop app. clearServerUrl forgets the server as the IPC wrapper
+// does; the session hand-off has its own spec.
+const host = vi.hoisted(() => ({ desktopApp: false, clearServerUrl: vi.fn() }))
+vi.mock('@/lib/host', async () => {
+    const { ref } = await import('vue')
+    const serverUrl = ref<string | null>('http://localhost:3000')
+    return {
+        isDesktopApp: () => host.desktopApp,
+        serverUrl,
+        httpFetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
+        clearServerUrl: async () => {
+            host.clearServerUrl()
+            serverUrl.value = null
+        },
+        setSession: async () => {},
+        clearSession: async () => {}
+    }
+})
+
 // useAuth holds module state (the expiry watcher and its once-per-session
 // purge latch), so every test gets a fresh module. authState must come from
 // the same registry generation — a top-level import would point at a stale
@@ -36,6 +56,7 @@ let subsonicClient: (typeof import('@/lib/api/subsonic'))['subsonicClient']
 let subsonicReady: (typeof import('@/lib/subsonicSession'))['subsonicReady']
 let spaTokenId: (typeof import('@/lib/subsonicSession'))['spaTokenId']
 let MAX_MINT_ATTEMPTS: (typeof import('@/lib/subsonicSession'))['MAX_MINT_ATTEMPTS']
+let serverUrl: (typeof import('@/lib/host'))['serverUrl']
 
 function withAuth() {
     let auth!: ReturnType<UseAuth>
@@ -84,6 +105,9 @@ describe('useAuth', () => {
         ;({ subsonicReady, spaTokenId, MAX_MINT_ATTEMPTS } = await import(
             '@/lib/subsonicSession'
         ))
+        ;({ serverUrl } = await import('@/lib/host'))
+        host.desktopApp = false
+        host.clearServerUrl.mockReset()
         sessionExpired.value = false
         explicitLogout.value = false
         subsonicReady.value = false
@@ -497,6 +521,217 @@ describe('useAuth', () => {
             await flushPromises()
             expect(mintSpaToken).toHaveBeenCalledTimes(2)
             expect(spaTokenId.value).toBe('tid2')
+        })
+    })
+
+    describe('in the desktop app', () => {
+        const SERVER = 'http://aether.local:8075'
+        const meProxyAnonymous: MeResponse = {
+            authMethod: 'proxy-header',
+            user: null,
+            features: { userManagement: false }
+        }
+        const meProxyAlice: MeResponse = {
+            ...meProxyAnonymous,
+            user: { login: 'alice', role: 'admin' }
+        }
+
+        beforeEach(() => {
+            host.desktopApp = true
+            serverUrl.value = SERVER
+        })
+
+        it('asks for a server first, and nothing of a server until then', async () => {
+            serverUrl.value = null
+            getMe.mockResolvedValue(meNone)
+            const auth = withAuth()
+            await flushPromises()
+
+            expect(auth.needsServer.value).toBe(true)
+            // A disabled /me is not loading, so the gate can show the server step.
+            expect(auth.isLoading.value).toBe(false)
+            expect(getMe).not.toHaveBeenCalled()
+        })
+
+        it('asks /me once a server is chosen', async () => {
+            serverUrl.value = null
+            getMe.mockResolvedValue(meAnonymous)
+            const auth = withAuth()
+            await flushPromises()
+
+            serverUrl.value = SERVER
+            await flushPromises()
+
+            expect(getMe).toHaveBeenCalledTimes(1)
+            expect(auth.needsServer.value).toBe(false)
+            expect(auth.needsLogin.value).toBe(true)
+        })
+
+        // In the browser the server is the page's origin; there is nothing to ask.
+        it('never asks for a server in the browser', async () => {
+            host.desktopApp = false
+            serverUrl.value = null
+            getMe.mockResolvedValue(meNone)
+            const auth = withAuth()
+            await flushPromises()
+
+            expect(auth.needsServer.value).toBe(false)
+            expect(getMe).toHaveBeenCalledTimes(1)
+        })
+
+        // A proxy that lets an anonymous /me through: the app cannot reach the
+        // portal, so the login view explains instead of a blank window.
+        it('flags a portal-only server when /me answers proxy-header without a user', async () => {
+            getMe.mockResolvedValue(meProxyAnonymous)
+            const auth = withAuth()
+            await flushPromises()
+
+            expect(auth.needsPortal.value).toBe(true)
+            expect(auth.needsLogin.value).toBe(false)
+        })
+
+        it.each([
+            ['a proxy-header identity', meProxyAlice],
+            ['native auth', meAnonymous],
+            ['no auth', meNone]
+        ])('flags no portal for %s', async (_case, me) => {
+            getMe.mockResolvedValue(me)
+            const auth = withAuth()
+            await flushPromises()
+
+            expect(auth.needsPortal.value).toBe(false)
+        })
+
+        it('leaves the portal to the proxy in the browser', async () => {
+            host.desktopApp = false
+            getMe.mockResolvedValue(meProxyAnonymous)
+            const auth = withAuth()
+            await flushPromises()
+
+            expect(auth.needsPortal.value).toBe(false)
+        })
+
+        describe('switchServer', () => {
+            // The order is the point. The logout goes out while the server is
+            // still set (the api client refuses to send once it is forgotten);
+            // the server is forgotten before the purge, whose cache reset must
+            // not refetch /me from it; the saved setting goes last.
+            it('signs out, forgets the server, purges, then drops the setting', async () => {
+                getMe.mockResolvedValue(meAlice)
+                const events: string[] = []
+                logout.mockImplementation(async () => {
+                    events.push(`logout, server ${serverUrl.value}`)
+                })
+                stopSync.mockImplementation(() => {
+                    events.push(`purge, server ${serverUrl.value}`)
+                })
+                host.clearServerUrl.mockImplementation(() => {
+                    events.push('setting cleared')
+                })
+                const auth = withAuth()
+                await flushPromises()
+
+                await auth.switchServer()
+
+                expect(events).toEqual([
+                    `logout, server ${SERVER}`,
+                    'purge, server null',
+                    'setting cleared'
+                ])
+                expect(logout).toHaveBeenCalledWith('tid_default')
+                expect(getMe).toHaveBeenCalledTimes(1)
+                expect(clearQueue).toHaveBeenCalled()
+                expect(subsonicClient.hasApiKey()).toBe(false)
+                expect(subsonicReady.value).toBe(false)
+                expect(auth.needsServer.value).toBe(true)
+            })
+
+            it.each([
+                ['without login', meNone],
+                ['with nobody signed in', meAnonymous]
+            ])(
+                'signs nobody out %s, but drops the cache and the /rest session',
+                async (_case, me) => {
+                    getMe.mockResolvedValue(me)
+                    const auth = withAuth()
+                    await flushPromises()
+                    expect(subsonicReady.value).toBe(me === meNone)
+
+                    await auth.switchServer()
+
+                    expect(logout).not.toHaveBeenCalled()
+                    expect(getMe).toHaveBeenCalledTimes(1)
+                    expect(subsonicReady.value).toBe(false)
+                    expect(host.clearServerUrl).toHaveBeenCalledTimes(1)
+                    expect(auth.needsServer.value).toBe(true)
+                }
+            )
+
+            it('forgets the server even when the logout fails', async () => {
+                getMe.mockResolvedValue(meAlice)
+                logout.mockRejectedValue(new Error('offline'))
+                const auth = withAuth()
+                await flushPromises()
+
+                await expect(auth.switchServer()).resolves.toBeUndefined()
+
+                expect(clearQueue).toHaveBeenCalled()
+                expect(host.clearServerUrl).toHaveBeenCalledTimes(1)
+                expect(auth.needsServer.value).toBe(true)
+            })
+
+            // Only the saved setting stays stale; choosing the next server
+            // replaces it, so the caller has nothing to handle.
+            it('resolves when the saved setting cannot be cleared', async () => {
+                getMe.mockResolvedValue(meNone)
+                host.clearServerUrl.mockImplementation(() => {
+                    throw { code: 'Internal', message: 'read-only file system' }
+                })
+                const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+                const auth = withAuth()
+                await flushPromises()
+
+                await expect(auth.switchServer()).resolves.toBeUndefined()
+
+                expect(warn).toHaveBeenCalledWith('Could not forget the saved server')
+                expect(auth.needsServer.value).toBe(true)
+                warn.mockRestore()
+            })
+
+            // An expiry belongs to the server being left. Kept, the flag would
+            // stop a server without login from ever rendering the app.
+            it('starts the next server afresh after an expired session', async () => {
+                getMe.mockResolvedValue(meAlice)
+                const auth = withAuth()
+                await flushPromises()
+                getMe.mockResolvedValue(meAnonymous)
+                sessionExpired.value = true
+                await flushPromises()
+                expect(auth.needsLogin.value).toBe(true)
+
+                await auth.switchServer()
+                getMe.mockResolvedValue(meNone)
+                serverUrl.value = 'http://other.lan:8075'
+                await flushPromises()
+
+                expect(sessionExpired.value).toBe(false)
+                expect(auth.needsLogin.value).toBe(false)
+                expect(subsonicReady.value).toBe(true)
+            })
+
+            it('asks the next server for a login without blaming an expiry', async () => {
+                getMe.mockResolvedValue(meAlice)
+                const auth = withAuth()
+                await flushPromises()
+
+                await auth.switchServer()
+                getMe.mockResolvedValue(meAnonymous)
+                serverUrl.value = 'http://other.lan:8075'
+                await flushPromises()
+
+                expect(auth.needsLogin.value).toBe(true)
+                expect(sessionLostUnexpectedly.value).toBe(false)
+            })
         })
     })
 })
