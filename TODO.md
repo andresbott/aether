@@ -67,11 +67,35 @@ and `todo list --json` cover the common actions — run `todo --help`.
 - [x] icon
 - [x] run without xatrr
 - [ ] Proxy-header login in the desktop app (system browser + cookie hand-off)
-  Servers behind an auth portal (Authelia) are refused at the app's server step today: the portal signs in through a browser redirect the app cannot follow, and its ACL keeps /api/v0 closed to anonymous callers (docs/agents/player/features.md). Direction (server-selection plan, D7): sign in through the system browser, then hand the session cookie over into tauri-plugin-http's cookie jar.
+  Servers behind an auth portal (Authelia) are refused at the app's server step today: the portal signs in through a browser redirect the app cannot follow, and its ACL keeps /api/v0 closed to anonymous callers (docs/agents/player/features.md). Direction (D7, under Key decisions in docs/agents/player/architecture.md): sign in through the system browser, then hand the session cookie over into tauri-plugin-http's cookie jar.
 - [ ] Playback retrofit: Rust engine, tray, state events (narrowed follow-up #1)
   The bootstrap spec's follow-up #1, narrowed by server selection to playback: the SPA still plays through its own <audio> while the Rust Player/rodio engine stays idle. Move playback into the engine over IPC (player://state, queue commands), point the tray at it, and decide the fate of the browsing/playback commands nothing calls today (docs/agents/player/architecture.md, Known debt).
 - [ ] Metadata editor picture previews in the desktop app (fetch through the plugin + object URLs)
   Picture previews and the artist image build <img> URLs from apiClient.defaults.baseURL, and copy-picture calls a raw fetch (webui/src/lib/api/Metadata.ts:128,187, webui/src/views/settings/metadata-editor/PicturesSection.vue:207). The /api/v0 picture endpoints are cookie-authenticated, so none of it loads in the app. Fix: fetch through the host transport (httpFetch) and render object URLs.
+- [ ] Server-selection follow-ups (from the branch review)
+  What the whole-branch review of player/server-selection left open; none of it blocks using the app.
+  - [ ] `normalize_server_url`: pin default-port elision, host lowercasing and IPv6 literals
+    Unit-test each in aether-core; the JS normaliser (`normalizeServerUrl` in webui/src/lib/api/Server.ts) must agree on all three.
+  - [ ] Unit tests for the three settings/session command guarantees
+    `set_session` answers NotConnected without a server; a failed settings write leaves settings and session untouched; `set_server_url` drops the session. Make `replace_settings` path-based so a test can drive it.
+  - [ ] Settings commands: `set_session` doc comment, first-launch log, atomic write, `async`
+    `set_session`'s doc comment says "Authenticates", but the key is not checked; quiet the NotFound log on first launch; write settings.json atomically (temp file + rename); mark the settings commands `async`.
+  - [ ] Host layer: reject clearly when the plugin import fails, rename a shadowing field, two specs
+    A failed `@tauri-apps/plugin-http` import should install a transport that rejects clearly instead of falling back to the webview's fetch; rename `SubsonicClient`'s field that shadows the imported `serverUrl` in subsonic.ts; specs for a bare-string transport rejection → NETWORK_MESSAGE and for the explicit-signal branch.
+  - [ ] Server step wording for a server that answers /me with an error
+    A saved server whose /me answers 5xx or 401 is shown as "Could not reach"; the probe calls a server a portal when its /me answers 5xx but its /rest is healthy.
+  - [ ] Server step a11y: label the Change link, focus the address field
+    `aria-label="Change server"` on the sign-in card's Change link; focus `#login-server` when the step appears after Change.
+  - [ ] One `serverHost(url)` helper for useChangeServer.ts and LoginView.vue
+    Both derive `host[:port]` from the saved address the same way (`hostOf` and the `serverHost` computed).
+  - [ ] `originAgnostic.spec.ts`: regex-literal lookbehind, assert it reaches .vue files, a third rule later
+    A lookbehind so a regex literal ending in `\/` does not swallow the rest of its line; assert the walk reaches `.vue` files; once the metadata-editor pictures are fixed, a third rule: no raw `fetch(`/`sendBeacon(`/`axios.create(` outside the transport.
+  - [ ] Stale comments: events.spec.ts, events.rs, `resetTrayBridgeForTests`
+    `lib/host/__tests__/events.spec.ts` names the old layout caller; the `events.rs` comment and test name overclaim (`player://state` has no SPA listener); `resetTrayBridgeForTests` is a test hook exported from production code.
+  - [ ] Detail views show nothing on a transport failure in the app
+    AlbumView, ArtistView, PlaylistDetailView and GenreDetailView render `{{ error.message }}`, which a bare-string rejection from the plugin leaves empty; route them through `apiErrorMessage`.
+  - [ ] Player docs: the `sendBeacon` exception, `server/` paths, two wordings, IPC body cost
+    The browser `sendBeacon` is the sanctioned exception to "everything through the transport"; add `server/` to the player docs' path-convention exceptions; fix ipc.md's "nothing validated" and architecture.md's "travels once" wording; note that request bodies cross IPC as a JSON byte array, so multi-MB uploads are slow.
 
 # Future releases
 

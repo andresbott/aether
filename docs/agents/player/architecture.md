@@ -13,9 +13,8 @@ repository from the design spec
 decision record; where it says "follow-up", check [features.md](features.md)
 for current status before assuming it landed), moved into this repo on
 2026-10-09, trading its vendored copy of the webui for the real one, and given
-server selection on 2026-10-10 (plan
-`docs/superpowers/plans/2026-10-09-player-server-selection.md`, whose "Design
-decisions" section is the record for the transport, D1–D8).
+server selection on 2026-10-10, whose design decisions D1–D8 are recorded
+under [Key decisions](#server-selection-decisions) below.
 
 Paths in `docs/agents/player/` are relative to `player/` unless they start with
 `webui/`, `docs/` or `.github/`.
@@ -85,7 +84,7 @@ Rules each layer enforces:
   the SPA's own `/api/v0` and `/rest` calls cross the HTTP plugin as opaque
   requests, which the Rust code neither parses nor shapes.
 
-## Key decisions (dated 2026-07-22 unless marked; spec and plan linked above)
+## Key decisions (dated 2026-07-22 unless marked; the bootstrap spec is linked above)
 
 - **Bundle identifier is `dev.andresbott.aether.player` — exact, never
   change.** Tauri derives the app's config and cache directories from it
@@ -96,18 +95,19 @@ Rules each layer enforces:
   Still true since server selection — the HTTP plugin *is* IPC — but the data
   path is now HTTP-shaped, not command-shaped: the SPA keeps its axios/`fetch`
   code and the server's own API shapes, and the plugin executes the requests
-  in Rust (2026-10-10, D2, D6). So the per-endpoint browsing commands in
-  `commands/library.rs` are unused by the SPA, and the bootstrap spec's
-  follow-up #1 (the webui IPC retrofit) narrows to playback, queue, state
-  events and the tray. Commands that do cross IPC stay *thin passthroughs of
-  the Subsonic API shape* — do not invent new response shapes.
+  in Rust (2026-10-10, [D2, D6](#server-selection-decisions)). So the
+  per-endpoint browsing commands in `commands/library.rs` are unused by the
+  SPA, and the bootstrap spec's follow-up #1 (the webui IPC retrofit) narrows
+  to playback, queue, state events and the tray. Commands that do cross IPC
+  stay *thin passthroughs of the Subsonic API shape* — do not invent new
+  response shapes.
 - **Mobile-ready, not mobile-initialized.** `crate-type = ["staticlib",
   "cdylib", "rlib"]`, android/ios engine stubs compile, identifier set — but
   no `tauri android/ios init` has been run (no `gen/android`, `gen/apple`;
   `src-tauri/gen/` is gitignored). Keep it that way until the mobile
   follow-up plans.
-- **What the player stores (2026-10-10, D4):** one setting —
-  `settings.json` `{ "serverUrl": … }` in `app_config_dir()`
+- **What the player stores (2026-10-10, [D4](#server-selection-decisions)):**
+  one setting — `settings.json` `{ "serverUrl": … }` in `app_config_dir()`
   (`src-tauri/src/settings.rs`), the normalised address of the server the
   user picked; a missing or damaged file yields the defaults, so it can never
   keep the app from starting. The session is not the player's to store: it is
@@ -126,8 +126,9 @@ Rules each layer enforces:
   playback continues in the webview (the window is hidden, not destroyed);
   quit only via the tray menu. Unverified on macOS so far, where a hidden
   WKWebView may be throttled. The tray's Play / Pause and Next do not touch
-  the Rust player (2026-10-10, D3): they emit `tray://command` and the SPA's
-  `useTrayBridge` acts on its own player ([ipc.md](ipc.md#events-rust--ui)).
+  the Rust player (2026-10-10, [D3](#server-selection-decisions)): they emit
+  `tray://command` and the SPA's `useTrayBridge` acts on its own player
+  ([ipc.md](ipc.md#events-rust--ui)).
   Linux uses **ksni** (StatusNotifierItem) instead of Tauri's tray because
   Tauri goes through libappindicator, which is menu-only — no left-click
   activate callback on KDE/GNOME. Windows/macOS use Tauri's built-in tray.
@@ -141,6 +142,67 @@ Rules each layer enforces:
 - **The version is Tauri's, injected from the git tag in CI** — see
   [releasing.md](releasing.md). `app_version` reports it, not
   `CARGO_PKG_VERSION`.
+
+### Server-selection decisions
+
+Taken for server selection on 2026-10-10 and numbered because other docs cite
+them; this list is their reference. D2–D4, D6 and D7 were confirmed with the
+maintainer before implementation. The plan they come from
+(`docs/superpowers/plans/2026-10-09-player-server-selection.md`) is a local,
+git-ignored historical record — nothing here depends on it.
+
+- **D1 — The webview cannot call the server itself.** From the window's
+  `tauri://localhost` / `http://tauri.localhost` origin every request is
+  cross-site: it would need CORS the server does not send and, fatal even
+  with CORS, never carries the session cookie — `SameSite=Lax` and not
+  `Secure`, while `SameSite=None` would need `Secure`, i.e. the HTTPS a
+  plain-HTTP LAN install lacks. The requests have to leave from somewhere else
+  (see Layering above).
+- **D2 — Transport: HTTP through Rust, with `tauri-plugin-http`.** Its `fetch`
+  serialises the request (a `FormData` body keeps its multipart boundary),
+  sends it over IPC to reqwest in the Rust process and hands back a real
+  `Response`, with a cookie jar kept in `app_cache_dir()`: no CORS, the native
+  login, `/me` and the token mint work unchanged, the session survives a
+  restart, and the Go server needed no change. The SPA only takes its base URL
+  from the host layer and its `fetch` from `httpFetch`.
+- **D3 — Media and playback stay in the webview.** `<audio>` and `<img>` are
+  not CORS-gated, so the SPA's own player keeps playing and covers keep
+  loading straight from the server (the CSP admits `http:`/`https:` for
+  `img-src` and `media-src`). The Rust `Player` stays idle until the playback
+  retrofit, and the tray's Play / Pause and Next reach the webview player as
+  events.
+- **D4 — The player stores the server address and nothing secret.**
+  `settings.json` holds `{ "serverUrl": … }`, with no password and no keyring:
+  the SPA posts the password to the server through the transport, and the
+  session is the plugin's cookie jar plus the 48h `spa` token pushed to Rust in
+  memory. `credentials.rs`, `connection.json` and the `keyring` dependency were
+  removed, not kept dormant.
+- **D5 — The app-only controls, all gated on `isDesktopApp()`.** The login card
+  hosts the server step — only the address and Connect until a server is
+  known, then a muted `Server · host` line with a *Change* link above the
+  credentials — the account menus offer *Change server*, and About adds
+  *Server* and *App* rows. Nothing else in the UI knows about the app.
+- **D6 — Browsing stays on HTTP, not per-endpoint IPC.** This supersedes part
+  of the bootstrap spec's follow-up #1: what is left of the IPC retrofit is
+  playback, queue, state events and the tray. The browsing passthroughs in
+  `commands/library.rs` keep compiling over tested core methods, but nothing
+  calls them; their fate is tracked in `TODO.md`, with the playback retrofit.
+- **D7 — Proxy-header (portal) servers are not supported in the app yet.** A
+  portal signs in through a browser redirect the app cannot follow and keeps
+  `/api/v0` closed to anonymous callers, so the server step reads a
+  `/api/v0/me` that does not answer as Aether plus a `/rest/ping` answered
+  with Aether's own envelope (`"type": "Aether"`; `/rest` is open in every
+  proxy setup) as a portal and saves nothing, and a `/me` reporting
+  `proxy-header` without a user shows the same message (`needsPortal`).
+  Portal login — the system browser plus a cookie hand-off into the plugin's
+  jar — is a follow-up tracked in `TODO.md`.
+- **D8 — Rejected alternatives:** CORS on the server with requests straight
+  from the webview (dead on D1's cookie problem, and it would push
+  token-shaped credentials into the login form); loading the UI from the
+  server's origin (same-origin solves everything, but IPC capability URLs are
+  static, the UI's version would follow the server's, and it rules out the
+  offline cache); and the full IPC retrofit first (months of work before
+  choosing a server did anything visible).
 
 ## Domain types worth knowing
 
@@ -189,8 +251,8 @@ Rules each layer enforces:
 - Registered but unused by the SPA (server selection, 2026-10-10): the
   browsing commands in `commands/library.rs`, the playback and queue
   commands, and `connection_status`. They still compile against tested core
-  client and player methods; the playback-retrofit plan decides each
-  command's fate.
+  client and player methods; each command's fate is tracked in `TODO.md`,
+  with the playback retrofit.
 - The `TRAY_*` constants in `events.rs` are used only by the
   `#[cfg(desktop)]` tray module, so a mobile build would hit `dead_code`
   under `-D warnings` — gate them when the mobile follow-up lands.

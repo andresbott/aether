@@ -10,7 +10,8 @@ the desktop player's window** (`player/`, Tauri — see
 (no hardcoded origins, no server-side `index.html` templating, no cookie-only
 auth assumptions). Whatever differs inside the app goes through the host layer
 (`lib/host/`, see "Desktop app mode" below), and player-only components are
-never added ad hoc — the playback retrofit has its own plan.
+never added ad hoc — they belong to the playback retrofit, which is tracked in
+`TODO.md`.
 
 ## The three convention registries (read before UI work)
 
@@ -118,9 +119,12 @@ When a view diverges from these registries, the registry wins.
   read when the client is configured, and every call goes through
   `httpFetch`; `initWithDefaults()` is the **auth-method-`none`** path only —
   authenticated modes call `setApiKey()` with the PAT minted by
-  `lib/subsonicSession.ts` — see [subsonic-api.md](subsonic-api.md) and
+  `lib/subsonicSession.ts` — and `reset()` forgets either, server included;
+  see [subsonic-api.md](subsonic-api.md) and
   [authentication.md](authentication.md)). `Server.ts` is the desktop app's
-  server probe (see "Desktop app mode" below).
+  server probe (see "Desktop app mode" below), and `meShape.ts`'s
+  `isMeResponse` is what counts as Aether's `/me`: `getMe` rejects any other
+  answer, and the probe applies the same check.
 - `types/` — one file per API domain, mirroring backend response shapes.
 - `lib/apiError.ts` — **the only place a thrown API error becomes text.** Use
   `apiErrorMessage(err, fallback)` instead of re-deriving
@@ -345,8 +349,16 @@ app while any of three holds:
 not loading, so the gate renders the server step instead of waiting), does not
 retry on mount (`retryOnMount: false` — the login view mounting on a failed
 `/me` would refetch it, clear the error, unmount, fail and mount again, a
-flicker loop), and `getMe` carries a 10 s timeout so a server that drops
-packets cannot hold the window blank for minutes.
+flicker loop), and in the app neither retries (`retry: false` — Connect is the
+retry, and three more attempts on top of the timeout below would keep the
+window blank for most of a minute) nor refetches when the network comes back
+(`refetchOnReconnect` — it would take the server step away mid-typing); the
+browser keeps both. `getMe` carries a 10 s timeout so a server that drops
+packets cannot hold the window blank for minutes, and rejects an answer that
+is not shaped like Aether's `/me` (`isMeResponse`), so a saved address that
+now answers as something else — another web app on that port, a captive
+portal's page — brings the server step back instead of rendering the app
+against it.
 
 **The server step** (`LoginView`, app only) is a "Server address" field
 (placeholder `http://aether.local:8075`) and Connect. Entering the step, the
@@ -364,9 +376,10 @@ a lost session):
    slashes.
 2. `GET /api/v0/me` with `redirect: 'manual'` + `maxRedirections: 0` (a
    redirect is an answer to look at, not to follow) and a 10 s timeout. An ok
-   JSON answer with a known `authMethod` is Aether. A 301/302/307/308 from an
-   http address to `https` on the same host re-runs the probe once there, and
-   that https address is the one saved.
+   answer shaped like Aether's `/me` (`isMeResponse`: a known `authMethod`, a
+   `user` that is null or has a `login`, a `features` object) is Aether. A
+   301/302/307/308 from an http address to `https` on the same host re-runs
+   the probe once there, and that https address is the one saved.
 3. Anything else: `GET /rest/ping?f=json&v=1.16.1&c=aether-player`. `/rest`
    stays open in every proxy setup, and Aether stamps `type: "Aether"` on every
    envelope, errors included — such an envelope (compared without case) is
@@ -375,12 +388,12 @@ a lost session):
    answered at {url}.", and a request that fails or times out "Could not reach
    {url}."
 
-An Aether answer is saved (`setServerUrl`) and `serverSaved()` resets an
-errored `/me`, so the address is asked again even when unchanged; the gate
-then shows the app (auth `none`, or a session the cookie jar still holds), the
-sign-in card (`native` without one) or the portal card (`proxy-header` without
-a user). In the app the sign-in card carries a muted `Server · host` line with
-a *Change* link above the username.
+An Aether answer is saved (`setServerUrl`) and `serverSaved()` starts a fresh
+session (`startFreshSession()`) and resets an errored `/me`, so the address is
+asked again even when unchanged; the gate then shows the app (auth `none`, or
+a session the cookie jar still holds), the sign-in card (`native` without one)
+or the portal card (`proxy-header` without a user). In the app the sign-in card
+carries a muted `Server · host` line with a *Change* link above the username.
 
 **Leaving a server** is `switchServer()` in `useAuth`, which never rejects: a
 best-effort logout when signed in (bounded by the logout request's 10 s
@@ -389,8 +402,13 @@ once it is forgotten) → remember it in `lastServerUrl` → `serverUrl = null`
 before any cache reset (the now-disabled `/me` cannot refetch from the server
 being left) → `purgeLocalSession` on every path, signed in or not (the old
 server's queue, and the queue sync, would otherwise carry its track ids over to
-the next one) → `startFreshSession()` → `clearServerUrl()`, best effort. The
-sign-in card's *Change* calls it directly. The account menus go through
+the next one) → `startFreshSession()` → `clearServerUrl()`, best effort. A
+request the switch overtook (a poll sent while the logout was out) can still
+answer 401 afterwards: with no server configured, `client.ts` flags no expiry
+for it, and `serverSaved()` clears anything else that flagged the old session
+before the next server was saved — kept, an expiry flag would stop a server
+without login from ever rendering. The sign-in card's *Change* calls
+`switchServer()` directly. The account menus go through
 `composables/useChangeServer.ts`: `confirmChangeServer()` asks "Disconnect from
 {host}? You will be signed out." in the `change-server` confirm group, which the
 one grouped `ConfirmDialog` that `PlayerLayout.vue` mounts in the app answers —
@@ -405,11 +423,13 @@ version*.
 each new `spa` token to Rust (`setSession`) only inside its generation-checked
 branch — Rust takes a bare key for whatever server is set, so a key minted for
 a server the user has since left must never reach it — and
-`resetSubsonicSession` withdraws it (`clearSession`). A failed hand-off only
-warns, with neither the key nor an error text that could hold it. In the app
-`getDeviceName()` (`lib/deviceIdentity.ts`) answers "Aether Player on
-<platform>" — the webview's user agent would read as a browser — so Connected
-apps names the player.
+`resetSubsonicSession` withdraws it (`clearSession`) and resets the client
+whole (`SubsonicClient.reset()`: the key, auth `none` and the server), so
+nothing addresses the server left behind until the next session configures
+it. A failed hand-off only warns, with neither the key nor an error text that
+could hold it. In the app `getDeviceName()` (`lib/deviceIdentity.ts`) answers
+"Aether Player on <platform>" — the webview's user agent would read as a
+browser — so Connected apps names the player.
 
 **`useTrayBridge`** (`composables/useTrayBridge.ts`) is bound once from
 `App.vue`, which is always mounted, in a detached effect scope like

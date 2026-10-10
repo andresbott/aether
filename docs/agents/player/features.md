@@ -3,10 +3,10 @@
 Check here before adding a capability — most gaps are catalogued follow-ups
 with a chosen direction in the bootstrap spec
 (`docs/superpowers/specs/2026-07-22-aether-player-bootstrap-design.md`) or in
-the server-selection plan
-(`docs/superpowers/plans/2026-10-09-player-server-selection.md`, decisions
-D1–D8). See [architecture.md](architecture.md) for layering; paths are
-relative to `player/`.
+the server-selection decisions D1–D8
+([architecture.md](architecture.md#server-selection-decisions)). See
+[architecture.md](architecture.md) for layering; paths are relative to
+`player/`.
 
 | Feature | Status | Where |
 |---|---|---|
@@ -15,9 +15,9 @@ relative to `player/`.
 | Rust-side session (the SPA's `/rest` key) | Implemented (2026-10-10) | `set_session` / `clear_session` / `connection_status` in `src-tauri/src/commands/connection.rs`. The SPA pushes its `spa` token after every (re)mint and withdraws it on logout, expiry and a server switch (`webui/src/lib/subsonicSession.ts`); `set_session` builds a `SubsonicClient::with_api_key` for the saved server without a round trip. Only the idle engine and `aether://` consume it today |
 | Webui on the app's transport (HTTP through Rust) | Implemented (2026-10-10) | Every `/api/v0` and `/rest` request rides `tauri-plugin-http`'s `fetch` (`webui/src/lib/host/transport.ts`); `<audio>` and `<img>` load straight from the server (CSP in [ipc.md](ipc.md#capabilities-and-csp)). First launch and the switch flows are unit-tested only; the real-window acceptance run is still to come |
 | Webui driving playback over IPC (the Rust engine) | **Not implemented** | Follow-up #1, narrowed by server selection to playback, queue, `player://state` and the tray: the SPA plays through its own `<audio>` (`webui/src/composables/usePlayer.ts`) while the Rust `Player` stays idle. A `webui/` plan under [../frontend.md](../frontend.md)'s rules; do not bolt IPC calls into webui components ad hoc — they belong in `webui/src/lib/host/` |
-| Proxy-header (portal) servers in the app | **Not supported** (D7) | Signing in takes the portal's browser redirect, which the app cannot follow. The server step detects such a server — its `/api/v0/me` does not answer as Aether, but `/rest/ping` answers Aether's envelope — and says "This server signs you in through a web portal, which the desktop app cannot open yet. Open it in a browser, or connect to another server." without saving it; a saved server whose `/me` reports `proxy-header` and no user shows the same words with a *Change server* button (`needsPortal`). Follow-up: login in the system browser + a cookie hand-off into the plugin's jar |
+| Proxy-header (portal) servers in the app | **Not supported** ([D7](architecture.md#server-selection-decisions)) | Signing in takes the portal's browser redirect, which the app cannot follow. The server step detects such a server — its `/api/v0/me` does not answer as Aether, but `/rest/ping` answers Aether's envelope — and says "This server signs you in through a web portal, which the desktop app cannot open yet. Open it in a browser, or connect to another server." without saving it; a saved server whose `/me` reports `proxy-header` and no user shows the same words with a *Change server* button (`needsPortal`). Follow-up: login in the system browser + a cookie hand-off into the plugin's jar |
 | Metadata editor pictures in the app | **Broken in the app** | Picture previews and the artist image build `<img>` URLs from `apiClient.defaults.baseURL` (`webui/src/lib/api/Metadata.ts:187`, `webui/src/views/settings/metadata-editor/PicturesSection.vue:207`) and copy-picture calls a raw `fetch` (`Metadata.ts:128`); the `/api/v0` picture endpoints are cookie-authenticated, so neither loads from the webview. Fix: fetch through the plugin + object URLs (follow-up). The music UI is unaffected — its images come from `/rest/getCoverArt` |
-| Library browsing (artists, albums, album, search) | Implemented, unused by the SPA | `src-tauri/src/commands/library.rs` → `SubsonicClient` (thin Subsonic passthrough). The SPA browses over HTTP through the plugin instead (D6); the playback-retrofit plan decides these commands' fate |
+| Library browsing (artists, albums, album, search) | Implemented, unused by the SPA | `src-tauri/src/commands/library.rs` → `SubsonicClient` (thin Subsonic passthrough). The SPA browses over HTTP through the plugin instead ([D6](architecture.md#server-selection-decisions)); these commands' fate is tracked in `TODO.md`, with the playback retrofit |
 | Desktop playback (play/pause/resume/stop/seek/volume) | Implemented, idle | `src-tauri/src/commands/playback.rs` → `Player` → `RodioEngine` (`src-tauri/src/engine/desktop.rs`); nothing calls it while the SPA plays in the webview |
 | Queue (set/next/prev/get) + auto-advance | Implemented, idle | `aether-core` `Queue` + `Player::poll()`; poller in `src-tauri/src/events.rs` |
 | Player state events to UI | Implemented, no listener yet | `player://state` full-state event, 500 ms poll — see [ipc.md](ipc.md) |
@@ -50,8 +50,9 @@ Changes to `webui/` belong to webui-scoped plans, not backend plans.
 ## Do not
 
 - Do not move browsing onto per-endpoint IPC commands: the SPA's data path is
-  HTTP through the plugin (D6). An IPC command that does carry server data
-  keeps the Subsonic API shape — do not invent new response shapes.
+  HTTP through the plugin ([D6](architecture.md#server-selection-decisions)).
+  An IPC command that does carry server data keeps the Subsonic API shape — do
+  not invent new response shapes.
 - Do not add an HTTP server inside the app; IPC (the HTTP plugin included) is
   the only UI↔backend path.
 - Do not call `fetch` (or XHR, `sendBeacon`, or an axios instance other than

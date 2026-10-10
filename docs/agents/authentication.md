@@ -242,11 +242,12 @@ Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
 - The SPA gate lives in `App.vue` + `useAuth()`: `/me` bootstraps, the login
   view replaces the whole app (not a route) while `authMethod` is `native`
   and `user` is null (in the desktop app also while no server is chosen or
-  the chosen one does not answer, and on a proxy-header server — see
-  [frontend.md](frontend.md#desktop-app-mode-libhost)), and an axios
-  interceptor flips a shared
-  `sessionExpired` flag on any `/api/v0` 401 so an expired session re-opens
-  the gate mid-flight. Logout and session expiry both purge the device
+  the chosen one does not answer as Aether, and on a proxy-header server —
+  see [frontend.md](frontend.md#desktop-app-mode-libhost)), and an axios
+  interceptor flips a shared `sessionExpired` flag on any `/api/v0` 401 (in
+  the desktop app, not while no server is configured: a 401 a server switch
+  overtook speaks for no session) so an expired session re-opens the gate
+  mid-flight. Logout and session expiry both purge the device
   (`purgeLocalSession` in `useAuth`): stop playback (queue sync unbinds first
   so the emptied queue is not pushed to the server), clear localStorage, and
   reset the query cache.
