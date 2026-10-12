@@ -23,23 +23,29 @@ Rust snake_case; Tauri exposes args camelCased to JS (`api_key` → `apiKey`,
 | Group | Command | Notes |
 |---|---|---|
 | Misc | `app_version()` | returns tauri's package version (`app.package_info().version` — `tauri.conf.json`'s `version`, overridden with the git tag in a release, see [releasing.md](releasing.md)); deliberately not `CARGO_PKG_VERSION`. About shows it as *App* |
-| Settings | `get_settings()` | the saved `Settings`, `{"serverUrl": string \| null}`; infallible |
-| | `set_server_url(url)` | normalises the address (`aether_core::subsonic::normalize_server_url`: http/https with a host, no credentials, query or fragment; trailing slashes trimmed, port and path prefix kept), writes `settings.json` and answers the saved `Settings` — the SPA adopts that normalised URL. Drops the Rust session: a session belongs to the server it was minted on. `InvalidServerUrl` for a refused address, `Internal` when the file cannot be written (nothing changes then) |
-| | `clear_server_url()` | writes and answers the defaults (`{"serverUrl":null}`) and drops the session too; `Internal` when the file cannot be written |
-| Session | `set_session(api_key)` | builds `SubsonicClient::with_api_key` for the saved server and stores it in `AppState.connection` — no round trip, nothing validated. `NotConnected` when no server is saved (`InvalidServerUrl` only for a hand-edited address that no longer parses). The SPA calls it after every (re)mint of its `spa` token |
+| Settings | `get_settings()` | the saved `Settings`, `{"serverUrl": string \| null, "sessionKind": "cookie" \| "apiKey"}`; infallible. `sessionKind` is how the SPA signs in: the native cookie flow, or a `/rest`-only session on a stored API key |
+| | `set_server_url(url, session_kind)` | normalises the address (`aether_core::subsonic::normalize_server_url`: http/https with a host, no credentials, query or fragment; trailing slashes trimmed, port and path prefix kept), writes `settings.json` with the given kind and answers the saved `Settings` — the SPA adopts that normalised URL. Deletes a stored API key and drops the Rust session, since both belong to the server they were made for — except when the same server is saved again for a key session (Connect after an outage), which keeps the key and the connection. `InvalidServerUrl` for a refused address, `Internal` when a file cannot be written (nothing changes then) |
+| | `set_session_kind(session_kind)` | switches the sign-in kind for the saved server and answers the `Settings`; switching to `cookie` deletes a stored key, either switch drops the connection |
+| | `clear_server_url()` | writes and answers the defaults (`{"serverUrl":null,"sessionKind":"cookie"}`), deletes a stored key and drops the session; `Internal` when a file cannot be written |
+| Key | `get_api_key()` | the key stored in `credentials.json` (app config dir, owner-only on Unix), or null; infallible. The SPA installs it on its own `/rest` client at startup |
+| | `set_api_key(api_key)` | stores the key the SPA has verified with `getUser`, forces `sessionKind = apiKey` and builds `SubsonicClient::with_api_key` for the saved server — no round trip. `NotConnected` without a server, `InvalidServerUrl` for a hand-edited address, `Internal` when a file cannot be written |
+| | `clear_api_key()` | deletes `credentials.json` (a missing file is fine), drops the connection, keeps the kind so the key card comes back; `Internal` when the delete fails. Logout and a revoked key call it |
+| Session | `set_session(api_key)` | the cookie flow's hand-off: builds `SubsonicClient::with_api_key` for the saved server and stores it in `AppState.connection` — no round trip, nothing validated. `NotConnected` when no server is saved (`InvalidServerUrl` only for a hand-edited address that no longer parses). The SPA calls it after every (re)mint of its `spa` token; a key session never does, Rust holds that key itself |
 | | `clear_session()` | drops the client; infallible. The SPA calls it on logout, expiry and a server switch |
 | | `connection_status()` | tagged enum: `{"status":"disconnected"}` or `{"status":"connected","serverUrl":…}` — tags are lowercase (fixed during the bootstrap; keep them lowercase), `serverUrl` is the normalised address, and there is no `username` (the session is a key, not a login). Unused by the SPA |
 | Browsing | `get_artists()`, `get_albums(list_type, size, offset)`, `get_album(id)`, `search(query)` | thin passthrough of Subsonic shapes (`getArtists`, `getAlbumList2`, `getAlbum`, `search3`) — do not invent new shapes. Unused by the SPA, which browses over HTTP through the plugin |
 | Playback | `play_track(id)`, `pause()`, `resume()`, `stop()`, `seek(position_ms)`, `set_volume(volume)` | unused while the SPA plays in the webview |
 | Queue | `queue_set(ids)`, `queue_next()`, `queue_prev()`, `queue_get()` | `queue_get` returns full `PlayerState`; unused, as above |
 
-The SPA calls six commands, all from `webui/src/lib/host/index.ts`:
-`get_settings` (in `initHost`, before the app mounts), `set_server_url`,
+The SPA calls these commands, all from `webui/src/lib/host/index.ts`:
+`get_settings` and `get_api_key` (in `initHost`, before the app mounts),
+`set_server_url`, `set_session_kind`, `set_api_key`, `clear_api_key`,
 `clear_server_url`, `set_session`, `clear_session` and `app_version`.
 `connect(server_url, username, password)` and `disconnect()` were removed with
 server selection (2026-10-10), together with the keyring and
-`connection.json`: the player stores no password
-([architecture.md](architecture.md)).
+`connection.json`: the player stores no password. Since API-key login
+(2026-10-11) it stores the key the user pastes, a revocable PAT, in
+`credentials.json` ([architecture.md](architecture.md), D4 and D9).
 
 Invariant: **commands that can trigger `PlaybackEngine::load` (`play_track`,
 `queue_set`, `queue_next`, `queue_prev`) run via

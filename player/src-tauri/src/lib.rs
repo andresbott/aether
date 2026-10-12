@@ -56,6 +56,7 @@ pub fn run() {
             commands::settings::clear_server_url,
             commands::settings::get_settings,
             commands::settings::set_server_url,
+            commands::settings::set_session_kind,
             commands::library::get_artists,
             commands::library::get_albums,
             commands::library::get_album,
