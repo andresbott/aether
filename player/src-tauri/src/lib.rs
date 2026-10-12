@@ -1,4 +1,5 @@
 mod commands;
+mod credentials;
 mod engine;
 mod error;
 mod events;
@@ -25,7 +26,8 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .register_asynchronous_uri_scheme_protocol("aether", protocol::handle)
         .setup(|app| {
-            let state = AppState::new(settings::load(app.handle()))?;
+            let handle = app.handle();
+            let state = AppState::new(settings::load(handle), credentials::load(handle))?;
             app.manage(state);
             events::spawn_state_emitter(app.handle().clone());
             #[cfg(desktop)]
@@ -48,6 +50,9 @@ pub fn run() {
             commands::connection::clear_session,
             commands::connection::connection_status,
             commands::connection::set_session,
+            commands::credentials::clear_api_key,
+            commands::credentials::get_api_key,
+            commands::credentials::set_api_key,
             commands::settings::clear_server_url,
             commands::settings::get_settings,
             commands::settings::set_server_url,
