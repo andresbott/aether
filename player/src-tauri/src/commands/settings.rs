@@ -23,6 +23,7 @@ pub fn set_server_url(
         &state,
         Settings {
             server_url: Some(server_url),
+            ..Settings::default()
         },
     )
 }

@@ -1,7 +1,8 @@
 //! The app's persisted settings: a small, non-secret JSON file in the app
-//! config directory. Today that is only the server the user picked. The
-//! session never lands here — it lives in memory (`AppState.connection`) and
-//! in the HTTP plugin's cookie jar.
+//! config directory — the server the user picked and how the SPA signs in to
+//! it. No credential ever lands here: the session cookie lives in the HTTP
+//! plugin's cookie jar, a pasted API key in `credentials.json` (see
+//! `credentials.rs`), and the connected client in memory (`AppState.connection`).
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
@@ -9,11 +10,28 @@ use tauri::{AppHandle, Manager};
 
 const SETTINGS_FILE: &str = "settings.json";
 
+/// How the SPA signs in to the saved server. `Cookie` is the native flow (a
+/// login posted through the transport, the session cookie in the plugin's jar,
+/// a spa token minted on /api/v0). `ApiKey` is a /rest-only session on a key
+/// the user pasted, which `credentials.rs` stores; the SPA then never asks
+/// /api/v0 for anything. The kind outlives the key — a logout or a revoked key
+/// deletes the key, not the kind — so a portal server comes back to the key
+/// card at the next launch instead of a wrong "Could not reach".
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionKind {
+    #[default]
+    Cookie,
+    ApiKey,
+}
+
 #[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     /// The normalised address of the server the user picked, if any.
     pub server_url: Option<String>,
+    /// How the SPA signs in to it.
+    pub session_kind: SessionKind,
 }
 
 fn settings_path(app: &AppHandle) -> io::Result<PathBuf> {
@@ -78,13 +96,17 @@ mod tests {
     fn settings_serialize_to_camel_case_json() {
         // the SPA reads this shape from get_settings / set_server_url
         let none = serde_json::to_string(&Settings::default()).unwrap();
-        assert_eq!(none, r#"{"serverUrl":null}"#);
+        assert_eq!(none, r#"{"serverUrl":null,"sessionKind":"cookie"}"#);
 
         let some = Settings {
             server_url: Some("http://h:8075".into()),
+            session_kind: SessionKind::ApiKey,
         };
         let some = serde_json::to_string(&some).unwrap();
-        assert_eq!(some, r#"{"serverUrl":"http://h:8075"}"#);
+        assert_eq!(
+            some,
+            r#"{"serverUrl":"http://h:8075","sessionKind":"apiKey"}"#
+        );
     }
 
     #[test]
@@ -95,6 +117,7 @@ mod tests {
 
         let picked = Settings {
             server_url: Some("http://h:8075".into()),
+            session_kind: SessionKind::ApiKey,
         };
         write_to(&path, &picked).unwrap();
         assert_eq!(read_from(&path), picked);
