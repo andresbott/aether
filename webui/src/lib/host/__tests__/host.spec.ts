@@ -319,6 +319,33 @@ describe('host in the desktop app', () => {
         expect(host.sessionKind.value).toBe('apiKey')
     })
 
+    // A key belongs to the server that issued it. Rust deletes it when another
+    // server is saved, even for a key session, and the host must read that back:
+    // carrying its own copy over would sign the new server's /rest calls with
+    // the old server's key. The mock is stateful, as Rust is, so what the host
+    // reads after the save is whatever Rust left, not a canned answer.
+    it('setServerUrl never keeps a key for another server, even in a key session', async () => {
+        const stored = { key: 'aether_k3y' as string | null }
+        commands({
+            get_settings: () => ({ serverUrl: SERVER, sessionKind: 'apiKey' }),
+            get_api_key: () => stored.key,
+            set_server_url: (args) => {
+                if (args?.url !== SERVER) stored.key = null
+                return { serverUrl: String(args?.url), sessionKind: args?.sessionKind }
+            }
+        })
+        const host = await loadHost('app')
+        await host.initHost()
+        // Loaded, so the null below is Rust's doing and not a key never read.
+        expect(host.apiKey.value).toBe('aether_k3y')
+
+        await host.setServerUrl('http://other.lan:8075', 'apiKey')
+
+        expect(host.serverUrl.value).toBe('http://other.lan:8075')
+        expect(host.sessionKind.value).toBe('apiKey')
+        expect(host.apiKey.value).toBeNull()
+    })
+
     it('setSessionKind persists the kind and drops the key when leaving the key session', async () => {
         commands({
             get_settings: () => ({ serverUrl: SERVER, sessionKind: 'apiKey' }),
