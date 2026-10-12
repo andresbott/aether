@@ -89,19 +89,29 @@ let sessionKind: (typeof import('@/lib/host'))['sessionKind']
 let apiKey: (typeof import('@/lib/host'))['apiKey']
 let lastServerUrl: (typeof import('@/lib/authState'))['lastServerUrl']
 
-function withAuth() {
+// Mounts a host component that runs useAuth over a fresh QueryClient. The client
+// comes back with the composable for the cases that reach the cache themselves,
+// and onRender sees the gate's state at every render of the host.
+function mountAuth(onRender?: (auth: ReturnType<UseAuth>) => void) {
     let auth!: ReturnType<UseAuth>
     const Host = defineComponent({
         setup() {
             auth = useAuth()
-            return () => null
+            return () => {
+                onRender?.(auth)
+                return null
+            }
         }
     })
     const qc = new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } }
     })
     mount(Host, { global: { plugins: [[VueQueryPlugin, { queryClient: qc }]] } })
-    return auth
+    return { auth, qc }
+}
+
+function withAuth() {
+    return mountAuth().auth
 }
 
 const meNone: MeResponse = {
@@ -1186,6 +1196,94 @@ describe('useAuth', () => {
             expect(sessionExpired.value).toBe(false)
             expect(auth.needsApiKey.value).toBe(false)
             expect(subsonicReady.value).toBe(true)
+        })
+
+        // The gate renders the app as soon as no card is due, so the very first
+        // render must already know the identity is in flight. Seen as not loading,
+        // the app would mount for a tick — and start the queue sync — only to be
+        // torn down again once getUser is asked.
+        it('is loading from the first render while getUser is pending', async () => {
+            apiKey.value = 'aether_k3y'
+            vi.stubGlobal(
+                'fetch',
+                vi.fn(() => new Promise(() => {}))
+            )
+            const seen: boolean[] = []
+            mountAuth((auth) => {
+                seen.push(auth.isLoading.value)
+            })
+            await flushPromises()
+
+            expect(seen[0]).toBe(true)
+        })
+
+        // A favorite toggle invalidates every ['subsonic', …] query. The identity
+        // is the session's own, asked once: it lives outside that prefix, so a
+        // toggle neither asks getUser again nor risks a failed ask.
+        it('is not asked again when the subsonic queries are invalidated', async () => {
+            apiKey.value = 'aether_k3y'
+            restAnswers(userEnvelope('alice', false))
+            const fetchMock = vi.mocked(fetch)
+            const { auth, qc } = mountAuth()
+            await flushPromises()
+            expect(fetchMock).toHaveBeenCalledTimes(1)
+
+            fetchMock.mockRejectedValue('error sending request')
+            await qc.invalidateQueries({ queryKey: ['subsonic'] })
+            await flushPromises()
+
+            expect(fetchMock).toHaveBeenCalledTimes(1)
+            expect(auth.needsServer.value).toBe(false)
+            expect(auth.currentUser.value).toEqual({ login: 'alice', role: 'user' })
+        })
+
+        // Only a bootstrap that failed sends the user to the server step: an ask
+        // that fails once the identity is known leaves the running session be.
+        it('keeps a running session when asking the identity again fails', async () => {
+            apiKey.value = 'aether_k3y'
+            restAnswers(userEnvelope('alice', false))
+            const fetchMock = vi.mocked(fetch)
+            const { auth, qc } = mountAuth()
+            await flushPromises()
+            const { userQueryKeys } = await import('@/composables/useUsers')
+
+            fetchMock.mockRejectedValue('error sending request')
+            await qc.invalidateQueries({ queryKey: userQueryKeys.restIdentity })
+            await flushPromises()
+
+            expect(fetchMock).toHaveBeenCalledTimes(2)
+            expect(auth.needsServer.value).toBe(false)
+            expect(auth.currentUser.value).toEqual({ login: 'alice', role: 'user' })
+        })
+
+        // Moving on from a key session to a cookie server through the server step:
+        // the host forgets the key and flips the kind, and the /rest client must
+        // let go of the old key and address with them. The cookie flow takes a key
+        // on the client for one it minted, so a stale one would never be replaced.
+        it('mints for a cookie server chosen after a key session', async () => {
+            apiKey.value = 'aether_k3y'
+            const unreachable = `error sending request for url (${SERVER}/rest/getUser.view)`
+            vi.stubGlobal('fetch', vi.fn().mockRejectedValue(unreachable))
+            const auth = withAuth()
+            await flushPromises()
+            expect(auth.needsServer.value).toBe(true)
+            // Counts what the cookie session puts on the client, not the key above.
+            // The mint itself is counted on the client rather than on mintSpaToken:
+            // that mock is shared with the credential watchers earlier cases left
+            // running, which the flip below wakes too.
+            const installKey = vi.spyOn(subsonicClient, 'setApiKey')
+
+            // As setServerUrl(url, 'cookie') leaves the host's refs.
+            apiKey.value = null
+            sessionKind.value = 'cookie'
+            serverUrl.value = 'http://new.lan:8075'
+            getMe.mockResolvedValue(meAlice)
+            auth.serverSaved()
+            await flushPromises()
+
+            expect(installKey).toHaveBeenCalledTimes(1)
+            expect(subsonicClient.hasApiKey()).toBe(true)
+            expect(subsonicClient.getStreamUrl('s1')).toMatch(/^http:\/\/new\.lan:8075\//)
         })
     })
 })

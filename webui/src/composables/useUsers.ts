@@ -7,11 +7,14 @@ import { apiErrorMessage, apiFieldErrors } from '@/lib/apiError'
 import { isDesktopApp, serverUrl, sessionKind } from '@/lib/host'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { subsonicReady } from '@/lib/subsonicSession'
-import { queryKeys } from '@/composables/useSubsonicQueries'
 
 export const userQueryKeys = {
     all: ['users'] as const,
-    me: ['me'] as const
+    me: ['me'] as const,
+    // A key session's identity (getUser). Deliberately outside the ['subsonic']
+    // prefix: a favorite toggle invalidates that whole prefix, and the identity
+    // is the session's own, asked once — not again with every catalog refresh.
+    restIdentity: ['restIdentity'] as const
 }
 
 // Auth method and features are server config: they cannot change without a
@@ -56,7 +59,7 @@ export function useMe() {
  */
 export function useRestIdentity() {
     return useQuery<MeUser>({
-        queryKey: queryKeys.user,
+        queryKey: userQueryKeys.restIdentity,
         queryFn: async () => {
             const user = await subsonicClient.getUser()
             return { login: user.username, role: user.adminRole ? 'admin' : 'user' }

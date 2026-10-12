@@ -2,7 +2,6 @@ import { computed, effectScope, nextTick, watch } from 'vue'
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/vue-query'
 import * as AuthApi from '@/lib/api/Auth'
 import { useMe, useRestIdentity, userQueryKeys } from '@/composables/useUsers'
-import { queryKeys } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSync } from '@/composables/useQueueSync'
 import { explicitLogout, lastServerUrl, sessionExpired } from '@/lib/authState'
@@ -105,7 +104,6 @@ let expiryPurgeInstalled = false
 export function useAuth() {
     const qc = useQueryClient()
     const me = useMe()
-    const identity = useRestIdentity()
     const apiKeySession = computed(() => sessionKind.value === 'apiKey')
 
     // An expired session (the axios interceptor flipping sessionExpired on a
@@ -144,7 +142,13 @@ export function useAuth() {
             // (invalidateQueries refetches /me) and after a key is saved.
             watch(
                 [me.data, sessionExpired, sessionKind, apiKey],
-                async ([data, expired, kind, key]) => {
+                async ([data, expired, kind, key], [, , previousKind]) => {
+                    // Leaving a key session — the server step saved a cookie
+                    // server, or the kind was switched — must not carry its client
+                    // over: it still holds the key and the address of the server
+                    // left, and the cookie branch below takes a key on the client
+                    // for one it minted, so it would never mint for the new server.
+                    if (previousKind === 'apiKey' && kind !== 'apiKey') resetSubsonicSession()
                     if (kind === 'apiKey') {
                         if (expired || key === null) return
                         subsonicClient.setApiKey(key)
@@ -194,6 +198,14 @@ export function useAuth() {
             )
         })
     }
+
+    // Created after the credential watcher, whose first run installs a stored key
+    // and flips subsonicReady: a query created before it is built disabled, and
+    // vue-query applies the change only on the next flush, so the gate's first
+    // render would see "not loading, nothing to ask" and mount the app for a tick
+    // before getUser is asked. Created here it is enabled from the start, and
+    // loading from the first render. Neither watcher reads it.
+    const identity = useRestIdentity()
 
     // Native mode is the only one with aether-owned login/logout: the login
     // view's password form keys on this. Proxy-header authenticates too, but
@@ -247,12 +259,18 @@ export function useAuth() {
     // It asks again when the chosen server does not answer — /me in a cookie
     // session, getUser in a key session, for any reason but a refused key,
     // which the key card handles — where the window would otherwise stay blank
-    // with no way to pick another. Never in the browser, where the server is
-    // the page's own origin.
+    // with no way to pick another. In a key session only a bootstrap that failed
+    // counts: once the identity is known, an ask that fails (a blip on a refresh)
+    // must not replace the running app with the server step. Never in the
+    // browser, where the server is the page's own origin.
     const needsServer = computed(() => {
         if (!isDesktopApp()) return false
         if (serverUrl.value === null) return true
-        if (apiKeySession.value) return identity.isError.value && !sessionExpired.value
+        if (apiKeySession.value) {
+            return (
+                identity.isError.value && identity.data.value === undefined && !sessionExpired.value
+            )
+        }
         return me.isError.value
     })
 
@@ -357,7 +375,7 @@ export function useAuth() {
         lastServerUrl.value = null
         startFreshSession()
         if (me.isError.value) void qc.resetQueries({ queryKey: userQueryKeys.me })
-        if (identity.isError.value) void qc.resetQueries({ queryKey: queryKeys.user })
+        if (identity.isError.value) void qc.resetQueries({ queryKey: userQueryKeys.restIdentity })
     }
 
     /**
@@ -368,7 +386,7 @@ export function useAuth() {
      */
     function apiKeySaved(user: MeUser): void {
         startFreshSession()
-        qc.setQueryData(queryKeys.user, user)
+        qc.setQueryData(userQueryKeys.restIdentity, user)
     }
 
     return {
