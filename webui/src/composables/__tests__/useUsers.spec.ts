@@ -25,7 +25,8 @@ vi.mock('@/lib/host', async () => {
     const { ref } = await import('vue')
     return {
         isDesktopApp: () => host.desktopApp,
-        serverUrl: ref<string | null>('http://aether.local:8075')
+        serverUrl: ref<string | null>('http://aether.local:8075'),
+        sessionKind: ref<'cookie' | 'apiKey'>('cookie')
     }
 })
 

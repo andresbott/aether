@@ -1,12 +1,20 @@
 import { computed, effectScope, nextTick, watch } from 'vue'
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/vue-query'
 import * as AuthApi from '@/lib/api/Auth'
-import { useMe, userQueryKeys } from '@/composables/useUsers'
+import { useMe, useRestIdentity, userQueryKeys } from '@/composables/useUsers'
+import { queryKeys } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSync } from '@/composables/useQueueSync'
 import { explicitLogout, lastServerUrl, sessionExpired } from '@/lib/authState'
 import { DEVICE_ID_KEY } from '@/lib/deviceIdentity'
-import { clearServerUrl, isDesktopApp, serverUrl } from '@/lib/host'
+import {
+    apiKey,
+    clearApiKey,
+    clearServerUrl,
+    isDesktopApp,
+    serverUrl,
+    sessionKind
+} from '@/lib/host'
 import {
     subsonicReady,
     spaTokenId,
@@ -17,6 +25,7 @@ import {
     sessionGeneration
 } from '@/lib/subsonicSession'
 import { subsonicClient } from '@/lib/api/subsonic'
+import type { MeUser } from '@/types/users'
 
 // One purge per lost session. The purge's own resetQueries refetches active
 // /api/v0 queries, which 401 while logged out and flip sessionExpired — on an
@@ -26,8 +35,8 @@ let purgedThisExpiry = false
 
 // Everything that describes one session on one server — whether it expired or
 // was ended on purpose, the purge latch, the mint budget — starts over on a
-// fresh login, on a switch to another server, and again once the next server is
-// saved.
+// fresh login, a saved API key, a switch to another server, and again once the
+// next server is saved.
 function startFreshSession(): void {
     sessionExpired.value = false
     explicitLogout.value = false
@@ -35,11 +44,24 @@ function startFreshSession(): void {
     resetMintAttempts()
 }
 
-// The local session is over — explicit logout or expiry — so nothing of the
-// old user may survive on this device: playback stops, localStorage is
-// emptied and every cached query is dropped.
+// A key session's one credential, forgotten here first — the SPA is signed out
+// whatever Rust answers — then on disk through the host. A refusal only warns,
+// with a short line: never the error, whose text could hold the key.
+async function forgetApiKey(): Promise<void> {
+    try {
+        await clearApiKey()
+    } catch {
+        console.warn('Could not forget the API key')
+    }
+}
+
+// The local session is over — explicit logout, expiry or a server switch — so
+// nothing of the old user may survive on this device: in a key session the key
+// goes first, then playback stops, localStorage is emptied and every cached
+// query is dropped.
 async function purgeLocalSession(qc: QueryClient): Promise<void> {
     purgedThisExpiry = true
+    if (sessionKind.value === 'apiKey') await forgetApiKey()
     // usePlayer()/useQueueSync() register watchers per call; a throwaway
     // scope keeps this call from leaking them past the purge.
     const scope = effectScope(true)
@@ -70,21 +92,27 @@ async function purgeLocalSession(qc: QueryClient): Promise<void> {
 let expiryPurgeInstalled = false
 
 /**
- * The SPA's login gate, driven by the /me bootstrap: with auth method "none"
- * nothing is ever required; with "native" the login view is shown until /me
- * reports an identity, and again when any /api/v0 call answers 401 (session
- * expired); with "proxy-header" the reverse proxy owns login entirely — no
- * login view, and a 401 (proxy session expired) triggers a full reload so the
- * proxy's portal redirect kicks in. See docs/agents/authentication.md.
+ * The SPA's login gate. Two session kinds (lib/host): in a cookie session the
+ * /me bootstrap decides — with auth method "none" nothing is ever required;
+ * with "native" the login view is shown until /me reports an identity, and
+ * again when any /api/v0 call answers 401 (session expired); with
+ * "proxy-header" the reverse proxy owns login entirely — no login view, and a
+ * 401 triggers a full reload so the proxy's portal redirect kicks in. In a key
+ * session (desktop app only) the identity comes from getUser over /rest, no
+ * /api/v0 call is ever made, and a /rest error 40/44 means the key was revoked.
+ * See docs/agents/authentication.md.
  */
 export function useAuth() {
     const qc = useQueryClient()
     const me = useMe()
+    const identity = useRestIdentity()
+    const apiKeySession = computed(() => sessionKind.value === 'apiKey')
 
     // An expired session (the axios interceptor flipping sessionExpired on a
-    // 401) must scrub the device exactly like an explicit logout. Installed
-    // once, in a detached scope: useAuth() runs in many components and the
-    // purge must not die with whichever one mounted first.
+    // 401, or a refused key on /rest) must scrub the device exactly like an
+    // explicit logout. Installed once, in a detached scope: useAuth() runs in
+    // many components and the purge must not die with whichever one mounted
+    // first.
     if (!expiryPurgeInstalled) {
         expiryPurgeInstalled = true
         const scope = effectScope(true)
@@ -99,7 +127,7 @@ export function useAuth() {
                 // login view to fall back to, so a lost session reloads the
                 // page and the proxy's portal redirect takes over. (Configure
                 // the proxy to answer non-HTML requests with 401, not 302.)
-                if (me.data.value?.authMethod === 'proxy-header') {
+                if (!apiKeySession.value && me.data.value?.authMethod === 'proxy-header') {
                     purgedThisExpiry = true
                     window.location.reload()
                     return
@@ -107,13 +135,22 @@ export function useAuth() {
                 void purgeLocalSession(qc)
             })
 
-            // /rest credential lifecycle: with auth "none" the client is ready
-            // as-is; in the authenticated modes (native, proxy-header) an
-            // established identity mints the spa token first. Runs again after
-            // login (invalidateQueries refetches /me).
+            // /rest credential lifecycle. Key session: the stored key is the
+            // credential and Rust already holds it — install it, no mint, no
+            // hand-off; without one the gate shows the key card. Cookie
+            // session: with auth "none" the client is ready as-is; in the
+            // authenticated modes (native, proxy-header) an established
+            // identity mints the spa token first. Runs again after login
+            // (invalidateQueries refetches /me) and after a key is saved.
             watch(
-                [me.data, sessionExpired],
-                async ([data, expired]) => {
+                [me.data, sessionExpired, sessionKind, apiKey],
+                async ([data, expired, kind, key]) => {
+                    if (kind === 'apiKey') {
+                        if (expired || key === null) return
+                        subsonicClient.setApiKey(key)
+                        subsonicReady.value = true
+                        return
+                    }
                     if (!data || expired) return
                     if (data.authMethod !== 'native' && data.authMethod !== 'proxy-header') {
                         subsonicClient.initWithDefaults()
@@ -159,26 +196,44 @@ export function useAuth() {
     }
 
     // Native mode is the only one with aether-owned login/logout: the login
-    // view and the logout menu entry key on this. Proxy-header authenticates
-    // too, but its session lives at the proxy.
-    const authRequired = computed(() => me.data.value?.authMethod === 'native')
+    // view's password form keys on this. Proxy-header authenticates too, but
+    // its session lives at the proxy; a key session has no password at all.
+    const authRequired = computed(
+        () => !apiKeySession.value && me.data.value?.authMethod === 'native'
+    )
     const authenticated = computed(
         () =>
+            apiKeySession.value ||
             me.data.value?.authMethod === 'native' ||
             me.data.value?.authMethod === 'proxy-header'
     )
-    const currentUser = computed(() => me.data.value?.user ?? null)
+    // Identity: /me's user in a cookie session, getUser's record in a key one.
+    const currentUser = computed<MeUser | null>(() =>
+        apiKeySession.value ? (identity.data.value ?? null) : (me.data.value?.user ?? null)
+    )
 
-    // Gates the administration UI (the /settings area and the Admin menu
-    // entry). With auth method "none" nothing is ever restricted, so every
-    // visitor counts as admin; in the authenticated modes the role from /me
-    // decides. The backend enforces the same policy on /api/v0. False while
-    // /me is still loading — admin affordances appear rather than flash away.
+    // Whether /api/v0 can be used at all: a cookie session whose /me answered.
+    // A key session is /rest only — its server may keep /api/v0 behind a
+    // portal — so everything riding apiClient renders only when this is true,
+    // whatever the role says.
+    const managementApi = computed(() => !apiKeySession.value && me.data.value !== undefined)
+
+    // Gates the admin affordances. With auth method "none" nothing is ever
+    // restricted, so every visitor counts as admin; in the authenticated modes
+    // the role decides — /me's in a cookie session, getUser's adminRole in a
+    // key session, so an admin's key still edits covers and radio stations over
+    // /rest. The backend enforces the same policy. False while the identity is
+    // still loading — admin affordances appear rather than flash away.
     const isAdmin = computed(() => {
+        if (apiKeySession.value) return identity.data.value?.role === 'admin'
         if (!me.data.value) return false
         if (!authenticated.value) return true
         return currentUser.value?.role === 'admin'
     })
+
+    // What shows Log out: a native cookie session, or a key session (whose
+    // logout forgets the key). Proxy-header and "none" have nothing to leave.
+    const canSignOut = computed(() => authRequired.value || apiKeySession.value)
 
     // While /me is still loading nothing is known yet — callers keep showing
     // the boot state rather than flashing the login form at every visitor.
@@ -188,25 +243,29 @@ export function useAuth() {
     })
 
     // Inside the desktop app the server is the user's choice: until there is
-    // one, /me has no one to ask, and the login view asks for a server first.
-    // It asks again when the chosen server does not answer /me (down, moved),
-    // where the window would otherwise stay blank with no way to pick another.
-    // Never in the browser, where the server is the page's own origin.
-    const needsServer = computed(
-        () => isDesktopApp() && (serverUrl.value === null || me.isError.value)
-    )
+    // one, there is no one to ask, and the login view asks for a server first.
+    // It asks again when the chosen server does not answer — /me in a cookie
+    // session, getUser in a key session, for any reason but a refused key,
+    // which the key card handles — where the window would otherwise stay blank
+    // with no way to pick another. Never in the browser, where the server is
+    // the page's own origin.
+    const needsServer = computed(() => {
+        if (!isDesktopApp()) return false
+        if (serverUrl.value === null) return true
+        if (apiKeySession.value) return identity.isError.value && !sessionExpired.value
+        return me.isError.value
+    })
 
-    // A proxy-header server signs users in through its portal, which the
-    // desktop app cannot open yet. Its proxy normally keeps /me closed to the
-    // app, and the server step reports that; one that lets an anonymous /me
-    // through would otherwise leave the window blank. In the browser the
-    // proxy's own redirect to the portal handles it.
-    const needsPortal = computed(
-        () =>
-            isDesktopApp() &&
-            me.data.value?.authMethod === 'proxy-header' &&
-            currentUser.value === null
-    )
+    // The key card: a key session without a key (none pasted yet, or forgotten
+    // after a logout or a refusal), and the one cookie case the app cannot
+    // sign in to — a proxy-header /me without a user, a proxy that lets an
+    // anonymous /me through while its portal keeps the login. In the browser
+    // the proxy's own redirect handles that.
+    const needsApiKey = computed(() => {
+        if (!isDesktopApp()) return false
+        if (apiKeySession.value) return apiKey.value === null || sessionExpired.value
+        return me.data.value?.authMethod === 'proxy-header' && currentUser.value === null
+    })
 
     const loginMutation = useMutation({
         mutationFn: ({
@@ -229,7 +288,13 @@ export function useAuth() {
     })
 
     const logoutMutation = useMutation({
-        mutationFn: () => AuthApi.logout(spaTokenId.value ?? undefined),
+        // A key session has no /api/v0 logout: the purge forgets the key (Rust
+        // deletes its file) and that is the whole sign-out — revoking the key
+        // itself stays in the web UI, where /api/v0 is reachable.
+        mutationFn: () =>
+            apiKeySession.value
+                ? Promise.resolve()
+                : AuthApi.logout(spaTokenId.value ?? undefined),
         // Mark the intent BEFORE the request: the purge's cache reset (and any
         // in-flight call) 401s and flips sessionExpired, and the login view
         // must not mistake that for an expiry the user did not ask for.
@@ -250,7 +315,8 @@ export function useAuth() {
         if (authRequired.value && currentUser.value !== null) {
             // Best-effort, and while the server is still set: the api client
             // refuses every request once it is forgotten. Clears the session
-            // cookie in the app's jar and revokes the spa token.
+            // cookie in the app's jar and revokes the spa token. A key session
+            // has nothing to call: its key goes with the purge below.
             try {
                 await AuthApi.logout(spaTokenId.value ?? undefined)
             } catch {
@@ -269,6 +335,7 @@ export function useAuth() {
         // left set would keep a next server without login from ever rendering.
         startFreshSession()
         try {
+            // Also deletes a stored key and resets the kind to cookie.
             await clearServerUrl()
         } catch {
             // Only the saved setting is stale; the next server chosen replaces it.
@@ -282,35 +349,56 @@ export function useAuth() {
      * switch overtook answers 401 by itself — belongs to the server left behind,
      * and an expiry flag kept would stop a server without login from rendering.
      * Saving a first server enables /me by itself; saving over one whose /me
-     * failed — even the same address — changes nothing /me watches, so its error
-     * is reset and the server just saved is asked again.
+     * (or, in a key session, getUser) failed — even the same address — changes
+     * nothing those queries watch, so their error is reset and the server just
+     * saved is asked again.
      */
     function serverSaved(): void {
         lastServerUrl.value = null
         startFreshSession()
         if (me.isError.value) void qc.resetQueries({ queryKey: userQueryKeys.me })
+        if (identity.isError.value) void qc.resetQueries({ queryKey: queryKeys.user })
+    }
+
+    /**
+     * Desktop app: the login view's key card verified a key with getUser and
+     * stored it. The session starts afresh — a refused key's expiry is over —
+     * and the identity the verification answered seeds the rest identity
+     * query, so the app renders without asking getUser a second time.
+     */
+    function apiKeySaved(user: MeUser): void {
+        startFreshSession()
+        qc.setQueryData(queryKeys.user, user)
     }
 
     return {
-        /** True while the /me bootstrap is in flight. */
-        isLoading: computed(() => me.isLoading.value),
-        /** Server requires login (auth method "native"). */
+        /** True while the identity bootstrap (/me, or getUser in a key session) is in flight. */
+        isLoading: computed(() =>
+            apiKeySession.value ? identity.isLoading.value : me.isLoading.value
+        ),
+        /** Server requires login (auth method "native", cookie session). */
         authRequired,
-        /** Identity from /me; null when anonymous. */
+        /** Identity from /me, or getUser in a key session; null when anonymous. */
         currentUser,
         /** Current visitor may administer the server (see computed above). */
         isAdmin,
+        /** /api/v0 is usable: a cookie session whose /me answered. Gates everything that rides apiClient. */
+        managementApi,
+        /** Something to log out of: a native session or a key session. */
+        canSignOut,
         /** Render the login view instead of the app. */
         needsLogin,
-        /** Desktop app without a server, or its /me failed: the login view asks for one. */
+        /** Desktop app without a server, or its server did not answer: the login view asks for one. */
         needsServer,
-        /** Desktop app on a proxy-header server it cannot sign in to. */
-        needsPortal,
+        /** Desktop app: the login view asks for an API key. */
+        needsApiKey,
         login: loginMutation,
         logout: logoutMutation,
         /** Desktop app: sign out of the server and choose another. */
         switchServer,
-        /** Desktop app: the server step saved a server; /me asks it. */
-        serverSaved
+        /** Desktop app: the server step saved a server; its identity is asked. */
+        serverSaved,
+        /** Desktop app: the key card verified and stored a key. */
+        apiKeySaved
     }
 }

@@ -24,19 +24,47 @@ vi.mock('@/composables/useQueueSync', () => ({
 }))
 
 // Where the SPA runs: a browser tab on the server's origin unless a case moves
-// it into the desktop app. clearServerUrl forgets the server as the IPC wrapper
-// does; the session hand-off has its own spec.
-const host = vi.hoisted(() => ({ desktopApp: false, clearServerUrl: vi.fn() }))
+// it into the desktop app. The IPC wrappers are stood in with what they do to
+// the host's refs — clearServerUrl forgets the server, the key and the kind,
+// clearApiKey forgets the key, setApiKey installs one; the session hand-off has
+// its own spec.
+const host = vi.hoisted(() => ({
+    desktopApp: false,
+    clearServerUrl: vi.fn(),
+    clearApiKey: vi.fn(),
+    setSessionKind: vi.fn(),
+    setApiKey: vi.fn()
+}))
 vi.mock('@/lib/host', async () => {
     const { ref } = await import('vue')
     const serverUrl = ref<string | null>('http://localhost:3000')
+    const sessionKind = ref<'cookie' | 'apiKey'>('cookie')
+    const apiKey = ref<string | null>(null)
     return {
         isDesktopApp: () => host.desktopApp,
         serverUrl,
+        sessionKind,
+        apiKey,
         httpFetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
         clearServerUrl: async () => {
             host.clearServerUrl()
+            apiKey.value = null
+            sessionKind.value = 'cookie'
             serverUrl.value = null
+        },
+        clearApiKey: async () => {
+            host.clearApiKey()
+            apiKey.value = null
+        },
+        setSessionKind: async (kind: 'cookie' | 'apiKey') => {
+            host.setSessionKind(kind)
+            if (kind !== 'apiKey') apiKey.value = null
+            sessionKind.value = kind
+        },
+        setApiKey: async (key: string) => {
+            host.setApiKey(key)
+            sessionKind.value = 'apiKey'
+            apiKey.value = key
         },
         setSession: async () => {},
         clearSession: async () => {}
@@ -57,6 +85,8 @@ let subsonicReady: (typeof import('@/lib/subsonicSession'))['subsonicReady']
 let spaTokenId: (typeof import('@/lib/subsonicSession'))['spaTokenId']
 let MAX_MINT_ATTEMPTS: (typeof import('@/lib/subsonicSession'))['MAX_MINT_ATTEMPTS']
 let serverUrl: (typeof import('@/lib/host'))['serverUrl']
+let sessionKind: (typeof import('@/lib/host'))['sessionKind']
+let apiKey: (typeof import('@/lib/host'))['apiKey']
 let lastServerUrl: (typeof import('@/lib/authState'))['lastServerUrl']
 
 function withAuth() {
@@ -106,12 +136,17 @@ describe('useAuth', () => {
         ;({ subsonicReady, spaTokenId, MAX_MINT_ATTEMPTS } = await import(
             '@/lib/subsonicSession'
         ))
-        // The mocked host outlives resetModules: its serverUrl is reset by hand.
-        ;({ serverUrl } = await import('@/lib/host'))
+        // The mocked host outlives resetModules: its refs are reset by hand.
+        ;({ serverUrl, sessionKind, apiKey } = await import('@/lib/host'))
         serverUrl.value = 'http://localhost:3000'
+        sessionKind.value = 'cookie'
+        apiKey.value = null
         ;({ lastServerUrl } = await import('@/lib/authState'))
         host.desktopApp = false
         host.clearServerUrl.mockReset()
+        host.clearApiKey.mockReset()
+        host.setSessionKind.mockReset()
+        host.setApiKey.mockReset()
         sessionExpired.value = false
         explicitLogout.value = false
         subsonicReady.value = false
@@ -653,13 +688,13 @@ describe('useAuth', () => {
         })
 
         // A proxy that lets an anonymous /me through: the app cannot reach the
-        // portal, so the login view explains instead of a blank window.
-        it('flags a portal-only server when /me answers proxy-header without a user', async () => {
+        // portal, so the login view asks for an API key instead of a blank window.
+        it('asks for an API key when /me answers proxy-header without a user', async () => {
             getMe.mockResolvedValue(meProxyAnonymous)
             const auth = withAuth()
             await flushPromises()
 
-            expect(auth.needsPortal.value).toBe(true)
+            expect(auth.needsApiKey.value).toBe(true)
             expect(auth.needsLogin.value).toBe(false)
         })
 
@@ -667,12 +702,12 @@ describe('useAuth', () => {
             ['a proxy-header identity', meProxyAlice],
             ['native auth', meAnonymous],
             ['no auth', meNone]
-        ])('flags no portal for %s', async (_case, me) => {
+        ])('asks for no API key for %s', async (_case, me) => {
             getMe.mockResolvedValue(me)
             const auth = withAuth()
             await flushPromises()
 
-            expect(auth.needsPortal.value).toBe(false)
+            expect(auth.needsApiKey.value).toBe(false)
         })
 
         it('leaves the portal to the proxy in the browser', async () => {
@@ -681,7 +716,21 @@ describe('useAuth', () => {
             const auth = withAuth()
             await flushPromises()
 
-            expect(auth.needsPortal.value).toBe(false)
+            expect(auth.needsApiKey.value).toBe(false)
+        })
+
+        // Everything riding /api/v0 renders only on managementApi; a cookie
+        // session with an answered /me has it, whatever the auth method.
+        it.each([
+            ['no auth', meNone],
+            ['native auth', meAlice],
+            ['a proxy-header identity', meProxyAlice]
+        ])('has the management API with %s', async (_case, me) => {
+            getMe.mockResolvedValue(me)
+            const auth = withAuth()
+            await flushPromises()
+
+            expect(auth.managementApi.value).toBe(true)
         })
 
         describe('switchServer', () => {
@@ -930,6 +979,213 @@ describe('useAuth', () => {
                 expect(sessionExpired.value).toBe(false)
                 expect(subsonicReady.value).toBe(true)
             })
+        })
+    })
+
+    describe('useAuth in a key session (desktop app)', () => {
+        const SERVER = 'http://aether.local:8075'
+        const userEnvelope = (username: string, adminRole: boolean) => ({
+            'subsonic-response': {
+                status: 'ok',
+                version: '1.16.1',
+                type: 'Aether',
+                user: { username, adminRole }
+            }
+        })
+        const refused = {
+            'subsonic-response': {
+                status: 'failed',
+                version: '1.16.1',
+                type: 'Aether',
+                error: { code: 44, message: 'Invalid API key' }
+            }
+        }
+        // The real subsonic client asks getUser through the mocked host's httpFetch,
+        // which is the page fetch: stub it with the server's answer.
+        function restAnswers(body: unknown) {
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(body) })
+            )
+        }
+
+        beforeEach(() => {
+            host.desktopApp = true
+            serverUrl.value = SERVER
+            sessionKind.value = 'apiKey'
+        })
+
+        afterEach(() => {
+            vi.unstubAllGlobals()
+        })
+
+        it('installs the stored key, asks getUser and never /me', async () => {
+            apiKey.value = 'aether_k3y'
+            restAnswers(userEnvelope('alice', true))
+            const auth = withAuth()
+            await flushPromises()
+
+            expect(getMe).not.toHaveBeenCalled()
+            expect(mintSpaToken).not.toHaveBeenCalled()
+            expect(subsonicReady.value).toBe(true)
+            expect(subsonicClient.hasApiKey()).toBe(true)
+            expect(auth.currentUser.value).toEqual({ login: 'alice', role: 'admin' })
+            expect(auth.isAdmin.value).toBe(true)
+            expect(auth.managementApi.value).toBe(false)
+            expect(auth.authRequired.value).toBe(false)
+            expect(auth.canSignOut.value).toBe(true)
+            expect(auth.needsLogin.value).toBe(false)
+            expect(auth.needsApiKey.value).toBe(false)
+            expect(auth.needsServer.value).toBe(false)
+            expect(auth.isLoading.value).toBe(false)
+        })
+
+        it('is loading until getUser answers, and a regular user is no admin', async () => {
+            apiKey.value = 'aether_k3y'
+            let answer!: (response: unknown) => void
+            vi.stubGlobal(
+                'fetch',
+                vi.fn(
+                    () =>
+                        new Promise((resolve) => {
+                            answer = resolve
+                        })
+                )
+            )
+            const auth = withAuth()
+            await flushPromises()
+            expect(auth.isLoading.value).toBe(true)
+            expect(auth.isAdmin.value).toBe(false)
+
+            answer({ ok: true, json: () => Promise.resolve(userEnvelope('bob', false)) })
+            await flushPromises()
+
+            expect(auth.isLoading.value).toBe(false)
+            expect(auth.currentUser.value).toEqual({ login: 'bob', role: 'user' })
+            expect(auth.isAdmin.value).toBe(false)
+        })
+
+        it('asks for a key when none is stored, and asks the server nothing', async () => {
+            apiKey.value = null
+            const fetchMock = vi.fn()
+            vi.stubGlobal('fetch', fetchMock)
+            const auth = withAuth()
+            await flushPromises()
+
+            expect(auth.needsApiKey.value).toBe(true)
+            expect(auth.needsServer.value).toBe(false)
+            expect(auth.isLoading.value).toBe(false)
+            expect(subsonicReady.value).toBe(false)
+            expect(fetchMock).not.toHaveBeenCalled()
+            expect(getMe).not.toHaveBeenCalled()
+        })
+
+        // The server stopped accepting the key (revoked in the web UI): like an
+        // expired session — the key is forgotten, the device purged, and the key
+        // card explains. The kind stays, so a relaunch comes back to that card.
+        it('treats a refused key as a lost session: forgets it and purges', async () => {
+            apiKey.value = 'aether_revoked'
+            restAnswers(refused)
+            const auth = withAuth()
+            await flushPromises()
+
+            expect(sessionExpired.value).toBe(true)
+            expect(host.clearApiKey).toHaveBeenCalledTimes(1)
+            expect(apiKey.value).toBeNull()
+            expect(clearQueue).toHaveBeenCalled()
+            expect(subsonicReady.value).toBe(false)
+            expect(auth.needsApiKey.value).toBe(true)
+            expect(auth.needsServer.value).toBe(false)
+            expect(sessionLostUnexpectedly.value).toBe(true)
+            expect(sessionKind.value).toBe('apiKey')
+        })
+
+        // Down, or moved: the server step, as for a failed /me in the cookie flow.
+        // Nothing says the key is wrong, so it is kept.
+        it('asks for a server again when getUser cannot be reached', async () => {
+            apiKey.value = 'aether_k3y'
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockRejectedValue(`error sending request for url (${SERVER}/rest/getUser.view)`)
+            )
+            const auth = withAuth()
+            await flushPromises()
+
+            expect(auth.needsServer.value).toBe(true)
+            expect(auth.needsApiKey.value).toBe(false)
+            expect(auth.isLoading.value).toBe(false)
+            expect(host.clearApiKey).not.toHaveBeenCalled()
+            expect(apiKey.value).toBe('aether_k3y')
+        })
+
+        it('logs out by forgetting the key, deliberately, with no /api/v0 call', async () => {
+            apiKey.value = 'aether_k3y'
+            restAnswers(userEnvelope('alice', false))
+            const auth = withAuth()
+            await flushPromises()
+
+            await auth.logout.mutateAsync()
+            await flushPromises()
+
+            expect(logout).not.toHaveBeenCalled()
+            expect(host.clearApiKey).toHaveBeenCalledTimes(1)
+            expect(apiKey.value).toBeNull()
+            expect(clearQueue).toHaveBeenCalled()
+            expect(explicitLogout.value).toBe(true)
+            expect(sessionLostUnexpectedly.value).toBe(false)
+            expect(auth.needsApiKey.value).toBe(true)
+        })
+
+        it('switches server without an /api/v0 logout, forgetting the key and the kind', async () => {
+            apiKey.value = 'aether_k3y'
+            restAnswers(userEnvelope('alice', false))
+            const auth = withAuth()
+            await flushPromises()
+
+            await auth.switchServer()
+
+            expect(logout).not.toHaveBeenCalled()
+            expect(host.clearServerUrl).toHaveBeenCalledTimes(1)
+            expect(apiKey.value).toBeNull()
+            expect(sessionKind.value).toBe('cookie')
+            expect(lastServerUrl.value).toBe(SERVER)
+            expect(auth.needsServer.value).toBe(true)
+        })
+
+        // The key card verified the key with getUser already; its answer seeds the
+        // identity, so the app renders without asking a second time.
+        it('seeds the identity a verified key answered and renders without a second getUser', async () => {
+            apiKey.value = null
+            const auth = withAuth()
+            await flushPromises()
+            const fetchMock = vi.fn()
+            vi.stubGlobal('fetch', fetchMock)
+
+            auth.apiKeySaved({ login: 'alice', role: 'user' })
+            apiKey.value = 'aether_k3y'
+            await flushPromises()
+
+            expect(auth.currentUser.value).toEqual({ login: 'alice', role: 'user' })
+            expect(auth.needsApiKey.value).toBe(false)
+            expect(subsonicReady.value).toBe(true)
+            expect(fetchMock).not.toHaveBeenCalled()
+        })
+
+        // A refused key's expiry must not outlive the key that replaces it.
+        it('starts afresh when a new key is saved after a refused one', async () => {
+            apiKey.value = 'aether_revoked'
+            restAnswers(refused)
+            const auth = withAuth()
+            await flushPromises()
+            expect(auth.needsApiKey.value).toBe(true)
+
+            auth.apiKeySaved({ login: 'alice', role: 'user' })
+            apiKey.value = 'aether_fresh'
+            await flushPromises()
+
+            expect(sessionExpired.value).toBe(false)
+            expect(auth.needsApiKey.value).toBe(false)
+            expect(subsonicReady.value).toBe(true)
         })
     })
 })
