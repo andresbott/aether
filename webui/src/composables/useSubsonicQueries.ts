@@ -26,6 +26,8 @@ type SearchCounts = Pick<
 
 export const queryKeys = {
     ping: ['subsonic', 'ping'] as const,
+    // A key session's identity (getUser); the cookie flow's is ['me'] in useUsers.
+    user: ['subsonic', 'user'] as const,
     musicFolders: ['subsonic', 'musicFolders'] as const,
     albumList: (
         type: string,

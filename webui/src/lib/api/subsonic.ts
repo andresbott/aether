@@ -18,7 +18,8 @@ import type {
     SavedPlayQueue,
     Starred2,
     CatalogView,
-    MusicFolders
+    MusicFolders,
+    SubsonicUser
 } from '@/types/subsonic'
 import { ref } from 'vue'
 import { httpFetch, isDesktopApp, serverUrl } from '@/lib/host'
@@ -42,6 +43,11 @@ class SubsonicClient {
     private authSkipped: boolean = false
     private readonly clientName = 'aether-web'
     private readonly apiVersion = '1.16.1'
+
+    // getUser is a key session's bootstrap, so it is bounded like getMe is for
+    // the cookie flow: a server that silently drops packets would otherwise
+    // hold the window blank until the system gave up on the connection.
+    private readonly bootstrapTimeoutMs = 10_000
 
     /** Auth method "none": no credentials on any /rest call. */
     initWithDefaults(): void {
@@ -158,10 +164,11 @@ class SubsonicClient {
 
     private async request<T>(
         endpoint: string,
-        params: Record<string, string | number | boolean | undefined> = {}
+        params: Record<string, string | number | boolean | undefined> = {},
+        init?: RequestInit
     ): Promise<T> {
         const url = this.buildUrl(endpoint, params)
-        const data = (await this.fetchJson(url)) as SubsonicResponse<T>
+        const data = (await this.fetchJson(url, init)) as SubsonicResponse<T>
         if (data['subsonic-response'].status === 'failed') {
             this.handleFailedResponse(data)
         }
@@ -176,6 +183,29 @@ class SubsonicClient {
         } catch {
             return false
         }
+    }
+
+    /**
+     * The caller's own record. Aether answers the resolved owner whatever the
+     * `username` parameter says, so none is sent: a key session learns its login
+     * and role here (the cookie flow asks /api/v0/me instead).
+     */
+    async getUser(): Promise<SubsonicUser> {
+        // AbortSignal.timeout where the runtime has it (every webview the app
+        // ships in); without it the request is simply unbounded, as before.
+        const signal =
+            typeof AbortSignal.timeout === 'function'
+                ? AbortSignal.timeout(this.bootstrapTimeoutMs)
+                : undefined
+        const response = await this.request<{ user: SubsonicUser }>('getUser.view', {}, { signal })
+        return response.user
+    }
+
+    /** The server's version, read off a ping's envelope; null when it carries none. */
+    async serverVersion(): Promise<string | null> {
+        if (!this.isConfigured()) return null
+        const response = await this.request<{ serverVersion?: string }>('ping.view')
+        return response.serverVersion ?? null
     }
 
     async getMusicFolders(): Promise<MusicFolders> {
