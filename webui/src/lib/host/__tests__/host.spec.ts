@@ -90,9 +90,19 @@ describe('host in the browser', () => {
 
     it('refuses to change the server, which is the page origin', async () => {
         const host = await loadHost('browser')
-        await expect(host.setServerUrl(SERVER)).rejects.toThrow(/desktop app/)
+        await expect(host.setServerUrl(SERVER, 'cookie')).rejects.toThrow(/desktop app/)
         await expect(host.clearServerUrl()).rejects.toThrow(/desktop app/)
         expect(host.serverUrl.value).toBe(window.location.origin)
+        expect(tauri.invoke).not.toHaveBeenCalled()
+    })
+
+    it('is always a cookie session with no key, and refuses to change either', async () => {
+        const host = await loadHost('browser')
+        expect(host.sessionKind.value).toBe('cookie')
+        expect(host.apiKey.value).toBeNull()
+        await expect(host.setSessionKind('apiKey')).rejects.toThrow(/desktop app/)
+        await expect(host.setApiKey('aether_k3y')).rejects.toThrow(/desktop app/)
+        await expect(host.clearApiKey()).rejects.toThrow(/desktop app/)
         expect(tauri.invoke).not.toHaveBeenCalled()
     })
 })
@@ -105,7 +115,7 @@ describe('host in the desktop app', () => {
     })
 
     it('initHost adopts the saved server and routes requests through the plugin', async () => {
-        commands({ get_settings: () => ({ serverUrl: SERVER }) })
+        commands({ get_settings: () => ({ serverUrl: SERVER, sessionKind: 'cookie' }) })
         const host = await loadHost('app')
         const pageFetch = vi.fn()
         vi.stubGlobal('fetch', pageFetch)
@@ -122,7 +132,7 @@ describe('host in the desktop app', () => {
 
     // First launch: nothing saved yet, so the login view's server step shows.
     it('leaves the server unset when none is saved', async () => {
-        commands({ get_settings: () => ({ serverUrl: null }) })
+        commands({ get_settings: () => ({ serverUrl: null, sessionKind: 'cookie' }) })
         const host = await loadHost('app')
 
         await host.initHost()
@@ -151,7 +161,7 @@ describe('host in the desktop app', () => {
     // only listens to init.signal: the Request's signal must arrive there, or an
     // aborted call keeps running in Rust and never rejects.
     it('hands the plugin the abort signal a Request carries', async () => {
-        commands({ get_settings: () => ({ serverUrl: SERVER }) })
+        commands({ get_settings: () => ({ serverUrl: SERVER, sessionKind: 'cookie' }) })
         const host = await loadHost('app')
         await host.initHost()
         tauri.pluginFetch.mockResolvedValue(new Response('{}'))
@@ -168,13 +178,16 @@ describe('host in the desktop app', () => {
 
     it('setServerUrl adopts the URL as Rust normalised it', async () => {
         commands({
-            get_settings: () => ({ serverUrl: null }),
-            set_server_url: (args) => ({ serverUrl: String(args?.url).replace(/\/+$/, '') })
+            get_settings: () => ({ serverUrl: null, sessionKind: 'cookie' }),
+            set_server_url: (args) => ({
+                serverUrl: String(args?.url).replace(/\/+$/, ''),
+                sessionKind: 'cookie'
+            })
         })
         const host = await loadHost('app')
         await host.initHost()
 
-        await expect(host.setServerUrl(`${SERVER}/`)).resolves.toBe(SERVER)
+        await expect(host.setServerUrl(`${SERVER}/`, 'cookie')).resolves.toBe(SERVER)
 
         expect(host.serverUrl.value).toBe(SERVER)
     })
@@ -182,7 +195,7 @@ describe('host in the desktop app', () => {
     it('setServerUrl keeps the current server when Rust refuses the URL', async () => {
         const refusal = { code: 'InvalidServerUrl', message: 'invalid server url: ftp://h' }
         commands({
-            get_settings: () => ({ serverUrl: SERVER }),
+            get_settings: () => ({ serverUrl: SERVER, sessionKind: 'cookie' }),
             set_server_url: () => {
                 throw refusal
             }
@@ -190,15 +203,15 @@ describe('host in the desktop app', () => {
         const host = await loadHost('app')
         await host.initHost()
 
-        await expect(host.setServerUrl('ftp://h')).rejects.toEqual(refusal)
+        await expect(host.setServerUrl('ftp://h', 'cookie')).rejects.toEqual(refusal)
 
         expect(host.serverUrl.value).toBe(SERVER)
     })
 
     it('clearServerUrl forgets the server', async () => {
         commands({
-            get_settings: () => ({ serverUrl: SERVER }),
-            clear_server_url: () => ({ serverUrl: null })
+            get_settings: () => ({ serverUrl: SERVER, sessionKind: 'cookie' }),
+            clear_server_url: () => ({ serverUrl: null, sessionKind: 'cookie' })
         })
         const host = await loadHost('app')
         await host.initHost()
@@ -206,6 +219,184 @@ describe('host in the desktop app', () => {
         await host.clearServerUrl()
 
         expect(host.serverUrl.value).toBeNull()
+    })
+
+    it('initHost adopts a key session: the kind, the server and the stored key', async () => {
+        commands({
+            get_settings: () => ({ serverUrl: SERVER, sessionKind: 'apiKey' }),
+            get_api_key: () => 'aether_k3y'
+        })
+        const host = await loadHost('app')
+
+        await host.initHost()
+
+        expect(host.sessionKind.value).toBe('apiKey')
+        expect(host.serverUrl.value).toBe(SERVER)
+        expect(host.apiKey.value).toBe('aether_k3y')
+    })
+
+    it('asks Rust for no key in a cookie session', async () => {
+        commands({ get_settings: () => ({ serverUrl: SERVER, sessionKind: 'cookie' }) })
+        const host = await loadHost('app')
+
+        await host.initHost()
+
+        expect(host.sessionKind.value).toBe('cookie')
+        expect(host.apiKey.value).toBeNull()
+        expect(tauri.invoke).not.toHaveBeenCalledWith('get_api_key')
+    })
+
+    // Review focus 3: the key card asks again; the window never stays blank.
+    it('keeps the kind and server, and resolves, when the stored key cannot be read', async () => {
+        commands({
+            get_settings: () => ({ serverUrl: SERVER, sessionKind: 'apiKey' }),
+            get_api_key: () => {
+                throw { code: 'Internal', message: 'Permission denied (os error 13)' }
+            }
+        })
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const host = await loadHost('app')
+
+        await expect(host.initHost()).resolves.toBeUndefined()
+
+        expect(host.sessionKind.value).toBe('apiKey')
+        expect(host.serverUrl.value).toBe(SERVER)
+        expect(host.apiKey.value).toBeNull()
+        expect(warn).toHaveBeenCalledTimes(1)
+    })
+
+    // The kind rides with the address, so a portal server is never saved as a
+    // cookie session even for a tick — useMe must not see it as one.
+    it('setServerUrl saves the kind with the address and forgets a key for another server', async () => {
+        commands({
+            get_settings: () => ({ serverUrl: SERVER, sessionKind: 'apiKey' }),
+            get_api_key: () => 'aether_k3y',
+            set_server_url: (args) => ({
+                serverUrl: String(args?.url),
+                sessionKind: args?.sessionKind
+            })
+        })
+        const host = await loadHost('app')
+        await host.initHost()
+        const seen: string[] = []
+        const { watch } = await import('vue')
+        // Synchronous, so the kind is read at the very moment the server changes.
+        watch(
+            host.serverUrl,
+            () => seen.push(`server ${host.serverUrl.value} as ${host.sessionKind.value}`),
+            { flush: 'sync' }
+        )
+
+        await host.setServerUrl('http://other.lan:8075', 'cookie')
+
+        expect(tauri.invoke).toHaveBeenCalledWith('set_server_url', {
+            url: 'http://other.lan:8075',
+            sessionKind: 'cookie'
+        })
+        expect(host.sessionKind.value).toBe('cookie')
+        expect(host.apiKey.value).toBeNull()
+        await host.setServerUrl('http://portal.example.org', 'apiKey')
+        expect(seen).toEqual([
+            'server http://other.lan:8075 as cookie',
+            'server http://portal.example.org as apiKey'
+        ])
+    })
+
+    // Connect on the same address after an outage: Rust kept the key, and the
+    // host mirrors what Rust kept rather than guessing.
+    it('setServerUrl keeps the key Rust kept for the same server', async () => {
+        commands({
+            get_settings: () => ({ serverUrl: SERVER, sessionKind: 'apiKey' }),
+            get_api_key: () => 'aether_k3y',
+            set_server_url: () => ({ serverUrl: SERVER, sessionKind: 'apiKey' })
+        })
+        const host = await loadHost('app')
+        await host.initHost()
+
+        await host.setServerUrl(SERVER, 'apiKey')
+
+        expect(host.apiKey.value).toBe('aether_k3y')
+        expect(host.sessionKind.value).toBe('apiKey')
+    })
+
+    it('setSessionKind persists the kind and drops the key when leaving the key session', async () => {
+        commands({
+            get_settings: () => ({ serverUrl: SERVER, sessionKind: 'apiKey' }),
+            get_api_key: () => 'aether_k3y',
+            set_session_kind: (args) => ({ serverUrl: SERVER, sessionKind: args?.sessionKind })
+        })
+        const host = await loadHost('app')
+        await host.initHost()
+
+        await host.setSessionKind('cookie')
+
+        expect(tauri.invoke).toHaveBeenCalledWith('set_session_kind', { sessionKind: 'cookie' })
+        expect(host.sessionKind.value).toBe('cookie')
+        expect(host.apiKey.value).toBeNull()
+    })
+
+    it('setApiKey stores the key and makes this a key session', async () => {
+        commands({
+            get_settings: () => ({ serverUrl: SERVER, sessionKind: 'cookie' }),
+            set_api_key: () => ({ serverUrl: SERVER, sessionKind: 'apiKey' })
+        })
+        const host = await loadHost('app')
+        await host.initHost()
+
+        await host.setApiKey('aether_k3y')
+
+        expect(tauri.invoke).toHaveBeenCalledWith('set_api_key', { apiKey: 'aether_k3y' })
+        expect(host.sessionKind.value).toBe('apiKey')
+        expect(host.apiKey.value).toBe('aether_k3y')
+    })
+
+    it('setApiKey leaves the session untouched when Rust refuses the key', async () => {
+        const notConnected = { code: 'NotConnected', message: 'no server configured' }
+        commands({
+            get_settings: () => ({ serverUrl: null, sessionKind: 'cookie' }),
+            set_api_key: () => {
+                throw notConnected
+            }
+        })
+        const host = await loadHost('app')
+        await host.initHost()
+
+        await expect(host.setApiKey('aether_k3y')).rejects.toEqual(notConnected)
+
+        expect(host.sessionKind.value).toBe('cookie')
+        expect(host.apiKey.value).toBeNull()
+    })
+
+    it('clearApiKey forgets the key but keeps the kind', async () => {
+        commands({
+            get_settings: () => ({ serverUrl: SERVER, sessionKind: 'apiKey' }),
+            get_api_key: () => 'aether_k3y',
+            clear_api_key: () => null
+        })
+        const host = await loadHost('app')
+        await host.initHost()
+
+        await host.clearApiKey()
+
+        expect(tauri.invoke).toHaveBeenCalledWith('clear_api_key')
+        expect(host.apiKey.value).toBeNull()
+        expect(host.sessionKind.value).toBe('apiKey')
+    })
+
+    it('clearServerUrl forgets the key and resets the kind', async () => {
+        commands({
+            get_settings: () => ({ serverUrl: SERVER, sessionKind: 'apiKey' }),
+            get_api_key: () => 'aether_k3y',
+            clear_server_url: () => ({ serverUrl: null, sessionKind: 'cookie' })
+        })
+        const host = await loadHost('app')
+        await host.initHost()
+
+        await host.clearServerUrl()
+
+        expect(host.serverUrl.value).toBeNull()
+        expect(host.sessionKind.value).toBe('cookie')
+        expect(host.apiKey.value).toBeNull()
     })
 
     // The IPC argument names are a contract with the Rust commands (camelCase on
