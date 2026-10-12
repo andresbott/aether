@@ -145,11 +145,12 @@ class SubsonicClient {
         }
         const data = await response.json()
         if (this.apiKey && this.isAuthFailure(data)) {
-            // The token expired mid-session: re-mint once (single-flight) and
-            // retry once with the fresh key. A dead session flips
-            // sessionExpired inside remintApiKey and we fail the request.
-            const { remintApiKey } = await import('@/lib/subsonicSession')
-            const result = await remintApiKey()
+            // The credential was refused. In the cookie flow the token expired
+            // mid-session: re-mint once (single-flight) and retry once with the
+            // fresh key. In a key session the key is dead: the hook flags the
+            // expiry and we fail the request.
+            const { handleRestAuthFailure } = await import('@/lib/subsonicSession')
+            const result = await handleRestAuthFailure()
             if (result === 'ok') {
                 const retryUrl = this.rebuildWithFreshKey(url)
                 const retry = await httpFetch(retryUrl, init)

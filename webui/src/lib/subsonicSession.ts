@@ -6,7 +6,7 @@ import { ref } from 'vue'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { mintSpaToken } from '@/lib/api/Tokens'
 import { sessionExpired } from '@/lib/authState'
-import { clearSession, setSession } from '@/lib/host'
+import { clearSession, sessionKind, setSession } from '@/lib/host'
 
 /** /rest calls may fire: auth "none", or a token is installed. App.vue gates on it. */
 export const subsonicReady = ref(false)
@@ -67,6 +67,13 @@ export function resetMintAttempts(): void {
  *   mint whose session was reset while it was out, whatever it answered
  */
 export function remintApiKey(): Promise<MintResult> {
+    // A key session has nothing to mint and gives no verdict here: the player
+    // calls this on a stream element error, which carries no reason, and
+    // signing the user out on a network blip would be worse than the
+    // connectivity banner it reports instead. No retry budget is spent. A
+    // refused key reaches the gate through handleRestAuthFailure, from a JSON
+    // answer that names its code.
+    if (sessionKind.value === 'apiKey') return Promise.resolve('failed')
     if (!mintInFlight) {
         const generation = mintGeneration
         const mint: Promise<MintResult> = mintSpaToken()
@@ -110,6 +117,22 @@ export function remintApiKey(): Promise<MintResult> {
         mintInFlight = mint
     }
     return mintInFlight
+}
+
+/**
+ * A /rest answer carried error 40 or 44 while a key was installed. In the cookie
+ * flow the spa token has expired: mint again, and the caller retries with the
+ * fresh key. In a key session there is nothing to mint — the key the user
+ * pasted was refused, which only a revocation explains — so the session is
+ * over: the flag opens the gate (useAuth forgets the key and purges), and the
+ * caller fails its request.
+ */
+export function handleRestAuthFailure(): Promise<MintResult> {
+    if (sessionKind.value === 'apiKey') {
+        sessionExpired.value = true
+        return Promise.resolve('session-gone')
+    }
+    return remintApiKey()
 }
 
 /**
