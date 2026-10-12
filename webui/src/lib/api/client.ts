@@ -1,6 +1,6 @@
 import axios, { type CreateAxiosDefaults } from 'axios'
 import { sessionExpired } from '@/lib/authState'
-import { httpFetch, isDesktopApp, serverUrl } from '@/lib/host'
+import { httpFetch, isDesktopApp, serverUrl, sessionKind } from '@/lib/host'
 
 const API_BASE_URL = import.meta.env.VITE_SERVER_URL_V0 || '/api/v0'
 
@@ -32,6 +32,12 @@ if (isDesktopApp()) {
         // server; failing loudly beats a request to the window's own origin.
         if (serverUrl.value === null) {
             throw new Error('No Aether server is configured')
+        }
+        // A key session is /rest only — its server may sit behind a portal that
+        // answers /api/v0 with a login page. The UI hides every caller; this
+        // makes a stray one fail here, fast, instead of reaching the portal.
+        if (sessionKind.value === 'apiKey') {
+            throw new Error('Not available with an API key')
         }
         config.baseURL = `${serverUrl.value}/api/v0`
         return config

@@ -10,6 +10,7 @@ function fakeHost(desktopApp: boolean, server: string | null) {
     return {
         isDesktopApp: () => desktopApp,
         serverUrl: ref<string | null>(server),
+        sessionKind: ref<'cookie' | 'apiKey'>('cookie'),
         httpFetch: vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
     }
 }
@@ -93,6 +94,20 @@ describe('apiClient in the desktop app', () => {
 
         await expect(apiClient.get('/me')).rejects.toThrow(/no aether server is configured/i)
         expect(host.httpFetch).not.toHaveBeenCalled()
+    })
+
+    // A key session is /rest only: the server may sit behind a portal that
+    // answers /api/v0 with its login page. The UI hides every caller; a stray one
+    // must fail here, fast, and never read the portal's answer as an expiry.
+    it('refuses to send anything in a key session', async () => {
+        const host = fakeHost(true, SERVER)
+        host.sessionKind.value = 'apiKey'
+        const { apiClient, sessionExpired } = await loadClient(host)
+
+        await expect(apiClient.get('/me')).rejects.toThrow(/not available with an api key/i)
+
+        expect(host.httpFetch).not.toHaveBeenCalled()
+        expect(sessionExpired.value).toBe(false)
     })
 
     it('still flags the session as expired when the server answers 401', async () => {
