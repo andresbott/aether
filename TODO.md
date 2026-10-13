@@ -66,8 +66,8 @@ and `todo list --json` cover the common actions — run `todo --help`.
 - [x] select server
 - [x] icon
 - [x] run without xatrr
-- [ ] Proxy-header login in the desktop app (system browser + cookie hand-off)
-  Servers behind an auth portal (Authelia) are refused at the app's server step today: the portal signs in through a browser redirect the app cannot follow, and its ACL keeps /api/v0 closed to anonymous callers (docs/agents/player/features.md). Direction (D7, under Key decisions in docs/agents/player/architecture.md): sign in through the system browser, then hand the session cookie over into tauri-plugin-http's cookie jar.
+- [ ] Administering a portal server from inside the desktop app (low priority)
+  Listening works since API-key login (2026-10-11, D9 in docs/agents/player/architecture.md): a key session is /rest only. Admin needs /api/v0, which the portal keeps closed to the app, so the admin entries hide there (useAuth().managementApi). The only way to open them would be D7's browser hand-off — sign in through the system browser, then hand the session cookie over into tauri-plugin-http's jar — which is portal-specific and needs a loopback or deep-link return path. Not planned until someone needs admin in the app behind a portal; the web UI does it today.
 - [ ] Playback retrofit: Rust engine, tray, state events (narrowed follow-up #1)
   The bootstrap spec's follow-up #1, narrowed by server selection to playback: the SPA still plays through its own <audio> while the Rust Player/rodio engine stays idle. Move playback into the engine over IPC (player://state, queue commands), point the tray at it, and decide the fate of the browsing/playback commands nothing calls today (docs/agents/player/architecture.md, Known debt).
 - [ ] Metadata editor picture previews in the desktop app (fetch through the plugin + object URLs)

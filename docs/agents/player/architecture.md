@@ -14,7 +14,8 @@ decision record; where it says "follow-up", check [features.md](features.md)
 for current status before assuming it landed), moved into this repo on
 2026-10-09, trading its vendored copy of the webui for the real one, and given
 server selection on 2026-10-10, whose design decisions D1–D8 are recorded
-under [Key decisions](#server-selection-decisions) below.
+under [Key decisions](#server-selection-decisions) below, and API-key login on
+2026-10-11 (D9 there).
 
 Paths in `docs/agents/player/` are relative to `player/` unless they start with
 `webui/`, `docs/` or `.github/`.
@@ -32,7 +33,7 @@ change, [../subsonic-api.md](../subsonic-api.md) for what the server answers.
     webui/  (the shared Vue 3 SPA — vite build, opened as the window; HTTP via `tauri-plugin-http` in the app, playback still in the webview)
        |
     src-tauri/  crate `aether-app` — thin Tauri shell
-       |   commands/* (IPC handlers)   settings.rs (settings.json)   protocol.rs (aether://)
+       |   commands/* (IPC handlers)   settings.rs (settings.json)   credentials.rs (credentials.json)   protocol.rs (aether://)
        |   events.rs   engine/* (per-OS PlaybackEngine impls)   tray.rs   tauri-plugin-http
        v
     crates/aether-core/  pure Rust, NO Tauri dependency
@@ -106,22 +107,28 @@ Rules each layer enforces:
   no `tauri android/ios init` has been run (no `gen/android`, `gen/apple`;
   `src-tauri/gen/` is gitignored). Keep it that way until the mobile
   follow-up plans.
-- **What the player stores (2026-10-10, [D4](#server-selection-decisions)):**
-  one setting — `settings.json` `{ "serverUrl": … }` in `app_config_dir()`
-  (`src-tauri/src/settings.rs`), the normalised address of the server the
-  user picked; a missing or damaged file yields the defaults, so it can never
-  keep the app from starting. The session is not the player's to store: it is
-  the HTTP plugin's cookie jar (`app_cache_dir()/.cookies`, loaded at startup
-  and rewritten whenever a response sets a cookie, and once more on exit, so a
-  crash loses at most a save still in flight; only persistent cookies are
-  written, and Aether's session cookie is one) plus the SPA's 48h `spa`
-  token, pushed to Rust in memory (`set_session`) and dropped on logout,
-  expiry or a server change. **No password is ever
-  stored**: it travels once, in the login request the plugin carries, and
-  `normalize_server_url` refuses an address with credentials in it. The
-  keyring, `credentials.rs` and `connection.json` are gone; at startup
-  `AppState` loads the settings and starts disconnected until the SPA hands
-  over its token.
+- **What the player stores (2026-10-10, [D4](#server-selection-decisions);
+  amended 2026-10-11, [D9](#server-selection-decisions)):** `settings.json`
+  `{ "serverUrl": …, "sessionKind": "cookie" | "apiKey" }` in `app_config_dir()`
+  (`src-tauri/src/settings.rs`) — the normalised address of the server the user
+  picked and how the SPA signs in to it; a missing or damaged file yields the
+  defaults, so it can never keep the app from starting. In a key session the
+  API key the user pasted — a revocable PAT, never a password — sits beside it
+  in `credentials.json` (`src-tauri/src/credentials.rs`), written owner-only
+  (`0600`) on Unix and re-chmodded on every overwrite, loaded at startup and
+  deleted on logout, on a refused key and on a server change. The cookie
+  session is not the player's to store: it is the HTTP plugin's cookie jar
+  (`app_cache_dir()/.cookies`, loaded at startup and rewritten whenever a
+  response sets a cookie, and once more on exit, so a crash loses at most a
+  save still in flight; only persistent cookies are written, and Aether's
+  session cookie is one) plus the SPA's 48h `spa` token, pushed to Rust in
+  memory (`set_session`) and dropped on logout, expiry or a server change.
+  **No password is ever stored**: it travels once, in the login request the
+  plugin carries, and `normalize_server_url` refuses an address with
+  credentials in it. The keyring is gone and stays gone; at startup `AppState`
+  loads the settings and the key and connects at once when both name a key
+  session (`state::connection_for`), else it starts disconnected until the SPA
+  hands over its token.
 - **Close-to-tray:** window close is intercepted (`prevent_close` + hide) so
   playback continues in the webview (the window is hidden, not destroyed);
   quit only via the tray menu. Unverified on macOS so far, where a hidden
@@ -172,12 +179,13 @@ git-ignored historical record — nothing here depends on it.
   `img-src` and `media-src`). The Rust `Player` stays idle until the playback
   retrofit, and the tray's Play / Pause and Next reach the webview player as
   events.
-- **D4 — The player stores the server address and nothing secret.**
-  `settings.json` holds `{ "serverUrl": … }`, with no password and no keyring:
-  the SPA posts the password to the server through the transport, and the
-  session is the plugin's cookie jar plus the 48h `spa` token pushed to Rust in
-  memory. `credentials.rs`, `connection.json` and the `keyring` dependency were
-  removed, not kept dormant.
+- **D4 — The player stores the server address, the sign-in kind and, in a key
+  session, the pasted API key; never a password.** `settings.json` holds
+  `{ "serverUrl", "sessionKind" }`, `credentials.json` the key, owner-only,
+  with the same exposure as the cookie jar that already persists the session
+  cookie; the password is posted once through the transport, and
+  `credentials.rs` is back in this narrower form while the `keyring`
+  dependency stays removed (amended by D9).
 - **D5 — The app-only controls, all gated on `isDesktopApp()`.** The login card
   hosts the server step — only the address and Connect until a server is
   known, then a muted `Server · host` line with a *Change* link above the
@@ -188,15 +196,14 @@ git-ignored historical record — nothing here depends on it.
   playback, queue, state events and the tray. The browsing passthroughs in
   `commands/library.rs` keep compiling over tested core methods, but nothing
   calls them; their fate is tracked in `TODO.md`, with the playback retrofit.
-- **D7 — Proxy-header (portal) servers are not supported in the app yet.** A
-  portal signs in through a browser redirect the app cannot follow and keeps
-  `/api/v0` closed to anonymous callers, so the server step reads a
-  `/api/v0/me` that does not answer as Aether plus a `/rest/ping` answered
-  with Aether's own envelope (`"type": "Aether"`; `/rest` is open in every
-  proxy setup) as a portal and saves nothing, and a `/me` reporting
-  `proxy-header` without a user shows the same message (`needsPortal`).
-  Portal login — the system browser plus a cookie hand-off into the plugin's
-  jar — is a follow-up tracked in `TODO.md`.
+- **D7 — Superseded by D9 (2026-10-11).** A portal signs in through a browser
+  redirect the app cannot follow and keeps `/api/v0` closed to anonymous
+  callers, so the server step reads a `/api/v0/me` that does not answer as
+  Aether plus a `/rest/ping` answered with Aether's own envelope
+  (`"type": "Aether"`; `/rest` is open in every proxy setup) as a portal and
+  saves nothing, and a `/me` reporting `proxy-header` without a user shows the
+  same message. Portal login — the system browser plus a cookie hand-off into
+  the plugin's jar — is a follow-up tracked in `TODO.md`.
 - **D8 — Rejected alternatives:** CORS on the server with requests straight
   from the webview (dead on D1's cookie problem, and it would push
   token-shaped credentials into the login form); loading the UI from the
@@ -204,6 +211,21 @@ git-ignored historical record — nothing here depends on it.
   static, the UI's version would follow the server's, and it rules out the
   offline cache); and the full IPC retrofit first (months of work before
   choosing a server did anything visible).
+- **D9 — Portal servers are used with an API key, in a `/rest`-only session
+  (2026-10-11).** `/rest` is PAT-only in every auth mode and open in every
+  proxy setup, so a key the user creates in the web UI (User settings →
+  Connected apps) signs the app in where no password can: the server step saves
+  a `portal` probe as a key session, the key card verifies the key with
+  `getUser` before Rust stores it, identity and role come from that answer, and
+  nothing is ever asked of `/api/v0` — the SPA's `apiClient` refuses to send
+  (`sessionKind` in `webui/src/lib/host/`). An admin's key keeps the `/rest`
+  admin actions (cover uploads, radio CRUD); everything riding `/api/v0` hides
+  behind `useAuth().managementApi`. The option is offered on native servers too.
+  A `/rest` error 40 or 44 means the key was revoked: the SPA forgets it and
+  shows the key card again; a media element error is no verdict on the key. The
+  browser hand-off D7 described stays a low-priority follow-up for
+  administering a portal server from inside the app (TODO.md). Spec:
+  `docs/superpowers/specs/2026-10-11-player-api-key-login-design.md`.
 
 ## Domain types worth knowing
 
@@ -219,12 +241,16 @@ git-ignored historical record — nothing here depends on it.
   normalised form. Error texts never carry a request URL, because a `/rest`
   URL carries the key: `without_url()` strips it wherever reqwest would print
   it — the send error in `get()`, the engine's `download`, `protocol.rs`.
-- `AppState` (`src-tauri/src/state.rs`) — `settings: RwLock<Settings>` next
-  to `connection`, with a lock order: **`settings` before `connection`**.
-  `set_session` holds the settings read lock until the client is stored, and
-  `set_server_url`/`clear_server_url` hold the write lock while they persist
-  the file and drop the client, so a session can never be stored for a server
-  that is no longer the configured one.
+- `AppState` (`src-tauri/src/state.rs`) — `settings: RwLock<Settings>` and
+  `api_key: RwLock<Option<String>>` (the key from `credentials.json`, mirrored
+  in memory) next to `connection`, with a lock order: **`settings` → `api_key`
+  → `connection`**. `set_session` holds the settings read lock until the
+  client is stored, and `set_server_url`/`set_session_kind`/`clear_server_url`
+  hold the settings write lock, and the key lock after it, while they persist
+  the files and rebuild the client from what is left (`state::connection_for`),
+  so a session can never be stored for a server that is no longer the
+  configured one. `set_api_key` and `clear_api_key` take the same locks in the
+  same order.
 - `aether_core::player::Player` — owns a `Mutex<Inner>` (queue, paused,
   stopped, volume) plus `Arc<dyn PlaybackEngine>` and
   `Arc<dyn StreamUrlResolver>`. See [playback.md](playback.md) for the lock
@@ -244,11 +270,12 @@ git-ignored historical record — nothing here depends on it.
 - `eprintln!` used for logging throughout (poll loop, settings, tray) — no
   structured logging yet.
 - Untested paths: `cover_art_url` with `size: None`, resolver-failure paths
-  in `Player`, and the settings/session command guarantees (`set_session`
-  answering `NotConnected` without a server, `set_server_url` /
-  `clear_server_url` dropping the session, a failed settings write leaving
-  both untouched) — no committed test covers them. `build_url` with a path
-  prefix is covered now (`requests_keep_the_server_path_prefix`).
+  in `Player`, and the settings/session command guarantees (`set_session` and
+  `set_api_key` answering `NotConnected` without a server, `set_server_url` /
+  `clear_server_url` dropping the session, `set_server_url` keeping a key for
+  the same server, a failed settings write leaving both untouched) — no
+  committed test covers them. `build_url` with a path prefix is covered now
+  (`requests_keep_the_server_path_prefix`).
 - Registered but unused by the SPA (server selection, 2026-10-10): the
   browsing commands in `commands/library.rs`, the playback and queue
   commands, and `connection_status`. They still compile against tested core
@@ -260,7 +287,7 @@ git-ignored historical record — nothing here depends on it.
 - Follow-up plans (not started): the playback retrofit (the bootstrap spec's
   follow-up #1, narrowed by server selection to playback, queue, state events
   and the tray — the Rust engine plays and the webview's `<audio>` goes),
-  proxy-header (portal) login in the app, the metadata editor's pictures in
-  the app (both in [features.md](features.md)), Android ExoPlayer/Media3
-  plugin, iOS AVPlayer plugin, offline cache behind `TrackCache` + `aether://`
-  interception.
+  administering a portal server from inside the app (D9 narrowed D7's browser
+  hand-off to that), the metadata editor's pictures in the app (both in
+  [features.md](features.md)), Android ExoPlayer/Media3 plugin, iOS AVPlayer
+  plugin, offline cache behind `TrackCache` + `aether://` interception.

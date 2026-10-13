@@ -48,7 +48,8 @@ plus one non-route view: `LoginView` is rendered by `App.vue` in place of the
 whole app whenever auth method `native` reports no session (see
 `docs/agents/authentication.md`), and inside the desktop app also as its
 server step — while no server is chosen or the chosen one does not answer —
-and on a proxy-header server the app cannot sign in to (see
+and as its key card — a pasted API key for a `/rest`-only session, the way into
+a server behind a portal, offered on native servers too (see
 `docs/agents/frontend.md`). It is deliberately not a route, so there is no
 `/login` URL and no redirect dance.
 

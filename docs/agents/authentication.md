@@ -149,26 +149,31 @@ Player on Linux" in the desktop app), truncated to 100 runes rather than
 rejected, and falls back to `aether-web`; it is the row label in User settings
 → Connected apps → Your Aether apps.
 
-**The desktop app runs the same native flow** (`player/`, the SPA as its
-window). Its `/api/v0` and `/rest` requests leave from Rust through
-`tauri-plugin-http`, whose cookie jar (`app_cache_dir()/.cookies`, saved as
-cookies are set) holds the session cookie — the webview itself could not send
-it: every request from its `tauri://` origin is cross-site and the cookie is
-`SameSite=Lax`. So login, `/me`, the boot mint and the per-device sweep run
-unchanged, with no server-side branch, and `getDeviceName()` names the app
-("Aether Player on <platform>", `webui/src/lib/deviceIdentity.ts`) rather than
-the webview's browser. The minted `spa` token is also handed to the player's
-Rust client, in memory only (`set_session`, inside the mint's generation
-check), and withdrawn on logout, expiry and a server switch; the player stores
-no password. **Proxy-header servers are not supported in the app**: the
-portal signs users in through a browser redirect the app cannot follow, and
-its ACL keeps `/api/v0` closed to anonymous callers. The login view's server
-step recognises them with a two-step probe — `/api/v0/me`, then the bypassed
-`/rest/ping`, whose error envelope carries Aether's `type: "Aether"` — and
-says so instead of saving the address
-([frontend.md](frontend.md#desktop-app-mode-libhost); the follow-up,
-system-browser login plus a cookie hand-off into the app's jar, is in
-TODO.md).
+**The desktop app runs the same native flow**, or a `/rest`-only key session
+(`player/`, the SPA as its window). Its `/api/v0` and `/rest` requests leave
+from Rust through `tauri-plugin-http`, whose cookie jar
+(`app_cache_dir()/.cookies`, saved as cookies are set) holds the session cookie
+— the webview itself could not send it: every request from its `tauri://`
+origin is cross-site and the cookie is `SameSite=Lax`. So login, `/me`, the
+boot mint and the per-device sweep run unchanged, with no server-side branch,
+and `getDeviceName()` names the app ("Aether Player on <platform>",
+`webui/src/lib/deviceIdentity.ts`) rather than the webview's browser. The
+minted `spa` token is also handed to the player's Rust client, in memory only
+(`set_session`, inside the mint's generation check), and withdrawn on logout,
+expiry and a server switch; the player stores no password. **A key session
+needs none of this**: the user pastes a PAT created under User settings →
+Connected apps, the login view verifies it with `getUser` and Rust stores it
+owner-only (`credentials.json`); identity and role come from `getUser`
+(`username`, `adminRole`), `/me` is never asked, the mint never runs, and the
+SPA's `/api/v0` client refuses to send. That is what lets the app use a server
+behind Authelia, whose ACL bypasses `/rest` and keeps `/api/v0` closed to it:
+the server step recognises such a server with a two-step probe — `/api/v0/me`,
+then the bypassed `/rest/ping`, whose error envelope carries Aether's
+`type: "Aether"` — and saves it as a key session
+([frontend.md](frontend.md#desktop-app-mode-libhost)). A `/rest` error 40 or 44
+in a key session means the key was revoked: the SPA forgets it and asks for
+another. Revoking stays in the web UI; administering a portal server from
+inside the app is the narrowed follow-up in TODO.md.
 
 Token classes — implemented in `userauth`'s `pat` service with a `scope` tag
 distinguishing behavior:
@@ -395,8 +400,8 @@ expired): full-page reload so the portal redirect kicks in (the expiry
 watcher in `useAuth` branches on `authMethod === 'proxy-header'`). Configure
 Authelia to answer non-HTML requests with 401 instead of 302 (it keys off
 `Accept`) so the SPA sees a clean failure, not portal HTML. The desktop app
-cannot take this flow yet (see "The desktop app runs the same native flow"
-above).
+does not take this flow: behind such a portal it signs in with an API key in a
+`/rest`-only session (see "The desktop app runs the same native flow" above).
 
 Implementation (`app/router/proxy_auth.go`, `app/cmd/users.go
 setupProxyAuth`): `userauth`'s `auth/headerauth` handler validates the

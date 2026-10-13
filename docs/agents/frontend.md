@@ -294,9 +294,10 @@ the same code in a tab and in the app.
 - `serverUrl` (a ref) — where every `/api/v0` and `/rest` request goes, with
   no trailing slash: the page's origin in a tab (never null); in the app the
   saved server (an origin, plus a path prefix when the server sits under one),
-  null until one is chosen. `setServerUrl(url)` saves it and adopts the URL as
-  Rust normalised it; `clearServerUrl()` forgets it; both throw in a tab, where
-  only the page decides the server.
+  null until one is chosen. `setServerUrl(url, kind)` saves it, with how to
+  sign in to it (`cookie` or `apiKey`), and adopts the URL as Rust normalised
+  it; `clearServerUrl()` forgets it; both throw in a tab, where only the page
+  decides the server.
   `setSession`/`clearSession` hand the `/rest` key to the Rust client and take
   it back (no-ops in a tab); `appVersion()` is the player's version (null in a
   tab).
@@ -336,14 +337,44 @@ matchers, so a pass is never for lack of looking.
 **The gate** (`useAuth`, `App.vue`, `LoginView`). The login view replaces the
 app while any of three holds:
 
-- `needsServer` — app only: no server is chosen, or the `/me` query errored
-  (the saved server is down or has moved), where the window would otherwise
-  stay blank with no way to pick another.
-- `needsLogin` — unchanged: auth method `native` with no user, or an expired
-  session.
-- `needsPortal` — app only: `/me` reports `proxy-header` and no user (a proxy
-  that lets an anonymous `/me` through). The portal card explains that the app
-  cannot sign in through a portal yet and offers *Change server*.
+- `needsServer` — app only: no server is chosen, or the identity query errored
+  (`/me` in a cookie session; `getUser` in a key session, for any reason but a
+  refused key, and only while no identity is known yet — a failed refetch of a
+  known one never drops the running app to the server step) — the saved server
+  is down or has moved, and the window would otherwise stay blank with no way
+  to pick another.
+- `needsLogin` — unchanged: a cookie session on a `native` server with no user,
+  or an expired session.
+- `needsApiKey` — app only: a key session without a key (none pasted yet, or
+  forgotten after a logout or a refusal — `sessionExpired` is set then), and the
+  one cookie case the app cannot sign in to, `/me` reporting `proxy-header` and
+  no user (a proxy that lets an anonymous `/me` through). The key card asks for
+  a key and offers *Change*.
+
+Two kinds of session, `sessionKind` in `lib/host/` (`cookie` | `apiKey`, a
+browser tab is always `cookie`): `useMe` is enabled only in a cookie session;
+`useRestIdentity` (`composables/useUsers.ts`, key `userQueryKeys.restIdentity`)
+asks `getUser` over `/rest` in a key session once the key is installed, and
+maps `username`/`adminRole` to the `{login, role}` shape. The credential
+watcher in `useAuth` installs the stored key on the subsonic client (no mint,
+no hand-off: Rust holds the key itself) and resets that client when a key
+session ends or loses the key it had, so nothing stale reaches the next
+server. `useAuth` exposes `managementApi` — a cookie session whose `/me`
+answered — and **everything that rides `apiClient` renders only when it is
+true**: the Admin and Metadata editor entries (`UserMenu`, the phone's `⋮`),
+the settings-layout redirect in `App.vue`, the Connected apps tab, the artist
+image search and source note, the radio-browser Discover button, the `/api/v0`
+version in About (a key session reads it off a `/rest` ping instead). `isAdmin`
+alone keeps gating the `/rest` admin actions, so an admin's key still edits
+covers and radio stations; the artist image's Remove, though, needs the
+`/api/v0` image source to tell Aether's image from a folder's, so a key session
+offers it only for an upload staged in that edit. `canSignOut` (a native or a
+key session) is what shows Log out. In a key session `client.ts` refuses to
+send at all, and a `/rest` error 40 or 44 sets `sessionExpired` instead of
+minting (`handleRestAuthFailure` in `lib/subsonicSession.ts`; `remintApiKey`
+answers `failed` without a verdict, so a media element error reports
+connectivity rather than signing out); the expiry purge forgets the key
+(`clearApiKey`) before the usual scrub.
 
 `useMe` is disabled until a server is known (`enabled` — a disabled query is
 not loading, so the gate renders the server step instead of waiting), does not
@@ -383,17 +414,51 @@ a lost session):
 3. Anything else: `GET /rest/ping?f=json&v=1.16.1&c=aether-player`. `/rest`
    stays open in every proxy setup, and Aether stamps `type: "Aether"` on every
    envelope, errors included — such an envelope (compared without case) is
-   Aether behind a portal: the step shows the portal message and saves nothing.
+   Aether behind a portal: the step saves the address as a key session
+   (`setServerUrl(url, 'apiKey')`), and the gate shows the key card.
    Any other envelope (Navidrome, gonic…) or body gives "No Aether server
    answered at {url}.", and a request that fails or times out "Could not reach
    {url}."
 
-An Aether answer is saved (`setServerUrl`) and `serverSaved()` starts a fresh
-session (`startFreshSession()`) and resets an errored `/me`, so the address is
-asked again even when unchanged; the gate then shows the app (auth `none`, or
-a session the cookie jar still holds), the sign-in card (`native` without one)
-or the portal card (`proxy-header` without a user). In the app the sign-in card
-carries a muted `Server · host` line with a *Change* link above the username.
+An answer is saved (`setServerUrl(url, kind)`) and `serverSaved()` starts a
+fresh session (`startFreshSession()`) and resets an errored identity query, so
+the address is asked again even when unchanged. The kind is `apiKey` for a
+portal, and also for an Aether answer on the saved server of a key session
+(`sessionKind` is `apiKey` and the probe settled on the saved address) — what
+Connect after an outage does; after *Change* the kind is already `cookie`, so a
+new server never inherits it — and `cookie` for any other Aether `/me`. Rust
+keeps the stored key in that same case (the same server saved again for a key
+session), so Connect never costs it. The gate then shows the app (auth `none`,
+or a session the cookie jar still holds), the sign-in card (`native` without
+one) or the key card (a key session without a key). In the app the sign-in card
+carries a muted `Server · host` line with a *Change* link above the username,
+and a "Use an API key instead" link (`setSessionKind('apiKey')`, then
+`serverSaved()`).
+
+**The key card** (`LoginView`, app only): the server line with *Change*, one
+masked "API key" field with the hint "Create one in Aether → User settings →
+Connected apps.", Connect, and a "Sign in with a password instead" link.
+Connect verifies, seeds, then stores: `verifyApiKey(serverUrl, key)`
+(`lib/api/Server.ts`, one `getUser` through `httpFetch` with the probe's
+timeout, so no unverified key reaches `subsonicClient`), then
+`useAuth().apiKeySaved(user)`, which seeds `useRestIdentity` with the answer,
+then `setApiKey(key)` (Rust stores it and makes this a key session). Seeding
+comes first on purpose: the stored key installs on the subsonic client and
+enables the identity query, which then renders from the seed instead of asking
+`getUser` a second time. Error 40 or 44 is "This API key was not accepted." (the
+field is cleared); Aether's own other errors show their message; everything
+else shows the probe's messages, never a transport rejection's text. A key the
+server stopped accepting shows "Your API key was not accepted — it may have been
+revoked. Enter a new one." (on `sessionLostUnexpectedly`, never after a
+deliberate logout). The password link re-probes the saved server: an `aether`
+answer reporting `native` or `none` switches the kind to `cookie`; a `portal`,
+or `proxy-header`, shows "This server signs you in through its portal, so only
+an API key works here." Both method links start a fresh session
+(`serverSaved()`) once they switch the kind — this one and the sign-in card's —
+so the other method's expiry flag never carries over (a cookie session's would
+blame a revoked key on someone who never had one). The key field is cleared
+whenever the server step opens: a key belongs to one server, and must not ride
+into the next one's `getUser`.
 
 **Leaving a server** is `switchServer()` in `useAuth`, which never rejects: a
 best-effort logout when signed in (bounded by the logout request's 10 s
@@ -402,13 +467,15 @@ once it is forgotten) → remember it in `lastServerUrl` → `serverUrl = null`
 before any cache reset (the now-disabled `/me` cannot refetch from the server
 being left) → `purgeLocalSession` on every path, signed in or not (the old
 server's queue, and the queue sync, would otherwise carry its track ids over to
-the next one) → `startFreshSession()` → `clearServerUrl()`, best effort. What
-the switch overtook still answers afterwards, before the next server is saved
-or after, speaks for the session just ended and flags nothing — kept, an
-expiry flag would stop a server without login from ever rendering. In the app
-`client.ts` flags an expiry only for a 401 whose request went to the server
-configured now (its stamped `baseURL`); a mint's outcome counts only while
-its session generation is current (see the hand-off below); and
+the next one) → `startFreshSession()` → `clearServerUrl()`, best effort. The
+purge forgets a key session's key first (`clearApiKey`), and `clearServerUrl`
+deletes it on disk and resets the kind; a key session has no `/api/v0` logout
+to send. What the switch overtook still answers afterwards, before the next
+server is saved or after, speaks for the session just ended and flags nothing —
+kept, an expiry flag would stop a server without login from ever rendering. In
+the app `client.ts` flags an expiry only for a 401 whose request went to the
+server configured now (its stamped `baseURL`); a mint's outcome counts only
+while its session generation is current (see the hand-off below); and
 `serverSaved()` clears anything else that flagged the old session before the
 next server was saved. The sign-in card's *Change* calls `switchServer()`
 directly. The account menus go through
