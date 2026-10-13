@@ -16,10 +16,10 @@ pub fn get_api_key(state: State<'_, AppState>) -> Option<String> {
 /// Stores the key the SPA verified against the saved server, makes this a key
 /// session and connects the Rust client with it — no round trip, the SPA did
 /// the verifying. `NotConnected` without a server, `InvalidServerUrl` for a
-/// hand-edited address that no longer parses; nothing changes when a file
-/// cannot be written. The settings go first and the key second, so a failure
-/// in between leaves a key session without a key, which only brings the key
-/// card back.
+/// hand-edited address that no longer parses. When a file cannot be written,
+/// memory stays as it was. The settings go first and the key second, so when
+/// the key write fails `settings.json` may already say `apiKey` with no key
+/// stored: a key session without a key, which only brings the key card back.
 #[tauri::command]
 pub fn set_api_key(
     app: AppHandle,
@@ -53,6 +53,7 @@ pub fn set_api_key(
 /// back rather than the server step.
 #[tauri::command]
 pub fn clear_api_key(app: AppHandle, state: State<'_, AppState>) -> Result<(), AppError> {
+    // Never read: taken first only to keep the lock order settings → api_key → connection.
     let _settings = state.settings.read().unwrap();
     let mut stored_key = state.api_key.write().unwrap();
     credentials::clear(&app).map_err(|e| AppError::internal(e.to_string()))?;

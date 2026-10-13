@@ -90,9 +90,10 @@ fn write_to(path: &Path, api_key: &str) -> io::Result<()> {
     write_private(path, &text)
 }
 
-/// Writes the file readable by its owner only. Creating with a mode and then
-/// chmod-ing are two steps on purpose: a file that already exists keeps the
-/// permissions it was created with, so an existing wider file is tightened too.
+/// Writes the file readable by its owner only. `.mode` applies only when the
+/// file is created, so a file that already exists keeps the permissions it
+/// had: the mode is set again on the open handle, before the key is written, and
+/// the key never sits in a file wider than that, not even for an instant.
 #[cfg(unix)]
 fn write_private(path: &Path, text: &str) -> io::Result<()> {
     use std::io::Write;
@@ -103,8 +104,8 @@ fn write_private(path: &Path, text: &str) -> io::Result<()> {
         .truncate(true)
         .mode(0o600)
         .open(path)?;
-    file.write_all(text.as_bytes())?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    file.write_all(text.as_bytes())
 }
 
 /// Windows: the per-user AppData directory is the protection.
@@ -174,8 +175,8 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
-    // Review focus 2: a damaged file must never keep the app from starting;
-    // reading "no key" sends the user to the key card instead.
+    // A damaged file must never keep the app from starting; reading "no key"
+    // sends the user to the key card instead.
     #[test]
     fn a_missing_damaged_or_empty_file_reads_as_no_key() {
         let dir = fresh_dir("fallback");

@@ -24,12 +24,11 @@ pub fn set_server_url(
 ) -> Result<Settings, AppError> {
     let server_url = normalize_server_url(&url)?;
     let mut current = state.settings.write().unwrap();
-    let keep_key = session_kind == SessionKind::ApiKey
-        && current.server_url.as_deref() == Some(server_url.as_str());
     let next = Settings {
         server_url: Some(server_url),
         session_kind,
     };
+    let keep_key = settings::keeps_key(&current, &next);
     replace_settings(&app, &state, &mut current, next, keep_key)
 }
 
@@ -47,7 +46,7 @@ pub fn set_session_kind(
         server_url: current.server_url.clone(),
         session_kind,
     };
-    let keep_key = session_kind == SessionKind::ApiKey;
+    let keep_key = settings::keeps_key(&current, &next);
     replace_settings(&app, &state, &mut current, next, keep_key)
 }
 
@@ -55,7 +54,9 @@ pub fn set_session_kind(
 #[tauri::command]
 pub fn clear_server_url(app: AppHandle, state: State<'_, AppState>) -> Result<Settings, AppError> {
     let mut current = state.settings.write().unwrap();
-    replace_settings(&app, &state, &mut current, Settings::default(), false)
+    let next = Settings::default();
+    let keep_key = settings::keeps_key(&current, &next);
+    replace_settings(&app, &state, &mut current, next, keep_key)
 }
 
 /// Persists `next` and makes it the current settings. The stored key is deleted
@@ -63,7 +64,8 @@ pub fn clear_server_url(app: AppHandle, state: State<'_, AppState>) -> Result<Se
 /// session that kept its key stays connected, everything else disconnects (a
 /// session belongs to the server and the sign-in it was made for). The key is
 /// deleted before the settings are written, so a failure in between errs toward
-/// less access; nothing changes when a write fails.
+/// less access. When a write fails, memory stays as it was, but the key file
+/// may already be gone.
 ///
 /// `current` is the settings write lock the caller already holds, and the key
 /// lock is taken here, after it (the lock order on `AppState`), so `set_session`

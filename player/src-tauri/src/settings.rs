@@ -34,6 +34,17 @@ pub struct Settings {
     pub session_kind: SessionKind,
 }
 
+/// Whether saving `next` over `current` leaves the stored API key in place. A
+/// key belongs to the server that issued it, and this is the one decision that
+/// keeps a stored key off another server: it survives only the same server
+/// saved again as a key session (Connect after an outage), never a different
+/// server, a cookie session or no server at all.
+pub fn keeps_key(current: &Settings, next: &Settings) -> bool {
+    next.session_kind == SessionKind::ApiKey
+        && next.server_url.is_some()
+        && next.server_url == current.server_url
+}
+
 fn settings_path(app: &AppHandle) -> io::Result<PathBuf> {
     app.path()
         .app_config_dir()
@@ -127,6 +138,36 @@ mod tests {
         assert_eq!(read_from(&path), Settings::default());
 
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_stored_key_stays_only_for_the_same_server_saved_again_as_a_key_session() {
+        use SessionKind::{ApiKey, Cookie};
+        fn saved(server: Option<&str>, session_kind: SessionKind) -> Settings {
+            Settings {
+                server_url: server.map(str::to_string),
+                session_kind,
+            }
+        }
+        let a = Some("http://a:8075");
+        let b = Some("http://b:8075");
+
+        // (saved now, saved next, whether the stored key stays)
+        let cases = [
+            // the same server, saved again as a key session (Connect after an outage)
+            (saved(a, ApiKey), saved(a, ApiKey), true),
+            // another server
+            (saved(a, ApiKey), saved(b, ApiKey), false),
+            // the same server as a cookie session (the password link)
+            (saved(a, ApiKey), saved(a, Cookie), false),
+            // no server at all
+            (saved(None, ApiKey), saved(None, ApiKey), false),
+            // a first server, which no key was stored for
+            (saved(None, Cookie), saved(a, ApiKey), false),
+        ];
+        for (current, next, keeps) in cases {
+            assert_eq!(keeps_key(&current, &next), keeps, "{current:?} -> {next:?}");
+        }
     }
 
     #[test]

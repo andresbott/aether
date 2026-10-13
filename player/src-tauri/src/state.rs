@@ -90,10 +90,14 @@ mod tests {
 
     #[test]
     fn connects_from_a_stored_key_in_a_key_session() {
-        let client = connection_for(&key_session(Some("http://h:8075")), Some("aether_k3y"));
-        assert_eq!(
-            client.map(|c| c.base_url_str()),
-            Some("http://h:8075".into())
+        let client = connection_for(&key_session(Some("http://h:8075")), Some("aether_k3y"))
+            .expect("a key session with a server and a key connects");
+
+        assert_eq!(client.base_url_str(), "http://h:8075");
+        // the key is installed on the client, not only the address
+        assert!(
+            client.stream_url("t1").contains("apiKey=aether_k3y"),
+            "the client does not send the stored key"
         );
     }
 
