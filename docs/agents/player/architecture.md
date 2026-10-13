@@ -219,15 +219,18 @@ git-ignored historical record — nothing here depends on it.
   Connected apps) signs the app in where no password can: the server step saves
   a `portal` probe as a key session, the key card verifies the key with
   `getUser` before Rust stores it, identity and role come from that answer, and
-  nothing is ever asked of `/api/v0` — the SPA's `apiClient` refuses to send
-  (`sessionKind` in `webui/src/lib/host/`). An admin's key keeps the `/rest`
-  admin actions (cover uploads, radio CRUD); everything riding `/api/v0` hides
-  behind `useAuth().managementApi`. The option is offered on native servers too.
-  A `/rest` error 40 or 44 means the key was revoked: the SPA forgets it and
-  shows the key card again; a media element error is no verdict on the key. The
-  browser hand-off D7 described stays a low-priority follow-up for
-  administering a portal server from inside the app (TODO.md). Spec:
-  `docs/superpowers/specs/2026-10-11-player-api-key-login-design.md`.
+  no request carrying the key ever goes to `/api/v0` — the SPA's `apiClient`
+  refuses to send (`sessionKind` in `webui/src/lib/host/`); the password link
+  and Connect re-probe `/api/v0/me` anonymously. An admin's key keeps the
+  `/rest` admin actions (cover uploads, radio CRUD); everything riding `/api/v0`
+  hides behind `useAuth().managementApi`. The option is offered on native
+  servers too. A `/rest` error 40 or 44 means the key was revoked or has
+  expired: the SPA forgets it and shows the key card again; a media element
+  error is no verdict on the key. The browser hand-off D7 described stays a
+  low-priority follow-up for administering a portal server from inside the app
+  (TODO.md). Spec:
+  `docs/superpowers/specs/2026-10-11-player-api-key-login-design.md`, a local,
+  git-ignored historical record — nothing here depends on it.
 
 ## Domain types worth knowing
 

@@ -291,8 +291,10 @@ it and stays the same code in a tab and in the app.
   default build target rejects). In the app it imports
   `@tauri-apps/plugin-http` lazily (the browser never evaluates it), installs
   the plugin's `fetch` as the transport and reads `get_settings`. It never
-  throws: a failure leaves the server unset, so the login view asks for one
-  instead of the window staying blank.
+  throws: a failure reading the settings leaves the server unset, so the login
+  view asks for one instead of the window staying blank, and a failed
+  `get_api_key` leaves the server and the kind set with no key, so the key
+  card asks again.
 - `serverUrl` (a ref) — where every `/api/v0` and `/rest` request goes, with
   no trailing slash: the page's origin in a tab (never null); in the app the
   saved server (an origin, plus a path prefix when the server sits under one),
@@ -463,9 +465,9 @@ or `proxy-header`, shows "This server signs you in through its portal, so only
 an API key works here." Both method links start a fresh session
 (`serverSaved()`) once they switch the kind — this one and the sign-in card's —
 so the other method's expiry flag never carries over (a cookie session's would
-blame a revoked key on someone who never had one). The key field is cleared
-whenever the server step opens: a key belongs to one server, and must not ride
-into the next one's `getUser`.
+blame a revoked or expired key on someone who never had one). The key field is
+cleared whenever the server step opens: a key belongs to one server, and must
+not ride into the next one's `getUser`.
 
 **Leaving a server** is `switchServer()` in `useAuth`, which never rejects: a
 best-effort logout when signed in (bounded by the logout request's 10 s

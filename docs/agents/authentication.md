@@ -171,9 +171,9 @@ the server step recognises such a server with a two-step probe — `/api/v0/me`,
 then the bypassed `/rest/ping`, whose error envelope carries Aether's
 `type: "Aether"` — and saves it as a key session
 ([frontend.md](frontend.md#desktop-app-mode-libhost)). A `/rest` error 40 or 44
-in a key session means the key was revoked: the SPA forgets it and asks for
-another. Revoking stays in the web UI; administering a portal server from
-inside the app is the narrowed follow-up in TODO.md.
+in a key session means the key was revoked or has expired: the SPA forgets it
+and asks for another. Revoking stays in the web UI; administering a portal
+server from inside the app is the narrowed follow-up in TODO.md.
 
 Token classes — implemented in `userauth`'s `pat` service with a `scope` tag
 distinguishing behavior:
