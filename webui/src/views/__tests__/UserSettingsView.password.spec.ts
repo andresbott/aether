@@ -26,7 +26,12 @@ const currentUser: Ref<MeUser | null> = ref(null)
 const authRequired = ref(false)
 const logoutMutate = vi.fn()
 vi.mock('@/composables/useAuth', () => ({
-    useAuth: () => ({ currentUser, authRequired, logout: { mutate: logoutMutate } })
+    useAuth: () => ({
+        currentUser,
+        authRequired,
+        managementApi: ref(true),
+        logout: { mutate: logoutMutate }
+    })
 }))
 
 vi.mock('@/composables/useTokens', () => ({

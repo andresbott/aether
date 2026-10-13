@@ -45,9 +45,16 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
 const logoutMutate = vi.fn()
 const switchServer = vi.fn()
 const isAdmin = ref(false)
-const authRequired = ref(true)
+const canSignOut = ref(true)
+const managementApi = ref(true)
 vi.mock('@/composables/useAuth', () => ({
-    useAuth: () => ({ isAdmin, authRequired, logout: { mutate: logoutMutate }, switchServer })
+    useAuth: () => ({
+        isAdmin,
+        canSignOut,
+        managementApi,
+        logout: { mutate: logoutMutate },
+        switchServer
+    })
 }))
 
 // A browser tab unless a case says otherwise; the rest of the host layer stays real.
@@ -145,7 +152,8 @@ beforeEach(() => {
     genres.value = []
     stations.value = []
     isAdmin.value = false
-    authRequired.value = true
+    canSignOut.value = true
+    managementApi.value = true
 })
 
 describe('MobileBrowseView sections', () => {
@@ -307,8 +315,14 @@ describe('MobileBrowseView header', () => {
         ])
     })
 
+    it('offers Admin only with the management API, even to an admin', () => {
+        isAdmin.value = true
+        managementApi.value = false
+        expect(menuLabels(mountView())).toEqual(['User settings', 'About', '—', 'Log out'])
+    })
+
     it('drops Log out when there is no session (auth method none)', () => {
-        authRequired.value = false
+        canSignOut.value = false
         expect(menuLabels(mountView())).toEqual(['User settings', 'About'])
     })
 
@@ -375,7 +389,7 @@ describe('MobileBrowseView Change server', () => {
         })
 
         it('is the only entry below the separator when there is no session to end', () => {
-            authRequired.value = false
+            canSignOut.value = false
             expect(menuLabels(mountView())).toEqual([
                 'User settings',
                 'About',

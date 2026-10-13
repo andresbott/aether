@@ -10,16 +10,18 @@ vi.mock('vue-router', () => ({
     useRouter: () => ({ push })
 }))
 
-const authRequired = ref(false)
+const canSignOut = ref(false)
 const currentUser: Ref<MeUser | null> = ref(null)
 const isAdmin = ref(true)
+const managementApi = ref(true)
 const logoutMutate = vi.fn()
 const switchServer = vi.fn()
 vi.mock('@/composables/useAuth', () => ({
     useAuth: () => ({
-        authRequired,
+        canSignOut,
         currentUser,
         isAdmin,
+        managementApi,
         logout: { mutate: logoutMutate },
         switchServer
     })
@@ -63,9 +65,10 @@ const menuItem = (menu: HTMLElement, label: string) =>
     )
 
 beforeEach(() => {
-    authRequired.value = false
+    canSignOut.value = false
     currentUser.value = null
     isAdmin.value = true
+    managementApi.value = true
     host.desktopApp = false
     serverUrl.value = null
     push.mockClear()
@@ -117,6 +120,17 @@ describe('UserMenu account popup', () => {
         expect(menuItem(menu, 'About')).toBeDefined()
     })
 
+    // A key session has the role but no /api/v0: the admin entries open an
+    // area that cannot load, so they go even for an admin.
+    it('hides the Admin and Metadata editor entries without the management API', async () => {
+        managementApi.value = false
+        const menu = await openMenu(mountMenu())
+        expect(menuItem(menu, 'Admin')).toBeUndefined()
+        expect(menuItem(menu, 'Metadata editor')).toBeUndefined()
+        expect(menuItem(menu, 'User settings')).toBeDefined()
+        expect(menuItem(menu, 'About')).toBeDefined()
+    })
+
     // The admin entries are grouped in order: Admin, then Metadata editor,
     // then About.
     it('navigates to /metadata-editor from the Metadata editor entry, below Admin', async () => {
@@ -158,10 +172,19 @@ describe('UserMenu account popup', () => {
     })
 
     it('logs out through useAuth when sessions exist', async () => {
-        authRequired.value = true
+        canSignOut.value = true
         currentUser.value = { login: 'alice', role: 'admin' }
         const menu = await openMenu(mountMenu())
 
+        menuItem(menu, 'Log out')!.click()
+        expect(logoutMutate).toHaveBeenCalledOnce()
+    })
+
+    // Logging out of a key session forgets the key; the entry is the same.
+    it('offers Log out whenever there is a session to leave', async () => {
+        canSignOut.value = true
+        currentUser.value = { login: 'alice', role: 'user' }
+        const menu = await openMenu(mountMenu())
         menuItem(menu, 'Log out')!.click()
         expect(logoutMutate).toHaveBeenCalledOnce()
     })
@@ -186,7 +209,7 @@ describe('UserMenu in a browser tab', () => {
     })
 
     it('still separates Log out, and only Log out, when sessions exist', async () => {
-        authRequired.value = true
+        canSignOut.value = true
         const menu = await openMenu(mountMenu())
         expect(outline(menu)).toEqual([
             'User settings',
@@ -220,7 +243,7 @@ describe('UserMenu Change server in the desktop app', () => {
     })
 
     it('sits between the separator and Log out when sessions exist', async () => {
-        authRequired.value = true
+        canSignOut.value = true
         currentUser.value = { login: 'alice', role: 'admin' }
         const menu = await openMenu(mountMenu())
         expect(outline(menu)).toEqual([
@@ -256,7 +279,7 @@ describe('UserMenu Change server in the desktop app', () => {
     })
 
     it('switches server once the question is accepted, without logging out twice', async () => {
-        authRequired.value = true
+        canSignOut.value = true
         currentUser.value = { login: 'alice', role: 'admin' }
         const menu = await openMenu(mountMenu())
         menuItem(menu, 'Change server')!.click()

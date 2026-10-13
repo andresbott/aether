@@ -28,10 +28,11 @@ const toggleStar = useToggleStar()
 const updateCover = useUpdateArtistCover()
 const setImageFromSearch = useSetArtistImageFromSearch()
 
-// Editing the artist image is curation, and half of it (the online search,
-// the image-source note) rides on the admin-only /api/v0 surface — so the
-// whole edit affordance is admin-only rather than a bar that 403s midway.
-const { isAdmin } = useAuth()
+// Editing the artist image is curation, admin-only. Half of it — the online
+// search, the image-source note — rides the admin-only /api/v0 surface, which a
+// key session never has: those two go without the management API, while upload,
+// generate and remove ride /rest and stay.
+const { isAdmin, managementApi } = useAuth()
 
 const { data: artist, isLoading, error } = useArtist(props.id)
 
@@ -59,7 +60,7 @@ const dirty = computed(
 // is not mistaken for one that can. Only fetched once the user opens the editor.
 const { data: imageSource, refetch: refetchImageSource } = useArtistImageSource(
     props.id,
-    () => editing.value
+    () => editing.value && managementApi.value
 )
 // Whether the persisted image is a file from the music folder. Independent of
 // staging: what is on record does not change until Save.
@@ -379,6 +380,7 @@ const onQueue = async (): Promise<void> => {
 
                     <template #cover-actions>
                         <Button
+                            v-if="managementApi"
                             data-test="open-image-search"
                             outlined
                             severity="secondary"
@@ -446,6 +448,7 @@ const onQueue = async (): Promise<void> => {
                 </div>
             </div>
             <ArtistImageSearchDialog
+                v-if="managementApi"
                 v-model:visible="imageSearchOpen"
                 :artist-name="artist.name"
                 @select="onImageSearchSelect"

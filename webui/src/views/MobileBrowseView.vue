@@ -50,7 +50,7 @@ import { isDesktopApp } from '@/lib/host'
  */
 const router = useRouter()
 const { shell } = useViewport()
-const { authRequired, isAdmin, logout } = useAuth()
+const { canSignOut, isAdmin, managementApi, logout } = useAuth()
 const { confirmChangeServer } = useChangeServer()
 
 watch(
@@ -117,12 +117,12 @@ const showGenres = computed(() => genreShelf.value.length > 0 || genresError.val
 const showRadio = computed(() => radioShelf.value.length > 0 || stationsError.value)
 
 // Same entries and order as UserMenu's popup, so the two account surfaces read
-// alike: User settings → Admin (admins only) → About → Change server (desktop app
-// only) → Log out. Log out is gated on there being a session at all (auth method
-// "none" has nothing to leave), and this is the phone's ONLY way out — the
-// UserMenu lives in the desktop sidebar. Change server asks first (see
-// useChangeServer); the dialog that shows the question is the one PlayerLayout
-// mounts for both shells.
+// alike: User settings → Admin (admins with the management API only) → About →
+// Change server (desktop app only) → Log out. Log out is gated on there being a
+// session to leave — a native or a key session (auth method "none" has nothing
+// to leave), and this is the phone's ONLY way out — the UserMenu lives in the
+// desktop sidebar. Change server asks first (see useChangeServer); the dialog
+// that shows the question is the one PlayerLayout mounts for both shells.
 const accountMenu = ref<InstanceType<typeof Menu> | null>(null)
 const accountItems = computed<MenuItem[]>(() => {
     const items: MenuItem[] = [
@@ -132,18 +132,18 @@ const accountItems = computed<MenuItem[]>(() => {
             command: () => void router.push('/user-settings')
         }
     ]
-    if (isAdmin.value) {
+    if (isAdmin.value && managementApi.value) {
         items.push({ label: 'Admin', icon: 'ms-settings', command: () => void router.push('/settings') })
     }
     items.push({ label: 'About', icon: 'ms-info', command: () => void router.push('/about') })
     // One separator for what ends or moves the session, as in UserMenu.
-    if (isDesktopApp() || authRequired.value) {
+    if (isDesktopApp() || canSignOut.value) {
         items.push({ separator: true })
     }
     if (isDesktopApp()) {
         items.push({ label: 'Change server', icon: 'ms-dns', command: () => confirmChangeServer() })
     }
-    if (authRequired.value) {
+    if (canSignOut.value) {
         items.push({ label: 'Log out', icon: 'ms-logout', command: () => logout.mutate() })
     }
     return items

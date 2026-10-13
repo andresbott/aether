@@ -14,13 +14,13 @@ defineProps<{ collapsed?: boolean }>()
 
 const router = useRouter()
 
-// Identity from the /me bootstrap. With auth method "none" there is no
-// session: the chip falls back to "Guest" and the popup has nothing to log
-// out of, so the Log out entry is dropped (same gate as SettingsLayout).
-// The Admin and Metadata editor entries only exist for admins — the routes
-// they open both use the admin-only settings layout, so a non-admin is
-// redirected away and the /api/v0 data behind them answers 403.
-const { authRequired, currentUser, isAdmin, logout } = useAuth()
+// Identity from the gate. With auth method "none" there is no session: the
+// chip falls back to "Guest" and the popup has nothing to log out of, so the
+// Log out entry is dropped; a native session and a key session both have one.
+// The Admin and Metadata editor entries only exist for admins WITH the
+// management API — the areas they open ride /api/v0, which a key session never
+// has (its server may keep it behind a portal), so an admin's key gets neither.
+const { canSignOut, currentUser, isAdmin, managementApi, logout } = useAuth()
 const { confirmChangeServer } = useChangeServer()
 
 const popoverRef = ref<InstanceType<typeof Popover> | null>(null)
@@ -91,7 +91,7 @@ const onChangeServer = () => {
                     <span>User settings</span>
                 </button>
                 <button
-                    v-if="isAdmin"
+                    v-if="isAdmin && managementApi"
                     class="menu-item"
                     role="menuitem"
                     type="button"
@@ -101,7 +101,7 @@ const onChangeServer = () => {
                     <span>Admin</span>
                 </button>
                 <button
-                    v-if="isAdmin"
+                    v-if="isAdmin && managementApi"
                     class="menu-item"
                     role="menuitem"
                     type="button"
@@ -114,7 +114,7 @@ const onChangeServer = () => {
                     <i class="ms-info"></i>
                     <span>About</span>
                 </button>
-                <template v-if="authRequired || isDesktopApp()">
+                <template v-if="canSignOut || isDesktopApp()">
                     <div class="menu-sep"></div>
                     <button
                         v-if="isDesktopApp()"
@@ -127,7 +127,7 @@ const onChangeServer = () => {
                         <span>Change server</span>
                     </button>
                     <button
-                        v-if="authRequired"
+                        v-if="canSignOut"
                         class="menu-item danger"
                         role="menuitem"
                         type="button"

@@ -25,8 +25,9 @@ vi.mock('vue-router', () => ({
 }))
 
 const currentUser: Ref<MeUser | null> = ref(null)
+const managementApi = ref(true)
 vi.mock('@/composables/useAuth', () => ({
-    useAuth: () => ({ currentUser, authRequired: ref(false) })
+    useAuth: () => ({ currentUser, authRequired: ref(false), managementApi })
 }))
 
 const mockTokens: Ref<ApiToken[]> = ref([])
@@ -66,6 +67,7 @@ const mountView = () =>
 // mode back where it started rather than leaking a hidden theme.
 beforeEach(() => {
     useTheme().mode.value = 'auto'
+    managementApi.value = true
     route.params = {}
     route.query = {}
     replace.mockClear()
@@ -273,6 +275,15 @@ describe('UserSettingsView', () => {
         currentUser.value = null
         const w = mountView()
         expect(w.findAll('[role="tab"]').map((t) => t.text())).toEqual(['General'])
+    })
+
+    // A key session has a user but no /api/v0, where the tokens live.
+    it('drops the Connected apps tab without the management API', () => {
+        currentUser.value = { login: 'alice', role: 'user' }
+        managementApi.value = false
+        const w = mountView()
+        expect(w.findAll('[role="tab"]').map((t) => t.text())).toEqual(['General'])
+        currentUser.value = null
     })
 
     it('starts on General and switches panels on tab click', async () => {

@@ -92,8 +92,9 @@ vi.mock('@/composables/usePlayer', () => ({
 
 // Image curation is admin-only; most specs run as admin so the edit bar exists.
 const isAdmin = ref(true)
+const managementApi = ref(true)
 vi.mock('@/composables/useAuth', () => ({
-    useAuth: () => ({ isAdmin })
+    useAuth: () => ({ isAdmin, managementApi })
 }))
 
 vi.mock('vue-router', () => ({
@@ -172,6 +173,7 @@ beforeEach(() => {
     imageSource.value = null
     imageSourceRefetch.mockClear()
     isAdmin.value = true
+    managementApi.value = true
     // Cover versions are module-level (they must outlive a component), so they
     // leak between tests unless cleared.
     resetCoverVersions()
@@ -699,6 +701,19 @@ describe('ArtistView online image search', () => {
         await w.find('[data-test="open-image-search"]').trigger('click')
         expect(dialog.props('visible')).toBe(true)
         expect(dialog.props('artistName')).toBe('Pink Floyd')
+    })
+
+    // The search rides the admin-only /api/v0; a key session has none, so an
+    // admin's key gets upload, generate and remove but no online search.
+    it('offers no search without the management API', async () => {
+        managementApi.value = false
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        expect(w.find('[data-test="open-image-search"]').exists()).toBe(false)
+        expect(w.findComponent(ArtistImageSearchDialog).exists()).toBe(false)
     })
 })
 

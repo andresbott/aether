@@ -32,9 +32,10 @@ const router = useRouter()
 const player = usePlayer()
 
 // Discover proxies through the admin-only /api/v0/radiobrowser endpoints, so
-// non-admins don't get a button that can only 403. (Station CRUD itself rides
-// on /rest and stays open until the planned role gate there — TODO.md.)
-const { isAdmin } = useAuth()
+// non-admins don't get a button that can only 403, and a key session has no
+// /api/v0 at all. (Station CRUD itself rides on /rest and stays open until the
+// planned role gate there — TODO.md.)
+const { isAdmin, managementApi } = useAuth()
 
 const { data: stations, isLoading } = useRadioStations()
 const createMutation = useCreateRadioStation()
@@ -310,7 +311,7 @@ onUnmounted(() => {
                 <!-- Create-mode helper (prefills the form from radio-browser.info);
                      not the Edit control, so it stays in the top bar. -->
                 <Button
-                    v-if="create && isAdmin"
+                    v-if="create && isAdmin && managementApi"
                     class="discover-station"
                     icon="ms-public"
                     text
@@ -386,7 +387,7 @@ onUnmounted(() => {
 
         <ConfirmDialog />
         <StationSearchDialog
-            v-if="create && isAdmin"
+            v-if="create && isAdmin && managementApi"
             v-model:visible="searchVisible"
             @select="onDiscoverSelect"
         />
