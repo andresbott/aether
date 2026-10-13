@@ -59,9 +59,14 @@ tools and WebView2 (preinstalled on Windows 10+).
   error-code mapping/serialization (`error.rs`, `InvalidServerUrl` and
   `Internal` included), the connection-status JSON shape without `username`
   (`commands/connection.rs`), the settings JSON shape and its file round trip
-  — missing or damaged file → defaults (`settings.rs`), and the event names and
-  tray payloads (`events.rs`; of those, the webview listens only for
-  `tray://command` so far). One exception:
+  — missing or damaged file → defaults (`settings.rs`), the stored API key's
+  round trip, its owner-only `0600` mode (re-tightened on overwrite), a
+  missing, damaged or empty file reading as no key, and the damaged-file log
+  note never quoting the key (`credentials.rs`), what connects at startup —
+  only a key session with a server and a key (`connection_for` in `state.rs`,
+  pure, so no audio engine) — and the event names and tray payloads
+  (`events.rs`; of those, the webview listens only for `tray://command` so
+  far). One exception:
   `engine/desktop.rs` carries three `download` tests — two against a one-shot
   loopback stub (plain `std::net`, no mock crate, no audio device), one
   against a closed port — pinning that the body comes back and that neither a
@@ -89,6 +94,7 @@ tools and WebView2 (preinstalled on Windows 10+).
   the real-window run is user acceptance.
 - Known untested paths (catalogued, fine to add tests for): `cover_art_url`
   with `size: None`, resolver-failure paths in `Player`, and the
-  settings/session command guarantees — `set_session` answering
-  `NotConnected` without a server, `set_server_url` / `clear_server_url`
-  dropping the session, a failed settings write leaving both untouched.
+  settings/session command guarantees — `set_session` and `set_api_key`
+  answering `NotConnected` without a server, `set_server_url` /
+  `clear_server_url` dropping the session, `set_server_url` keeping a key for
+  the same server, a failed settings write leaving both untouched.

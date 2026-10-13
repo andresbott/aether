@@ -251,8 +251,9 @@ Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
 - The SPA gate lives in `App.vue` + `useAuth()`: `/me` bootstraps, the login
   view replaces the whole app (not a route) while `authMethod` is `native`
   and `user` is null (in the desktop app also while no server is chosen or
-  the chosen one does not answer as Aether, and on a proxy-header server —
-  see [frontend.md](frontend.md#desktop-app-mode-libhost)), and an axios
+  the chosen one does not answer as Aether, while a key session has no key,
+  and on a proxy-header server — see
+  [frontend.md](frontend.md#desktop-app-mode-libhost)), and an axios
   interceptor flips a shared `sessionExpired` flag on any `/api/v0` 401 (in
   the desktop app only for a request sent to the server still configured: a
   401 a server switch overtook speaks for a session already over) so an

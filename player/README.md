@@ -5,17 +5,18 @@ SPA the server embeds (`../webui`) and whose Rust backend remembers the server,
 carries the SPA's requests and runs the tray. Linux, macOS and Windows.
 
 > **Pre-release.** The window asks for the server's address first, then signs
-> in as the browser does, and plays in the webview for now: moving playback
-> into the Rust engine is the open follow-up, and servers behind an auth portal
-> (proxy-header) are not supported yet — see `docs/agents/player/features.md`.
+> in as the browser does, or with a pasted API key (the way into a server
+> behind an auth portal), and plays in the webview for now: moving playback
+> into the Rust engine is the open follow-up, and administering a portal
+> server from the app is not supported — see `docs/agents/player/features.md`.
 
 ## Layout
 
 - `crates/aether-core` — pure Rust core: Subsonic client, queue/player, engine
   trait. Never depends on Tauri.
-- `src-tauri` — the Tauri shell: IPC commands, the saved server setting, the
-  HTTP plugin the SPA's requests ride, desktop audio engine (rodio), tray,
-  events.
+- `src-tauri` — the Tauri shell: IPC commands, the saved server and, in a key
+  session, the pasted API key, the HTTP plugin the SPA's requests ride, desktop
+  audio engine (rodio), tray, events.
 - `package.json` — pins the `@tauri-apps/cli` only; the frontend is `../webui`.
 
 ## Development

@@ -116,8 +116,9 @@ Rules each layer enforces:
   API key the user pasted — a revocable PAT, never a password — sits beside it
   in `credentials.json` (`src-tauri/src/credentials.rs`), written owner-only
   (`0600`) on Unix and re-chmodded on every overwrite, loaded at startup and
-  deleted on logout, on a refused key and on a server change. The cookie
-  session is not the player's to store: it is the HTTP plugin's cookie jar
+  deleted on logout, on a refused key, on a server change and on a switch back
+  to password sign-in (`set_session_kind` to `cookie`). The cookie session is
+  not the player's to store: it is the HTTP plugin's cookie jar
   (`app_cache_dir()/.cookies`, loaded at startup and rewritten whenever a
   response sets a cookie, and once more on exit, so a crash loses at most a
   save still in flight; only persistent cookies are written, and Aether's
@@ -152,9 +153,10 @@ Rules each layer enforces:
 
 ### Server-selection decisions
 
-Taken for server selection on 2026-10-10 and numbered because other docs cite
-them; this list is their reference. D2–D4, D6 and D7 were confirmed with the
-maintainer before implementation. The plan they come from
+Taken for server selection on 2026-10-10 (D1–D8) and for API-key login on
+2026-10-11 (D9), and numbered because other docs cite them; this list is their
+reference. D2–D4, D6 and D7 were confirmed with the maintainer before
+implementation. The plan D1–D8 come from
 (`docs/superpowers/plans/2026-10-09-player-server-selection.md`) is a local,
 git-ignored historical record — nothing here depends on it.
 
@@ -212,7 +214,7 @@ git-ignored historical record — nothing here depends on it.
   offline cache); and the full IPC retrofit first (months of work before
   choosing a server did anything visible).
 - **D9 — Portal servers are used with an API key, in a `/rest`-only session
-  (2026-10-11).** `/rest` is PAT-only in every auth mode and open in every
+  (2026-10-11).** `/rest` is PAT-only whenever auth is on and open in every
   proxy setup, so a key the user creates in the web UI (User settings →
   Connected apps) signs the app in where no password can: the server step saves
   a `portal` probe as a key session, the key card verifies the key with
@@ -233,9 +235,10 @@ git-ignored historical record — nothing here depends on it.
   out of `AppState.connection: Arc<RwLock<Option<SubsonicClient>>>`).
   Subsonic API v1.16.1, client name `aether-player`. Two auth schemes, never
   mixed (the server answers a mix with error 43): `with_api_key` sends the
-  OpenSubsonic `apiKey` — what `set_session` builds from the SPA's `spa`
-  token, the only client the app creates — and `new` signs every request with
-  a fresh salt + md5 token (used by the tests only now). Both constructors
+  OpenSubsonic `apiKey` — what `set_session` builds from the SPA's `spa` token
+  and what `set_api_key` / `state::connection_for` build from the stored key,
+  the only client the app creates — and `new` signs every request with a fresh
+  salt + md5 token (used by the tests only now). Both constructors
   accept only an address `normalize_server_url` would (http/https with a
   host, no credentials, query or fragment); `base_url_str()` returns that
   normalised form. Error texts never carry a request URL, because a `/rest`
@@ -261,7 +264,7 @@ git-ignored historical record — nothing here depends on it.
 - `CoreError` (core) maps to `AppError { code, message }` (app layer) — see
   [ipc.md](ipc.md).
 
-## Known debt (bootstrap final review 2026-07-22, server selection 2026-10-10)
+## Known debt (bootstrap final review 2026-07-22, server selection 2026-10-10, API-key login 2026-10-11)
 
 - **Whole-file download before playback** — `RodioEngine::load` downloads the
   entire track, and `Player` holds its lock across `load`, so `state()` /

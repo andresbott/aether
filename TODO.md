@@ -76,8 +76,8 @@ and `todo list --json` cover the common actions — run `todo --help`.
   What the whole-branch review of player/server-selection left open; none of it blocks using the app.
   - [ ] `normalize_server_url`: pin default-port elision, host lowercasing and IPv6 literals
     Unit-test each in aether-core; the JS normaliser (`normalizeServerUrl` in webui/src/lib/api/Server.ts) must agree on all three.
-  - [ ] Unit tests for the three settings/session command guarantees
-    `set_session` answers NotConnected without a server; a failed settings write leaves settings and session untouched; `set_server_url` drops the session. Make `replace_settings` path-based so a test can drive it.
+  - [ ] Unit tests for the five settings/session command guarantees
+    `set_session` answers NotConnected without a server; `set_api_key` does too; `set_server_url` / `clear_server_url` drop the session; `set_server_url` keeps a key for the same server; a failed settings write leaves settings and session untouched. Make `replace_settings` path-based so a test can drive it.
   - [ ] Settings commands: `set_session` doc comment, first-launch log, atomic write, `async`
     `set_session`'s doc comment says "Authenticates", but the key is not checked; quiet the NotFound log on first launch; write settings.json atomically (temp file + rename); mark the settings commands `async`.
   - [ ] Host layer: reject clearly when the plugin import fails, rename a shadowing field, two specs
