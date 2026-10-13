@@ -460,6 +460,31 @@ describe('ArtistView image-source refresh', () => {
 
         expect(imageSourceRefetch).toHaveBeenCalled()
     })
+
+    // The note comes from /api/v0, which a key session never has: a save there
+    // still lands, but must not ask for the note again (refetch ignores `enabled`).
+    it('does not refetch the image source after a save without the management API', async () => {
+        managementApi.value = false
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const file = new File(['x'], 'a.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await w.vm.$nextTick()
+        await w.find('.edit-action-save').trigger('click')
+        await flushPromises()
+
+        // The save went through and left edit mode...
+        expect(coverMutate).toHaveBeenCalledWith(
+            expect.objectContaining({ artistId: 'ar-1', coverFile: file }),
+            expect.anything()
+        )
+        expect(w.find('.hero-cover').classes()).not.toContain('flipped')
+        // ...without asking for the note.
+        expect(imageSourceRefetch).not.toHaveBeenCalled()
+    })
 })
 
 // Remove clears aether's own stored image. When the served image is a file from
@@ -704,7 +729,9 @@ describe('ArtistView online image search', () => {
     })
 
     // The search rides the admin-only /api/v0; a key session has none, so an
-    // admin's key gets upload, generate and remove but no online search.
+    // admin's key gets upload and generate but no online search. Remove needs the
+    // image source (also /api/v0) to tell aether's image from a folder's, so it is
+    // offered only for an upload staged in this edit.
     it('offers no search without the management API', async () => {
         managementApi.value = false
         artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }

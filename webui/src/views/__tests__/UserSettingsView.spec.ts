@@ -4,6 +4,7 @@ import { reactive, ref, type Ref } from 'vue'
 import PrimeVue from 'primevue/config'
 import ToastService from 'primevue/toastservice'
 import ConfirmationService from 'primevue/confirmationservice'
+import ConfirmDialog from 'primevue/confirmdialog'
 import type { MeUser } from '@/types/users'
 import type { ApiToken } from '@/types/tokens'
 
@@ -67,6 +68,7 @@ const mountView = () =>
 // mode back where it started rather than leaking a hidden theme.
 beforeEach(() => {
     useTheme().mode.value = 'auto'
+    currentUser.value = null
     managementApi.value = true
     route.params = {}
     route.query = {}
@@ -283,7 +285,9 @@ describe('UserSettingsView', () => {
         managementApi.value = false
         const w = mountView()
         expect(w.findAll('[role="tab"]').map((t) => t.text())).toEqual(['General'])
-        currentUser.value = null
+        // The panel behind the tab and the dialogs it opens go with it, hidden or not.
+        expect(w.find('#panel-access').exists()).toBe(false)
+        expect(w.findComponent(ConfirmDialog).exists()).toBe(false)
     })
 
     it('starts on General and switches panels on tab click', async () => {

@@ -28,10 +28,11 @@ const toggleStar = useToggleStar()
 const updateCover = useUpdateArtistCover()
 const setImageFromSearch = useSetArtistImageFromSearch()
 
-// Editing the artist image is curation, admin-only. Half of it — the online
-// search, the image-source note — rides the admin-only /api/v0 surface, which a
-// key session never has: those two go without the management API, while upload,
-// generate and remove ride /rest and stay.
+// Editing the artist image is curation, admin-only. The online search and the
+// image-source note ride the admin-only /api/v0 surface, which a key session
+// never has: those two go without the management API. Upload and generate ride
+// /rest and stay. Remove needs the image source to tell aether's image from a
+// folder's, so a key session offers it only for an upload staged in this edit.
 const { isAdmin, managementApi } = useAuth()
 
 const { data: artist, isLoading, error } = useArtist(props.id)
@@ -191,7 +192,8 @@ function afterCoverSaved(): void {
     editing.value = false
     // An upload moves the image into aether's store, a clear can uncover the
     // folder image again — either way the note is stale.
-    void refetchImageSource()
+    // The note rides /api/v0, which a key session never asks.
+    if (managementApi.value) void refetchImageSource()
 }
 
 const saveEdit = (): void => {

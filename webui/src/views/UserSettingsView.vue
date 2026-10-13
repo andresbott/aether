@@ -377,7 +377,7 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
                     </section>
 
                     <section
-                        v-if="currentUser"
+                        v-if="canManageTokens"
                         v-show="activeTab === 'access'"
                         id="panel-access"
                         class="settings-panel tokens-section"
@@ -539,7 +539,7 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
 
         <!-- Overlays live outside the panels: PrimeVue teleports them to the body,
              so they must not depend on which tab is currently shown. -->
-        <template v-if="currentUser">
+        <template v-if="canManageTokens">
             <ConfirmDialog />
 
             <Dialog v-model:visible="createVisible" modal :header="createHeader" :closable="true">

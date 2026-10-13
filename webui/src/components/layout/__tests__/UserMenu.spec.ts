@@ -179,15 +179,6 @@ describe('UserMenu account popup', () => {
         menuItem(menu, 'Log out')!.click()
         expect(logoutMutate).toHaveBeenCalledOnce()
     })
-
-    // Logging out of a key session forgets the key; the entry is the same.
-    it('offers Log out whenever there is a session to leave', async () => {
-        canSignOut.value = true
-        currentUser.value = { login: 'alice', role: 'user' }
-        const menu = await openMenu(mountMenu())
-        menuItem(menu, 'Log out')!.click()
-        expect(logoutMutate).toHaveBeenCalledOnce()
-    })
 })
 
 // The popup as the user reads it: entry labels in order, '---' where the separator is.
@@ -219,6 +210,18 @@ describe('UserMenu in a browser tab', () => {
             '---',
             'Log out'
         ])
+    })
+
+    // What an admin's key session sees of the popup: the role is there but /api/v0
+    // is not, so neither Admin nor Metadata editor; the key can be forgotten, so
+    // Log out stays. (The desktop app, where key sessions live, also lists Change
+    // server above it, as in the cases below.)
+    it('keeps an admin key session to User settings, About and Log out', async () => {
+        canSignOut.value = true
+        managementApi.value = false
+        isAdmin.value = true
+        const menu = await openMenu(mountMenu())
+        expect(outline(menu)).toEqual(['User settings', 'About', '---', 'Log out'])
     })
 })
 
