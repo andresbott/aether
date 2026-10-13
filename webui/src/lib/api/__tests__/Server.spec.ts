@@ -8,11 +8,14 @@ const httpFetch = vi.hoisted(() =>
 vi.mock('@/lib/host', () => ({ httpFetch }))
 
 import {
+    AetherAnswerError,
+    ApiKeyRejectedError,
     InvalidServerAddressError,
     NotAetherServerError,
     ServerUnreachableError,
     normalizeServerUrl,
-    probeServer
+    probeServer,
+    verifyApiKey
 } from '@/lib/api/Server'
 
 const SERVER = 'http://aether.local:8075'
@@ -451,4 +454,108 @@ describe('normalizeServerUrl', () => {
             )
         }
     )
+})
+
+// The key card's check before anything stores a key: one getUser with it.
+describe('verifyApiKey', () => {
+    const GET_USER = `${SERVER}/rest/getUser.view?f=json&v=1.16.1&c=aether-player&apiKey=aether_k3y`
+    const userEnvelope = (username: string, adminRole: boolean) => ({
+        'subsonic-response': {
+            status: 'ok',
+            version: '1.16.1',
+            type: 'Aether',
+            openSubsonic: true,
+            user: { username, adminRole, settingsRole: adminRole, streamRole: true }
+        }
+    })
+    const errorEnvelope = (code: number, message: string) => ({
+        'subsonic-response': {
+            status: 'failed',
+            version: '1.16.1',
+            type: 'Aether',
+            error: { code, message }
+        }
+    })
+
+    it('asks getUser with the key and no username, and answers the identity', async () => {
+        answer(json(userEnvelope('alice', true)))
+
+        await expect(verifyApiKey(SERVER, 'aether_k3y')).resolves.toEqual({
+            login: 'alice',
+            role: 'admin'
+        })
+        expect(requestedUrls()).toEqual([GET_USER])
+    })
+
+    it('reads a regular user off adminRole', async () => {
+        answer(json(userEnvelope('bob', false)))
+
+        await expect(verifyApiKey(SERVER, 'aether_k3y')).resolves.toEqual({
+            login: 'bob',
+            role: 'user'
+        })
+    })
+
+    // 40 (credentials refused) and 44 (invalid apiKey) both mean the key is no
+    // good here — wrong, or revoked. The message never carries it.
+    it.each([40, 44])('reports a refused key on error %i, without the key', async (code) => {
+        answer(json(errorEnvelope(code, 'Invalid API key')))
+
+        const err = await verifyApiKey(SERVER, 'aether_k3y').catch((e: unknown) => e)
+
+        expect(err).toBeInstanceOf(ApiKeyRejectedError)
+        expect((err as Error).message).toBe('This API key was not accepted.')
+        expect((err as Error).message).not.toContain('aether_k3y')
+    })
+
+    it("relays Aether's own message for another error", async () => {
+        answer(json(errorEnvelope(0, 'internal error')))
+
+        const err = await verifyApiKey(SERVER, 'aether_k3y').catch((e: unknown) => e)
+
+        expect(err).toBeInstanceOf(AetherAnswerError)
+        expect((err as Error).message).toBe('internal error')
+    })
+
+    // Review focus 4: a proxy that does not bypass /rest answers its login page
+    // or a redirect; an ok without a user is no Aether getUser; another server's
+    // envelope is not Aether. None of them is a key to store.
+    it.each([
+        ['a proxy redirect', () => portalRedirect()],
+        ['a login page', () => html()],
+        [
+            'an ok envelope without a user',
+            () => json({ 'subsonic-response': { status: 'ok', version: '1.16.1', type: 'Aether' } })
+        ],
+        ["another server's envelope", () => json(otherServerEnvelope('navidrome'))]
+    ])('reports no Aether on %s', async (_case, response) => {
+        answer(response())
+
+        await expect(verifyApiKey(SERVER, 'aether_k3y')).rejects.toBeInstanceOf(
+            NotAetherServerError
+        )
+    })
+
+    it('reports an unreachable server when the request fails, without its text', async () => {
+        answer(transportFailure)
+
+        const err = await verifyApiKey(SERVER, 'aether_k3y').catch((e: unknown) => e)
+
+        expect(err).toBeInstanceOf(ServerUnreachableError)
+        expect((err as Error).message).toBe(`Could not reach ${SERVER}.`)
+    })
+
+    it('asks the transport to hand redirects back and to give up in time', async () => {
+        answer(json(userEnvelope('alice', false)))
+
+        await verifyApiKey(SERVER, 'aether_k3y')
+
+        const [, init] = httpFetch.mock.calls[0]
+        expect(init).toMatchObject({
+            redirect: 'manual',
+            maxRedirections: 0,
+            connectTimeout: 10_000
+        })
+        expect(init?.signal).toBeInstanceOf(AbortSignal)
+    })
 })

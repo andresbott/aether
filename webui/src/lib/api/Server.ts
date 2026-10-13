@@ -5,7 +5,7 @@
 // lost session.
 import { httpFetch } from '@/lib/host'
 import { isMeResponse } from '@/lib/api/meShape'
-import type { MeResponse } from '@/types/users'
+import type { MeResponse, MeUser } from '@/types/users'
 
 /**
  * What answered at a server address, and where: `url` is the address as the
@@ -40,6 +40,20 @@ export class NotAetherServerError extends Error {
     constructor(url: string) {
         super(`No Aether server answered at ${url}.`)
     }
+}
+
+/** The server refused the key (Subsonic error 40 or 44): wrong here, or revoked. */
+export class ApiKeyRejectedError extends Error {
+    name = 'ApiKeyRejectedError'
+
+    constructor() {
+        super('This API key was not accepted.')
+    }
+}
+
+/** Aether answered an error of its own (any other code); its message is shown as written. */
+export class AetherAnswerError extends Error {
+    name = 'AetherAnswerError'
 }
 
 const INVALID_ADDRESS = 'Enter a server address such as http://aether.local:8075.'
@@ -106,6 +120,48 @@ async function probeAt(url: string): Promise<ProbeResult> {
     const ping = await probe(url, `${url}${PING}`)
     if (isAetherEnvelope(ping.body)) return { kind: 'portal', url }
     throw new NotAetherServerError(url)
+}
+
+// getUser as the key card asks it: no `username` — Aether answers the caller's
+// own record whatever that parameter says — and the probe's client name.
+const GET_USER = '/rest/getUser.view?f=json&v=1.16.1&c=aether-player'
+
+/**
+ * Asks the saved server who `apiKey` is, before anything stores it: one getUser
+ * through the host transport, built like the probe (its timeout, no redirect
+ * followed), so no unverified key ever touches the subsonic client, whose 40/44
+ * branch would read a wrong key as an expiry. Resolves to the identity in the
+ * shape /me gives.
+ *
+ * Throws ApiKeyRejectedError on error 40 or 44, AetherAnswerError with the
+ * server's own message on another Aether error, NotAetherServerError when the
+ * answer is no Aether envelope (a proxy's login page or redirect, an ok without
+ * a user, another server), ServerUnreachableError when the request fails or
+ * times out. No message carries the key.
+ */
+export async function verifyApiKey(url: string, apiKey: string): Promise<MeUser> {
+    const target = new URL(`${url}${GET_USER}`)
+    target.searchParams.set('apiKey', apiKey)
+    const answer = await probe(url, target.toString())
+    const envelope = subsonicEnvelope(answer.body)
+    if (envelope === null || !isAetherEnvelope(answer.body)) throw new NotAetherServerError(url)
+    if (envelope.status === 'ok') {
+        const user = envelope.user
+        if (isObject(user) && typeof user.username === 'string') {
+            return { login: user.username, role: user.adminRole === true ? 'admin' : 'user' }
+        }
+        throw new NotAetherServerError(url)
+    }
+    const error = isObject(envelope.error) ? envelope.error : null
+    if (error?.code === 40 || error?.code === 44) throw new ApiKeyRejectedError()
+    if (typeof error?.message === 'string') throw new AetherAnswerError(error.message)
+    throw new NotAetherServerError(url)
+}
+
+function subsonicEnvelope(body: unknown): Record<string, unknown> | null {
+    if (!isObject(body)) return null
+    const envelope = body['subsonic-response']
+    return isObject(envelope) ? envelope : null
 }
 
 interface ProbeAnswer {
