@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { createRouter, createMemoryHistory } from 'vue-router'
@@ -29,17 +29,36 @@ const host = vi.hoisted(() => ({ desktopApp: true, onTrayCommand: vi.fn() }))
 vi.mock('@/lib/host', async () => {
     const { ref } = await import('vue')
     const serverUrl = ref<string | null>(null)
+    const sessionKind = ref<'cookie' | 'apiKey'>('cookie')
+    const apiKey = ref<string | null>(null)
     return {
         isDesktopApp: () => host.desktopApp,
         // The tray bridge App wires in the app; what it does is its own spec's.
         onTrayCommand: host.onTrayCommand,
         serverUrl,
-        // As the IPC wrapper does: the saved address becomes the server.
-        setServerUrl: async (url: string) => {
+        sessionKind,
+        apiKey,
+        // As the IPC wrappers do: the saved address and kind become the session.
+        setServerUrl: async (url: string, kind: 'cookie' | 'apiKey') => {
+            // Rust keeps a stored key only for the same server saved as a key session.
+            if (kind !== 'apiKey' || url !== serverUrl.value) apiKey.value = null
+            sessionKind.value = kind
             serverUrl.value = url
             return url
         },
-        httpFetch: vi.fn(),
+        setSessionKind: async (kind: 'cookie' | 'apiKey') => {
+            sessionKind.value = kind
+        },
+        setApiKey: async (key: string) => {
+            sessionKind.value = 'apiKey'
+            apiKey.value = key
+        },
+        clearApiKey: async () => {
+            apiKey.value = null
+        },
+        // The real subsonic client asks getUser through here: the page fetch,
+        // which a case stubs with the server's answer.
+        httpFetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
         clearServerUrl: vi.fn(),
         setSession: async () => {},
         clearSession: async () => {}
@@ -93,7 +112,12 @@ describe('App gate in the desktop app', () => {
         host.onTrayCommand.mockReset()
         host.onTrayCommand.mockResolvedValue(() => {})
         await setServer(null)
+        const { sessionKind, apiKey } = await import('@/lib/host')
+        sessionKind.value = 'cookie'
+        apiKey.value = null
     })
+
+    afterEach(() => vi.unstubAllGlobals())
 
     // A disabled /me is not loading, so nothing holds the login view back.
     it('shows the server step, and asks nobody, while no server is chosen', async () => {
@@ -113,14 +137,44 @@ describe('App gate in the desktop app', () => {
         expect(host.onTrayCommand).toHaveBeenCalledOnce()
     })
 
-    it('shows the login view instead of a blank window on a portal-only server', async () => {
+    it('asks for an API key instead of a blank window on a portal-only server', async () => {
         await setServer('http://aether.example.org')
         getMe.mockResolvedValue(meProxyAnonymous)
 
         const w = await mountApp()
 
-        expect(w.find('.login-notice').text()).toContain('web portal')
+        expect(w.find('#login-api-key').exists()).toBe(true)
         expect(w.find('#login-server').exists()).toBe(false)
+        expect(w.find('#login-username').exists()).toBe(false)
+    })
+
+    // A relaunch with a stored key: the app renders from getUser alone.
+    it('renders the app from a stored key without asking /me', async () => {
+        await setServer(SERVER)
+        const { sessionKind, apiKey } = await import('@/lib/host')
+        sessionKind.value = 'apiKey'
+        apiKey.value = 'aether_k3y'
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue({
+                ok: true,
+                json: () =>
+                    Promise.resolve({
+                        'subsonic-response': {
+                            status: 'ok',
+                            version: '1.16.1',
+                            type: 'Aether',
+                            user: { username: 'alice', adminRole: false }
+                        }
+                    })
+            })
+        )
+
+        const w = await mountApp()
+
+        expect(getMe).not.toHaveBeenCalled()
+        expect(w.find('.login-view').exists()).toBe(false)
+        expect(w.find('.player-layout').exists()).toBe(true)
     })
 
     // In a browser tab the proxy's portal redirect handles it, as before.

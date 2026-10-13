@@ -385,10 +385,12 @@ export function useAuth() {
     }
 
     /**
-     * Desktop app: the login view's key card verified a key with getUser and
-     * stored it. The session starts afresh — a refused key's expiry is over —
-     * and the identity the verification answered seeds the rest identity
-     * query, so the app renders without asking getUser a second time.
+     * Desktop app: the login view's key card verified a key with getUser and is
+     * about to store it. The session starts afresh — a refused key's expiry is
+     * over — and the identity the verification answered seeds the rest identity
+     * query. The seed must land before the key is stored: storing it installs
+     * the key on the subsonic client and enables that query, which would then
+     * ask getUser a second time instead of using the verified identity.
      */
     function apiKeySaved(user: MeUser): void {
         startFreshSession()
@@ -422,7 +424,7 @@ export function useAuth() {
         switchServer,
         /** Desktop app: the server step saved a server; its identity is asked. */
         serverSaved,
-        /** Desktop app: the key card verified and stored a key. */
+        /** Desktop app: the key card verified a key and is about to store it. */
         apiKeySaved
     }
 }

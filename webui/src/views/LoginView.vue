@@ -8,12 +8,15 @@ import Password from 'primevue/password'
 import { useAuth } from '@/composables/useAuth'
 import { apiErrorMessage } from '@/lib/apiError'
 import { lastServerUrl, sessionLostUnexpectedly } from '@/lib/authState'
-import { isDesktopApp, serverUrl, setServerUrl } from '@/lib/host'
+import { isDesktopApp, serverUrl, setApiKey, setServerUrl, setSessionKind } from '@/lib/host'
 import {
+    AetherAnswerError,
+    ApiKeyRejectedError,
     InvalidServerAddressError,
     NotAetherServerError,
     ServerUnreachableError,
-    probeServer
+    probeServer,
+    verifyApiKey
 } from '@/lib/api/Server'
 import BrandMark from '@/components/common/BrandMark.vue'
 
@@ -22,21 +25,22 @@ import BrandMark from '@/components/common/BrandMark.vue'
 // bookmark. A successful login always lands on the home page, regardless
 // of the URL the browser sat on while logged out.
 
-const { login, needsServer, needsPortal, switchServer, serverSaved } = useAuth()
+const { login, needsServer, needsApiKey, switchServer, serverSaved, apiKeySaved } = useAuth()
 const router = useRouter()
 
 // Which card shows. Only the desktop app ever needs the first two: the server
-// comes before anything else, and a portal-only server leaves nothing to sign
-// in to.
-const card = computed<'server' | 'portal' | 'login'>(() => {
+// comes before anything else, and a key session — a portal server, which only a
+// key gets into, or the user's own choice — asks for an API key, not a password.
+const card = computed<'server' | 'apiKey' | 'login'>(() => {
     if (needsServer.value) return 'server'
-    if (needsPortal.value) return 'portal'
+    if (needsApiKey.value) return 'apiKey'
     return 'login'
 })
 
 function onCardSubmit() {
     if (card.value === 'server') void onConnect()
-    else if (card.value === 'login') void onSubmit()
+    else if (card.value === 'apiKey') void onConnectWithKey()
+    else void onSubmit()
 }
 
 const username = ref('')
@@ -75,16 +79,9 @@ async function onSubmit() {
 
 const desktopApp = isDesktopApp()
 
-const PORTAL_MESSAGE =
-    'This server signs you in through a web portal, which the desktop app cannot open yet. ' +
-    'Open it in a browser, or connect to another server.'
-
 const serverAddress = ref('')
 const connecting = ref(false)
 const serverError = ref('')
-// The address answered as Aether behind a portal: nothing was saved, and the
-// field stays open for another address.
-const behindPortal = ref(false)
 
 // Entering the server step, the field offers the address the user left through
 // Change, else the saved server that did not answer — saying so — else nothing.
@@ -94,8 +91,7 @@ watch(
     (now) => {
         if (now !== 'server') return
         serverAddress.value = lastServerUrl.value ?? serverUrl.value ?? ''
-        behindPortal.value = false
-        // A server still set means the step is up because its /me failed.
+        // A server still set means the step is up because it did not answer.
         serverError.value =
             serverUrl.value === null ? '' : new ServerUnreachableError(serverUrl.value).message
     },
@@ -107,19 +103,16 @@ const canConnect = computed(() => serverAddress.value.trim().length > 0 && !conn
 async function onConnect() {
     if (!canConnect.value) return
     serverError.value = ''
-    behindPortal.value = false
     connecting.value = true
     try {
         const answer = await probeServer(serverAddress.value)
-        if (answer.kind === 'portal') {
-            behindPortal.value = true
-            return
-        }
         // The address as the probe settled it: normalised, and on https when
-        // the server redirected there.
-        await setServerUrl(answer.url)
-        // The gate takes it from here: /me asks the saved server, then the app
-        // shows for auth "none", this card's credentials for "native".
+        // the server redirected there. A portal keeps /api/v0 closed to the
+        // app, so only an API key gets in: saved as a key session, the gate
+        // shows the key card. Anything else is a cookie session: /me asks the
+        // saved server, then the app shows for auth "none", this card's
+        // credentials for "native".
+        await setServerUrl(answer.url, answer.kind === 'portal' ? 'apiKey' : 'cookie')
         serverSaved()
     } catch (err) {
         serverError.value = connectErrorMessage(err)
@@ -128,14 +121,17 @@ async function onConnect() {
     }
 }
 
-// Only copy written here reaches the screen: a transport's rejection names the
-// request URL. The probe's errors carry their own; the player's refusal of an
-// address (`{ code, message }` over IPC) explains itself without one.
+// Only copy written here, or a message Aether itself wrote, reaches the screen:
+// a transport's rejection names the request URL, key included. The probe's and
+// the key check's errors carry their own; the player's refusal of an address or
+// a key (`{ code, message }` over IPC) explains itself without one.
 function connectErrorMessage(err: unknown): string {
     if (
         err instanceof InvalidServerAddressError ||
         err instanceof ServerUnreachableError ||
-        err instanceof NotAetherServerError
+        err instanceof NotAetherServerError ||
+        err instanceof ApiKeyRejectedError ||
+        err instanceof AetherAnswerError
     ) {
         return err.message
     }
@@ -160,6 +156,95 @@ const serverHost = computed(() => {
         return url
     }
 })
+
+// --- API key card (desktop app only) ---
+
+const API_KEY_HINT = 'Create one in Aether → User settings → Connected apps.'
+const API_KEY_REVOKED = 'Your API key was not accepted — it may have been revoked. Enter a new one.'
+const PORTAL_ONLY = 'This server signs you in through its portal, so only an API key works here.'
+
+const apiKeyInput = ref('')
+const connectingKey = ref(false)
+const keyError = ref('')
+// Why the password link led nowhere: the server has no password login to offer.
+const keyNotice = ref('')
+const switchingMethod = ref(false)
+
+// Entering the key card: a key typed before stays, what was said about it does not.
+watch(card, (now) => {
+    if (now !== 'apiKey') return
+    keyError.value = ''
+    keyNotice.value = ''
+})
+
+const trimmedKey = computed(() => apiKeyInput.value.trim())
+const canConnectWithKey = computed(
+    () => trimmedKey.value.length > 0 && !connectingKey.value && !switchingMethod.value
+)
+
+// Verify first, seed second, store third: nothing keeps a key the server did not
+// accept, and no unverified key reaches the subsonic client. Storing the key
+// installs it on that client and enables the identity query, so the identity the
+// check answered seeds the gate before — the stored key then renders the app
+// from it, without asking getUser a second time.
+async function onConnectWithKey() {
+    if (!canConnectWithKey.value || serverUrl.value === null) return
+    keyError.value = ''
+    keyNotice.value = ''
+    connectingKey.value = true
+    const key = trimmedKey.value
+    try {
+        const user = await verifyApiKey(serverUrl.value, key)
+        apiKeySaved(user)
+        await setApiKey(key)
+        apiKeyInput.value = ''
+        await router.replace('/')
+    } catch (err) {
+        keyError.value = connectErrorMessage(err)
+        // A refused key is not worth correcting by hand; anything else may be
+        // transient, so the key stays.
+        if (err instanceof ApiKeyRejectedError) apiKeyInput.value = ''
+    } finally {
+        connectingKey.value = false
+    }
+}
+
+// From the sign-in card: a key works on every authenticated server.
+async function onUseApiKey() {
+    error.value = ''
+    switchingMethod.value = true
+    try {
+        await setSessionKind('apiKey')
+    } catch (err) {
+        error.value = connectErrorMessage(err)
+    } finally {
+        switchingMethod.value = false
+    }
+}
+
+// From the key card: re-probe the saved server — a portal server never had a
+// /me to remember, and a relaunch fetched none. A password login exists only
+// where /me answers native (or none, where nothing is asked at all); a portal,
+// or a proxy that lets an anonymous /me through, only takes a key.
+async function onUsePassword() {
+    if (serverUrl.value === null) return
+    keyError.value = ''
+    keyNotice.value = ''
+    switchingMethod.value = true
+    try {
+        const answer = await probeServer(serverUrl.value)
+        if (answer.kind === 'portal' || answer.me.authMethod === 'proxy-header') {
+            keyNotice.value = PORTAL_ONLY
+            return
+        }
+        await setSessionKind('cookie')
+        serverSaved()
+    } catch (err) {
+        keyError.value = connectErrorMessage(err)
+    } finally {
+        switchingMethod.value = false
+    }
+}
 </script>
 
 <template>
@@ -193,9 +278,6 @@ const serverHost = computed(() => {
                     />
                 </div>
 
-                <p v-if="behindPortal" class="login-notice" role="status">
-                    {{ PORTAL_MESSAGE }}
-                </p>
                 <p v-if="serverError" class="login-error" role="alert">{{ serverError }}</p>
 
                 <Button
@@ -207,15 +289,59 @@ const serverHost = computed(() => {
                 />
             </template>
 
-            <!-- Desktop app on a server that signs in through its portal. -->
-            <template v-else-if="card === 'portal'">
-                <p class="login-notice">{{ PORTAL_MESSAGE }}</p>
+            <!-- Desktop app in a key session: a pasted API key instead of a
+                 password — the only way into a server behind a portal. -->
+            <template v-else-if="card === 'apiKey'">
+                <!-- Only for a key the server stopped accepting: after a
+                     deliberate logout the user knows why the card is here. -->
+                <p v-if="sessionLostUnexpectedly" class="login-expired">{{ API_KEY_REVOKED }}</p>
+
+                <p v-if="serverHost" class="login-server">
+                    <span>Server · {{ serverHost }}</span>
+                    <button
+                        type="button"
+                        class="login-link"
+                        :disabled="connectingKey || switchingMethod"
+                        @click="switchServer()"
+                    >
+                        Change
+                    </button>
+                </p>
+
+                <div class="field">
+                    <label for="login-api-key">API key</label>
+                    <Password
+                        v-model="apiKeyInput"
+                        input-id="login-api-key"
+                        :feedback="false"
+                        toggle-mask
+                        autocomplete="off"
+                        :disabled="connectingKey || switchingMethod"
+                        fluid
+                    />
+                    <p class="login-hint">{{ API_KEY_HINT }}</p>
+                </div>
+
+                <p v-if="keyNotice" class="login-notice" role="status">{{ keyNotice }}</p>
+                <p v-if="keyError" class="login-error" role="alert">{{ keyError }}</p>
+
                 <Button
-                    type="button"
-                    label="Change server"
+                    type="submit"
+                    label="Connect"
                     class="login-submit"
-                    @click="switchServer()"
+                    :loading="connectingKey"
+                    :disabled="!canConnectWithKey"
                 />
+
+                <button
+                    type="button"
+                    class="login-link login-switch"
+                    data-test="use-password"
+                    :disabled="connectingKey || switchingMethod"
+                    @click="onUsePassword()"
+                >
+                    Sign in with a password instead
+                </button>
             </template>
 
             <template v-else>
@@ -275,6 +401,18 @@ const serverHost = computed(() => {
                     :loading="login.isPending.value"
                     :disabled="!canSubmit"
                 />
+
+                <!-- Desktop app: a key works on every authenticated server. -->
+                <button
+                    v-if="desktopApp"
+                    type="button"
+                    class="login-link login-switch"
+                    data-test="use-api-key"
+                    :disabled="login.isPending.value || switchingMethod"
+                    @click="onUseApiKey()"
+                >
+                    Use an API key instead
+                </button>
             </template>
         </form>
     </div>
@@ -433,7 +571,21 @@ const serverHost = computed(() => {
     opacity: 0.6;
 }
 
-/* Why this server cannot be used from the app. */
+/* The one line under the key field: where a key comes from. */
+.login-hint {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: var(--login-card-dim);
+}
+
+/* The other way to sign in, below the submit. */
+.login-switch {
+    align-self: center;
+    font-size: 0.85rem;
+}
+
+/* Why only a key works on this server. */
 .login-notice {
     margin: 0;
     font-size: 0.85rem;
