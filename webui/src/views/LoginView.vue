@@ -8,7 +8,14 @@ import Password from 'primevue/password'
 import { useAuth } from '@/composables/useAuth'
 import { apiErrorMessage } from '@/lib/apiError'
 import { lastServerUrl, sessionLostUnexpectedly } from '@/lib/authState'
-import { isDesktopApp, serverUrl, setApiKey, setServerUrl, setSessionKind } from '@/lib/host'
+import {
+    isDesktopApp,
+    serverUrl,
+    sessionKind,
+    setApiKey,
+    setServerUrl,
+    setSessionKind
+} from '@/lib/host'
 import {
     AetherAnswerError,
     ApiKeyRejectedError,
@@ -109,10 +116,19 @@ async function onConnect() {
         // The address as the probe settled it: normalised, and on https when
         // the server redirected there. A portal keeps /api/v0 closed to the
         // app, so only an API key gets in: saved as a key session, the gate
-        // shows the key card. Anything else is a cookie session: /me asks the
-        // saved server, then the app shows for auth "none", this card's
-        // credentials for "native".
-        await setServerUrl(answer.url, answer.kind === 'portal' ? 'apiKey' : 'cookie')
+        // shows the key card. So is the saved server when it already is a key
+        // session (Connect after an outage, on a server the user chose a key
+        // for): the player keeps a stored key only for the same server saved
+        // again as a key session, and a cookie save would delete it. After
+        // Change, clearServerUrl has already reset the kind, so a new server
+        // never inherits a key session; only Connect on the saved server keeps
+        // it. Anything else is a cookie session: /me asks the saved server,
+        // then the app shows for auth "none", this card's credentials for
+        // "native".
+        const keySession =
+            answer.kind === 'portal' ||
+            (sessionKind.value === 'apiKey' && answer.url === serverUrl.value)
+        await setServerUrl(answer.url, keySession ? 'apiKey' : 'cookie')
         serverSaved()
     } catch (err) {
         serverError.value = connectErrorMessage(err)
@@ -177,6 +193,14 @@ watch(card, (now) => {
     keyNotice.value = ''
 })
 
+// Opening the server step: a key typed for the server being left is not for the
+// next one, and Connect on the key card would send it to that one's getUser. Its
+// own watcher, below the field: the server step's runs at setup, before this
+// field exists.
+watch(card, (now) => {
+    if (now === 'server') apiKeyInput.value = ''
+})
+
 const trimmedKey = computed(() => apiKeyInput.value.trim())
 const canConnectWithKey = computed(
     () => trimmedKey.value.length > 0 && !connectingKey.value && !switchingMethod.value
@@ -209,12 +233,16 @@ async function onConnectWithKey() {
     }
 }
 
-// From the sign-in card: a key works on every authenticated server.
+// From the sign-in card: a key works on every authenticated server. The gate is
+// told, as after the server step: the cookie session that brought the user here
+// may have expired, and its flag is not the key's — left set, the key card would
+// blame a revoked key on someone who never had one.
 async function onUseApiKey() {
     error.value = ''
     switchingMethod.value = true
     try {
         await setSessionKind('apiKey')
+        serverSaved()
     } catch (err) {
         error.value = connectErrorMessage(err)
     } finally {

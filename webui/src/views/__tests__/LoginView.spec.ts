@@ -40,6 +40,7 @@ vi.mock('@/lib/host', async () => {
     return {
         isDesktopApp: () => host.desktopApp,
         serverUrl: ref<string | null>(null),
+        sessionKind: ref<'cookie' | 'apiKey'>('cookie'),
         setServerUrl: host.setServerUrl,
         setSessionKind: host.setSessionKind,
         setApiKey: host.setApiKey,
@@ -60,7 +61,7 @@ vi.mock('@/lib/api/Server', async (importOriginal) => ({
 }))
 
 import LoginView from '@/views/LoginView.vue'
-import { serverUrl } from '@/lib/host'
+import { serverUrl, sessionKind } from '@/lib/host'
 import {
     AetherAnswerError,
     ApiKeyRejectedError,
@@ -81,6 +82,7 @@ beforeEach(() => {
     host.setSessionKind.mockReset()
     host.setApiKey.mockReset()
     serverUrl.value = null
+    sessionKind.value = 'cookie'
     lastServerUrl.value = null
     // The expiry flags and the router are shared by every case below, the
     // desktop app's included: left as the last case set them, they would hide a
@@ -209,6 +211,12 @@ describe('LoginView in the desktop app', () => {
         'Your API key was not accepted — it may have been revoked. Enter a new one.'
     const PORTAL_ONLY =
         'This server signs you in through its portal, so only an API key works here.'
+    // What a native server's /me answers to a caller without a session.
+    const meNative = {
+        authMethod: 'native',
+        user: null,
+        features: { userManagement: true }
+    }
 
     beforeEach(() => {
         host.desktopApp = true
@@ -418,6 +426,40 @@ describe('LoginView in the desktop app', () => {
             expect(serverSaved).toHaveBeenCalledTimes(1)
         })
 
+        // A key session on a server whose /me answers as Aether (a native server
+        // the user chose a key for, a proxy letting an anonymous /me through): the
+        // same server saved again for a key session keeps its stored key, saved as
+        // a cookie session it would lose it.
+        it('connects to the saved server again as a key session', async () => {
+            sessionKind.value = 'apiKey'
+            probeServer.mockResolvedValue({ kind: 'aether', url: SERVER, me: meNative })
+            host.setServerUrl.mockImplementation(async (url) => url)
+            const w = mountView()
+
+            await w.find('form').trigger('submit')
+            await flushPromises()
+
+            expect(host.setServerUrl).toHaveBeenCalledWith(SERVER, 'apiKey')
+            expect(serverSaved).toHaveBeenCalledTimes(1)
+        })
+
+        // Another server is not the one the key was stored for.
+        it('saves a different address as a cookie session, key session or not', async () => {
+            sessionKind.value = 'apiKey'
+            probeServer.mockResolvedValue({
+                kind: 'aether',
+                url: 'http://other.lan:8075',
+                me: meNative
+            })
+            host.setServerUrl.mockImplementation(async (url) => url)
+            const w = mountView()
+
+            await connect(w, 'other.lan:8075')
+
+            expect(host.setServerUrl).toHaveBeenCalledWith('http://other.lan:8075', 'cookie')
+            expect(serverSaved).toHaveBeenCalledTimes(1)
+        })
+
         it('keeps what the user typed when another address fails too', async () => {
             probeServer.mockRejectedValue(new ServerUnreachableError('http://other.lan:8075'))
             const w = mountView()
@@ -504,12 +546,16 @@ describe('LoginView in the desktop app', () => {
             await w.find('#login-api-key').setValue('   ')
             expect(connect.attributes('disabled')).toBeDefined()
 
-            await connectWithKey(w, '  aether_k3y \n')
+            await w.find('#login-api-key').setValue('  aether_k3y \n')
+            expect(connect.attributes('disabled')).toBeUndefined()
+
+            await w.find('form').trigger('submit')
+            await flushPromises()
             expect(verifyApiKey).toHaveBeenCalledWith(SERVER, 'aether_k3y')
             expect(host.setApiKey).toHaveBeenCalledWith('aether_k3y')
         })
 
-        it('verifies the key, stores it, seeds the identity and lands on the home page', async () => {
+        it('verifies the key, seeds the identity, stores it and lands on the home page', async () => {
             const order: string[] = []
             verifyApiKey.mockImplementation(async () => {
                 order.push('verified')
@@ -609,12 +655,34 @@ describe('LoginView in the desktop app', () => {
             expect(switchServer).toHaveBeenCalledTimes(1)
         })
 
+        // A key typed for the server left must not be sent to the next one: its
+        // Connect would verify the old key against the new server's getUser.
+        it('forgets the key typed once the server step has been opened', async () => {
+            switchServer.mockImplementation(async () => {
+                lastServerUrl.value = serverUrl.value
+                serverUrl.value = null
+                needsApiKey.value = false
+                needsServer.value = true
+            })
+            const w = mountView()
+            await w.find('#login-api-key').setValue('aether_k3y')
+
+            await w.find('.login-server button').trigger('click')
+            await nextTick()
+            expect(w.find('#login-server').exists()).toBe(true)
+            expect(w.find('#login-api-key').exists()).toBe(false)
+
+            // The next server is saved for a key session: the key card is back.
+            serverUrl.value = 'http://other.lan:8075'
+            needsServer.value = false
+            needsApiKey.value = true
+            await nextTick()
+
+            expect((w.find('#login-api-key').element as HTMLInputElement).value).toBe('')
+            expect(w.find('button[type="submit"]').attributes('disabled')).toBeDefined()
+        })
+
         describe('"Sign in with a password instead"', () => {
-            const meNative = {
-                authMethod: 'native',
-                user: null,
-                features: { userManagement: true }
-            }
             const meProxyAnonymous = {
                 authMethod: 'proxy-header',
                 user: null,
@@ -671,13 +739,33 @@ describe('LoginView in the desktop app', () => {
             host.setSessionKind.mockResolvedValue(undefined)
         })
 
+        // The gate is told, as after the server step: the cookie session that
+        // expired left its flag set, which the key card would read as a revoked key.
         it('offers an API key instead of a password', async () => {
+            sessionExpired.value = true
             const w = mountView()
 
             await w.find('[data-test="use-api-key"]').trigger('click')
             await flushPromises()
 
             expect(host.setSessionKind).toHaveBeenCalledWith('apiKey')
+            expect(serverSaved).toHaveBeenCalledTimes(1)
+        })
+
+        it('tells the gate nothing when the player refuses the switch', async () => {
+            host.setSessionKind.mockRejectedValue({
+                code: 'Internal',
+                message: 'could not save the settings: permission denied'
+            })
+            const w = mountView()
+
+            await w.find('[data-test="use-api-key"]').trigger('click')
+            await flushPromises()
+
+            expect(w.find('.login-error').text()).toBe(
+                'could not save the settings: permission denied'
+            )
+            expect(serverSaved).not.toHaveBeenCalled()
         })
     })
 })

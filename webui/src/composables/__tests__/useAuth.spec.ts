@@ -27,11 +27,13 @@ vi.mock('@/composables/useQueueSync', () => ({
 // it into the desktop app. The IPC wrappers are stood in with what they do to
 // the host's refs — clearServerUrl forgets the server, the key and the kind,
 // clearApiKey forgets the key, setApiKey installs one; the session hand-off has
-// its own spec.
+// its own spec, but clearSession — what resetSubsonicSession tells the Rust
+// client — is counted.
 const host = vi.hoisted(() => ({
     desktopApp: false,
     clearServerUrl: vi.fn(),
     clearApiKey: vi.fn(),
+    clearSession: vi.fn(),
     setSessionKind: vi.fn(),
     setApiKey: vi.fn()
 }))
@@ -67,7 +69,9 @@ vi.mock('@/lib/host', async () => {
             apiKey.value = key
         },
         setSession: async () => {},
-        clearSession: async () => {}
+        clearSession: async () => {
+            host.clearSession()
+        }
     }
 })
 
@@ -155,6 +159,7 @@ describe('useAuth', () => {
         host.desktopApp = false
         host.clearServerUrl.mockReset()
         host.clearApiKey.mockReset()
+        host.clearSession.mockReset()
         host.setSessionKind.mockReset()
         host.setApiKey.mockReset()
         sessionExpired.value = false
@@ -1196,6 +1201,40 @@ describe('useAuth', () => {
             expect(sessionExpired.value).toBe(false)
             expect(auth.needsApiKey.value).toBe(false)
             expect(subsonicReady.value).toBe(true)
+        })
+
+        // The key card retrying a revoked key: its seed ends the expiry before the
+        // player has answered set_api_key, so the gate looks at a key session whose
+        // key is still forgotten. That session has no key to lose, and the reset for
+        // one lost would withdraw the Rust client the stored key is about to connect.
+        it('keeps the Rust client when a revoked key is retried', async () => {
+            apiKey.value = 'aether_revoked'
+            restAnswers(refused)
+            const auth = withAuth()
+            await flushPromises()
+            expect(sessionExpired.value).toBe(true)
+            expect(apiKey.value).toBeNull()
+            expect(auth.needsApiKey.value).toBe(true)
+            const { setApiKey } = await import('@/lib/host')
+            // The seed stands for the identity: nothing asks the server again.
+            const fetchMock = vi.fn()
+            vi.stubGlobal('fetch', fetchMock)
+            // A difference, not a total: the spy is shared with the credential
+            // watchers earlier cases left running.
+            const withdrawals = host.clearSession.mock.calls.length
+
+            auth.apiKeySaved({ login: 'alice', role: 'user' })
+            // Rust answers a round trip later: the gate is evaluated in between.
+            await flushPromises()
+            await setApiKey('aether_k2')
+            await flushPromises()
+
+            expect(host.clearSession).toHaveBeenCalledTimes(withdrawals)
+            expect(subsonicReady.value).toBe(true)
+            expect(subsonicClient.hasApiKey()).toBe(true)
+            expect(auth.needsApiKey.value).toBe(false)
+            expect(auth.currentUser.value).toEqual({ login: 'alice', role: 'user' })
+            expect(fetchMock).not.toHaveBeenCalled()
         })
 
         // The gate renders the app as soon as no card is due, so the very first

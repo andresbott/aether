@@ -77,6 +77,11 @@ const meProxyAnonymous: MeResponse = {
     user: null,
     features: { userManagement: false }
 }
+const meNative: MeResponse = {
+    authMethod: 'native',
+    user: null,
+    features: { userManagement: true }
+}
 
 async function setServer(url: string | null) {
     const { serverUrl } = await import('@/lib/host')
@@ -213,6 +218,51 @@ describe('App gate in the desktop app', () => {
         await flushPromises()
 
         expect(getMe).toHaveBeenCalledTimes(2)
+        expect(w.find('.login-view').exists()).toBe(false)
+        expect(w.find('.player-layout').exists()).toBe(true)
+    })
+
+    // The same outage in a key session, on a server whose /me answers as Aether
+    // (a native server the user chose a key for): Connect on the saved address
+    // keeps the key session, and with it the stored key, so the app comes back
+    // from getUser alone. Saved as a cookie session the key would be deleted and
+    // /me asked instead.
+    it('recovers a key session from a saved server that did not answer at launch', async () => {
+        await setServer(SERVER)
+        const { sessionKind, apiKey } = await import('@/lib/host')
+        sessionKind.value = 'apiKey'
+        apiKey.value = 'aether_k3y'
+        const fetchMock = vi.fn().mockRejectedValue(new Error('Network Error'))
+        vi.stubGlobal('fetch', fetchMock)
+        probeServer.mockResolvedValue({ kind: 'aether', url: SERVER, me: meNative })
+
+        const w = await mountApp()
+
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect((w.find('#login-server').element as HTMLInputElement).value).toBe(SERVER)
+        expect(w.find('.login-error').text()).toBe(`Could not reach ${SERVER}.`)
+        expect(w.find('.player-layout').exists()).toBe(false)
+
+        // Back up: Connect on the same address asks getUser again, with the key kept.
+        fetchMock.mockResolvedValue({
+            ok: true,
+            json: () =>
+                Promise.resolve({
+                    'subsonic-response': {
+                        status: 'ok',
+                        version: '1.16.1',
+                        type: 'Aether',
+                        user: { username: 'alice', adminRole: false }
+                    }
+                })
+        })
+        await w.find('form').trigger('submit')
+        await flushPromises()
+
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+        expect(getMe).not.toHaveBeenCalled()
+        expect(sessionKind.value).toBe('apiKey')
+        expect(apiKey.value).toBe('aether_k3y')
         expect(w.find('.login-view').exists()).toBe(false)
         expect(w.find('.player-layout').exists()).toBe(true)
     })

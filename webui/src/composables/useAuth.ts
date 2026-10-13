@@ -142,17 +142,24 @@ export function useAuth() {
             // (invalidateQueries refetches /me) and after a key is saved.
             watch(
                 [me.data, sessionExpired, sessionKind, apiKey],
-                async ([data, expired, kind, key], [, , previousKind]) => {
+                async ([data, expired, kind, key], [, , previousKind, previousKey]) => {
                     // A key session that is left — the server step saved a cookie
-                    // server, or the kind was switched — or that loses its key —
-                    // a different portal server was saved, which Rust drops the key
-                    // for, or the key was forgotten — must not carry its client
-                    // over: it still holds the key and the address of the server
-                    // left. The cookie branch below takes a key on the client for
-                    // one it minted, so it would never mint for the new server; and
-                    // with subsonicReady still true the identity query stays enabled
-                    // and asks the old server with the old key.
-                    if (previousKind === 'apiKey' && (kind !== 'apiKey' || key === null)) {
+                    // server, or the kind was switched — or that loses the key it
+                    // had — a different portal server was saved, which Rust drops
+                    // the key for, or the key was forgotten — must not carry its
+                    // client over: it still holds the key and the address of the
+                    // server left. The cookie branch below takes a key on the client
+                    // for one it minted, so it would never mint for the new server;
+                    // and with subsonicReady still true the identity query stays
+                    // enabled and asks the old server with the old key. A key session
+                    // that never had one has nothing stale: the key card's retry
+                    // ends the expiry while the key is still null, and resetting
+                    // then would withdraw the Rust client the key being stored is
+                    // about to connect.
+                    if (
+                        previousKind === 'apiKey' &&
+                        (kind !== 'apiKey' || (previousKey !== null && key === null))
+                    ) {
                         resetSubsonicSession()
                     }
                     if (kind === 'apiKey') {
