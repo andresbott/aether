@@ -17,11 +17,12 @@ async function restVersion(): Promise<ServerVersion> {
 }
 
 // The build info never changes while the server runs, so cache it for the
-// lifetime of the session — per session kind, since the two sources differ.
+// lifetime of the session — per session kind, since the two sources differ. The
+// key, not the live ref, picks the source, so the answer caches under its key.
 export function useVersion() {
     return useQuery<ServerVersion>({
         queryKey: computed(() => [...versionQueryKeys.all, sessionKind.value] as const),
-        queryFn: () => (sessionKind.value === 'apiKey' ? restVersion() : VersionApi.getVersion()),
+        queryFn: ({ queryKey }) => (queryKey[1] === 'apiKey' ? restVersion() : VersionApi.getVersion()),
         staleTime: Infinity,
         retry: false
     })

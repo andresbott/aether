@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { defineComponent } from 'vue'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { defineComponent, nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 
@@ -29,10 +29,6 @@ function withVersion() {
 beforeEach(() => {
     getVersion.mockReset()
     serverVersion.mockReset()
-    sessionKind.value = 'cookie'
-})
-
-afterEach(() => {
     sessionKind.value = 'cookie'
 })
 
@@ -66,5 +62,27 @@ describe('useVersion', () => {
         await flushPromises()
 
         expect(version.data.value?.version).toBe('')
+    })
+
+    it('caches the version under the key that asked for it', async () => {
+        getVersion.mockResolvedValue({ version: '0.4.0', commit: 'abcdef12', build_time: '2026-10-01T00:00:00Z' })
+        serverVersion.mockResolvedValue('0.4.0')
+        const version = withVersion()
+        await flushPromises()
+
+        expect(version.data.value?.commit).toBe('abcdef12')
+        sessionKind.value = 'apiKey'
+        await nextTick()
+
+        expect(version.data.value).toBeUndefined()
+        await flushPromises()
+
+        expect(version.data.value).toEqual({ version: '0.4.0', commit: '', build_time: '' })
+        sessionKind.value = 'cookie'
+        await flushPromises()
+
+        expect(version.data.value?.commit).toBe('abcdef12')
+        expect(getVersion).toHaveBeenCalledTimes(1)
+        expect(serverVersion).toHaveBeenCalledTimes(1)
     })
 })
