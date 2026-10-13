@@ -143,12 +143,18 @@ export function useAuth() {
             watch(
                 [me.data, sessionExpired, sessionKind, apiKey],
                 async ([data, expired, kind, key], [, , previousKind]) => {
-                    // Leaving a key session — the server step saved a cookie
-                    // server, or the kind was switched — must not carry its client
+                    // A key session that is left — the server step saved a cookie
+                    // server, or the kind was switched — or that loses its key —
+                    // a different portal server was saved, which Rust drops the key
+                    // for, or the key was forgotten — must not carry its client
                     // over: it still holds the key and the address of the server
-                    // left, and the cookie branch below takes a key on the client
-                    // for one it minted, so it would never mint for the new server.
-                    if (previousKind === 'apiKey' && kind !== 'apiKey') resetSubsonicSession()
+                    // left. The cookie branch below takes a key on the client for
+                    // one it minted, so it would never mint for the new server; and
+                    // with subsonicReady still true the identity query stays enabled
+                    // and asks the old server with the old key.
+                    if (previousKind === 'apiKey' && (kind !== 'apiKey' || key === null)) {
+                        resetSubsonicSession()
+                    }
                     if (kind === 'apiKey') {
                         if (expired || key === null) return
                         subsonicClient.setApiKey(key)

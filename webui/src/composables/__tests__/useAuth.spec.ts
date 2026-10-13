@@ -1285,5 +1285,64 @@ describe('useAuth', () => {
             expect(subsonicClient.hasApiKey()).toBe(true)
             expect(subsonicClient.getStreamUrl('s1')).toMatch(/^http:\/\/new\.lan:8075\//)
         })
+
+        // The server step saving a different server for another key session: Rust
+        // drops the key for a server it was not stored for, so the host's key goes
+        // to null while the kind stays. The client must forget the old key and
+        // address with it. Left configured, with subsonicReady still true, the
+        // identity query stays enabled and the reset in serverSaved() asks the old
+        // server with the old key, which brings the server step back where the key
+        // card is due.
+        it('forgets the stale client when a different server is saved without a key', async () => {
+            apiKey.value = 'aether_k3y'
+            const unreachable = `error sending request for url (${SERVER}/rest/getUser.view)`
+            const fetchMock = vi.fn().mockRejectedValue(unreachable)
+            vi.stubGlobal('fetch', fetchMock)
+            const auth = withAuth()
+            await flushPromises()
+            expect(auth.needsServer.value).toBe(true)
+            expect(fetchMock).toHaveBeenCalledTimes(1)
+
+            // As setServerUrl(url, 'apiKey') leaves the host's refs for a different
+            // server. The watchers flush before the login view calls serverSaved().
+            apiKey.value = null
+            serverUrl.value = 'http://portal.lan'
+            await flushPromises()
+            auth.serverSaved()
+            await flushPromises()
+
+            expect(fetchMock).toHaveBeenCalledTimes(1)
+            expect(auth.needsServer.value).toBe(false)
+            expect(auth.needsApiKey.value).toBe(true)
+            expect(subsonicReady.value).toBe(false)
+            expect(subsonicClient.hasApiKey()).toBe(false)
+        })
+
+        // The same server saved again after an outage: Rust keeps the key for it,
+        // so the host's refs do not move and nothing resets the client. The retry
+        // is serverSaved() alone, asking getUser again with the key kept.
+        it('asks getUser again with the kept key when the same server is saved', async () => {
+            apiKey.value = 'aether_k3y'
+            const unreachable = `error sending request for url (${SERVER}/rest/getUser.view)`
+            const fetchMock = vi.fn().mockRejectedValue(unreachable)
+            vi.stubGlobal('fetch', fetchMock)
+            const auth = withAuth()
+            await flushPromises()
+            expect(auth.needsServer.value).toBe(true)
+            expect(fetchMock).toHaveBeenCalledTimes(1)
+
+            // The server is back.
+            fetchMock.mockResolvedValue({
+                ok: true,
+                json: () => Promise.resolve(userEnvelope('alice', false))
+            })
+            auth.serverSaved()
+            await flushPromises()
+
+            expect(fetchMock).toHaveBeenCalledTimes(2)
+            expect(auth.needsServer.value).toBe(false)
+            expect(auth.currentUser.value).toEqual({ login: 'alice', role: 'user' })
+            expect(apiKey.value).toBe('aether_k3y')
+        })
     })
 })
