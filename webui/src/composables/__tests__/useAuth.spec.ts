@@ -1151,6 +1151,34 @@ describe('useAuth', () => {
             expect(auth.needsApiKey.value).toBe(true)
         })
 
+        // The key is forgotten here first and on disk second, so a player that
+        // cannot delete the file leaves the user signed out all the same.
+        it('signs out locally even when the player cannot delete the key', async () => {
+            apiKey.value = 'aether_k3y'
+            restAnswers(userEnvelope('alice', false))
+            const auth = withAuth()
+            await flushPromises()
+            expect(subsonicClient.hasApiKey()).toBe(true)
+            // As the real clearApiKey: the ref goes first, whatever Rust answers.
+            host.clearApiKey.mockImplementation(() => {
+                apiKey.value = null
+                throw { code: 'Internal', message: 'could not delete the key: permission denied' }
+            })
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+            await auth.logout.mutateAsync()
+            await flushPromises()
+
+            expect(host.clearApiKey).toHaveBeenCalledTimes(1)
+            expect(apiKey.value).toBeNull()
+            expect(subsonicClient.hasApiKey()).toBe(false)
+            expect(subsonicReady.value).toBe(false)
+            expect(auth.needsApiKey.value).toBe(true)
+            // A short line: the error's own text could hold the key.
+            expect(warn).toHaveBeenCalledWith('Could not forget the API key')
+            warn.mockRestore()
+        })
+
         it('switches server without an /api/v0 logout, forgetting the key and the kind', async () => {
             apiKey.value = 'aether_k3y'
             restAnswers(userEnvelope('alice', false))
@@ -1382,6 +1410,8 @@ describe('useAuth', () => {
             expect(auth.needsServer.value).toBe(false)
             expect(auth.currentUser.value).toEqual({ login: 'alice', role: 'user' })
             expect(apiKey.value).toBe('aether_k3y')
+            expect(subsonicReady.value).toBe(true)
+            expect(subsonicClient.hasApiKey()).toBe(true)
         })
     })
 })

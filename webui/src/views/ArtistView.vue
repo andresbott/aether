@@ -81,7 +81,8 @@ const folderImagePath = computed(() =>
 // to hover to understand is worse than no button. A staged pick keeps it visible
 // so the choice stays cancellable.
 const canRemoveImage = computed(() => {
-    // Any staged change stays cancellable via Remove, whatever is persisted.
+    // A staged upload or pick stays cancellable via Remove, whatever is persisted
+    // (a staged generated cover does not).
     if (selectedFile.value || imagePick.value) return true
     const source = imageSource.value?.source
     return source === 'upload' || source === 'fetched'
@@ -182,7 +183,8 @@ const onRemoveCover = (): void => {
 }
 
 // Shared by both save paths: the persisted image changed, so bust the (unchanged)
-// cover URL and re-read where the image now comes from.
+// cover URL and, where the management API is there, re-read where the image now
+// comes from.
 function afterCoverSaved(): void {
     resetCoverStaging()
     // Bump the shared version, not a local ref: the browser's in-memory image

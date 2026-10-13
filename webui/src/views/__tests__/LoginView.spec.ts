@@ -536,7 +536,7 @@ describe('LoginView in the desktop app', () => {
             expect(w.find('button[type="submit"]').text()).toBe('Connect')
         })
 
-        // Review focus 1: a pasted key often brings whitespace along.
+        // A pasted key often brings whitespace along.
         it('enables Connect only once a key is typed, and trims what it sends', async () => {
             verifyApiKey.mockResolvedValue({ login: 'alice', role: 'user' })
             const w = mountView()
@@ -766,6 +766,26 @@ describe('LoginView in the desktop app', () => {
                 'could not save the settings: permission denied'
             )
             expect(serverSaved).not.toHaveBeenCalled()
+        })
+
+        // The switch is an IPC round trip. A click on Change inside it would
+        // interleave set_session_kind with the server switch, and a sign-in would
+        // post a cookie login into what becomes a key session.
+        it('locks Change and Sign in while the switch to an API key is in flight', async () => {
+            host.setSessionKind.mockReturnValue(new Promise<void>(() => {}))
+            const w = mountView()
+            await w.find('#login-username').setValue('alice')
+            await w.find('#login-password').setValue('secret')
+            const change = w.find('.login-server button')
+            const submit = w.find('button[type="submit"]')
+            expect(change.attributes('disabled')).toBeUndefined()
+            expect(submit.attributes('disabled')).toBeUndefined()
+
+            await w.find('[data-test="use-api-key"]').trigger('click')
+
+            expect(host.setSessionKind).toHaveBeenCalledWith('apiKey')
+            expect(change.attributes('disabled')).toBeDefined()
+            expect(submit.attributes('disabled')).toBeDefined()
         })
     })
 })

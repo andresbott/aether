@@ -56,7 +56,11 @@ const rememberMe = ref(false)
 const error = ref('')
 
 const canSubmit = computed(
-    () => username.value.trim().length > 0 && password.value.length > 0 && !login.isPending.value
+    () =>
+        username.value.trim().length > 0 &&
+        password.value.length > 0 &&
+        !login.isPending.value &&
+        !switchingMethod.value
 )
 
 async function onSubmit() {
@@ -384,7 +388,7 @@ async function onUsePassword() {
                     <button
                         type="button"
                         class="login-link"
-                        :disabled="login.isPending.value"
+                        :disabled="login.isPending.value || switchingMethod"
                         @click="switchServer()"
                     >
                         Change

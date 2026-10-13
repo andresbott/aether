@@ -14,11 +14,12 @@ import {
     resetSubsonicSession
 } from '@/lib/subsonicSession'
 
-// What the server answers a key it no longer accepts (error 44; a 40 means the
-// same for a key that was sent).
-const failed44 = {
-    'subsonic-response': { status: 'failed', error: { code: 44, message: 'Invalid API key' } }
-}
+// What the server answers a key it no longer accepts: error 44 — Aether answers
+// it for a revoked and an expired key alike — or a 40, which means the same for
+// a key that was sent.
+const refusedWith = (code: number) => ({
+    'subsonic-response': { status: 'failed', error: { code, message: 'Invalid API key' } }
+})
 
 // The real host, in browser mode: its sessionKind is set by hand here, as the
 // app's initHost would set it from the saved settings.
@@ -42,21 +43,26 @@ describe('the /rest credential in a key session', () => {
         expect(mintSpaToken).not.toHaveBeenCalled()
     })
 
-    it('fails the /rest call that met the refused key, without retrying it', async () => {
-        subsonicClient.setApiKey('aether_revoked')
-        const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(failed44) })
-        vi.stubGlobal('fetch', fetchMock)
+    it.each([40, 44])(
+        'fails the /rest call that met a key refused with error %i, without retrying it',
+        async (code) => {
+            subsonicClient.setApiKey('aether_revoked')
+            const fetchMock = vi
+                .fn()
+                .mockResolvedValue({ ok: true, json: () => Promise.resolve(refusedWith(code)) })
+            vi.stubGlobal('fetch', fetchMock)
 
-        await expect(subsonicClient.getUser()).rejects.toThrow('Invalid API key')
+            await expect(subsonicClient.getUser()).rejects.toThrow('Invalid API key')
 
-        expect(fetchMock).toHaveBeenCalledTimes(1)
-        expect(sessionExpired.value).toBe(true)
-        expect(mintSpaToken).not.toHaveBeenCalled()
-    })
+            expect(fetchMock).toHaveBeenCalledTimes(1)
+            expect(sessionExpired.value).toBe(true)
+            expect(mintSpaToken).not.toHaveBeenCalled()
+        }
+    )
 
-    // Review focus 5: a media element error carries no reason (the player calls
-    // remintApiKey on it), so in a key session it is no verdict on the key — the
-    // connectivity banner, not a sign-out on a network blip. No budget is spent.
+    // A media element error carries no reason (the player calls remintApiKey on
+    // it), so in a key session it is no verdict on the key — the connectivity
+    // banner, not a sign-out on a network blip. No budget is spent.
     it('gives a stream recovery no verdict: failed, nothing flagged, no budget spent', async () => {
         for (let i = 0; i < MAX_MINT_ATTEMPTS + 1; i++) {
             await expect(remintApiKey()).resolves.toBe('failed')

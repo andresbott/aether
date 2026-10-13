@@ -1,6 +1,7 @@
 // The SPA's /rest credential lifecycle. The apiKey lives in memory only —
-// never localStorage — and is re-minted transparently when it expires
-// (docs/agents/authentication.md). Lives outside vue-query so the subsonic
+// never localStorage — and in a cookie session is re-minted transparently when
+// it expires (docs/agents/authentication.md); a key session has nothing to mint,
+// its key being the one the user pasted. Lives outside vue-query so the subsonic
 // client and the player can reach it without an app instance.
 import { ref } from 'vue'
 import { subsonicClient } from '@/lib/api/subsonic'
@@ -123,9 +124,9 @@ export function remintApiKey(): Promise<MintResult> {
  * A /rest answer carried error 40 or 44 while a key was installed. In the cookie
  * flow the spa token has expired: mint again, and the caller retries with the
  * fresh key. In a key session there is nothing to mint — the key the user
- * pasted was refused, which only a revocation explains — so the session is
- * over: the flag opens the gate (useAuth forgets the key and purges), and the
- * caller fails its request.
+ * pasted was refused, revoked or expired (Aether answers 44 for an expired key
+ * as for a revoked one) — so the session is over: the flag opens the gate
+ * (useAuth forgets the key and purges), and the caller fails its request.
  */
 export function handleRestAuthFailure(): Promise<MintResult> {
     if (sessionKind.value === 'apiKey') {

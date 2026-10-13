@@ -1,8 +1,9 @@
-// The desktop app's server step: what answers at the address the user typed.
-// It runs before any server is configured, so it talks through the host
-// transport directly, never through apiClient — that client refuses to send
-// without a server, and its 401 handling would read the probe's answers as a
-// lost session.
+// The login view's transport-level checks: the server step's probe (what answers
+// at the address the user typed) and the key card's check (whether the saved
+// server accepts a pasted API key). Both are built on httpFetch rather than on
+// the clients: apiClient refuses to send without a server and its 401 handling
+// would read these answers as a lost session, and the subsonic client's 40/44
+// branch would read a wrong key as an expiry.
 import { httpFetch } from '@/lib/host'
 import { isMeResponse } from '@/lib/api/meShape'
 import type { MeResponse, MeUser } from '@/types/users'
@@ -12,8 +13,8 @@ import type { MeResponse, MeUser } from '@/types/users'
  * probe settled it, normalised and on https when the server redirected there —
  * the one to save. `aether`: its /me answered, so the app can connect (and sign
  * in, if the server asks). `portal`: Aether is there, but an auth portal in
- * front of it keeps /api/v0 closed to the app, which cannot sign in through a
- * portal yet.
+ * front of it keeps /api/v0 closed to the app, so only an API key signs the app
+ * in there.
  */
 export type ProbeResult =
     | { kind: 'aether'; url: string; me: MeResponse }

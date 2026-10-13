@@ -123,7 +123,10 @@ class SubsonicClient {
         throw new Error('Unknown error')
     }
 
-    /** True for the auth failures a fresh token can cure (40/44). */
+    /**
+     * True for the auth failures (40/44). In a cookie session a fresh token can
+     * cure them; in a key session the key is gone.
+     */
     private isAuthFailure(data: any): boolean {
         const code = data?.['subsonic-response']?.error?.code
         return data?.['subsonic-response']?.status === 'failed' && (code === 40 || code === 44)

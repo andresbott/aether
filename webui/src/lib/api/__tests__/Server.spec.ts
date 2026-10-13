@@ -517,9 +517,9 @@ describe('verifyApiKey', () => {
         expect((err as Error).message).toBe('internal error')
     })
 
-    // Review focus 4: a proxy that does not bypass /rest answers its login page
-    // or a redirect; an ok without a user is no Aether getUser; another server's
-    // envelope is not Aether. None of them is a key to store.
+    // A proxy that does not bypass /rest answers its login page or a redirect; an
+    // ok without a user is no Aether getUser; another server's envelope is not
+    // Aether. None of them is a key to store.
     it.each([
         ['a proxy redirect', () => portalRedirect()],
         ['a login page', () => html()],

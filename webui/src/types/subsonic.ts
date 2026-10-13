@@ -19,7 +19,8 @@ export interface SubsonicError {
 /**
  * getUser's record, the fields Aether varies: `username` is the caller's real
  * login (whatever `username` parameter was sent), `adminRole` follows the same
- * lookup that gates the admin-only /rest writes. The other roles are constants.
+ * lookup that gates the admin-only /rest writes, and `settingsRole` mirrors it.
+ * The other roles are constants.
  */
 export interface SubsonicUser {
     username: string

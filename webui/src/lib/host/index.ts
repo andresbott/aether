@@ -47,8 +47,9 @@ export async function initHost(): Promise<void> {
             apiKey.value = await invoke<string | null>('get_api_key')
         }
     } catch (err) {
-        // Safe to log whole: no credential is in either step's error (get_api_key
-        // answers the key, it never puts it in an error).
+        // Safe to log whole: no credential is in the error of any of the three
+        // calls above — the plugin import, get_settings and get_api_key, which
+        // answers the key but never puts it in an error.
         console.warn('Desktop host setup failed', err)
     }
 }
@@ -63,8 +64,10 @@ function withRequestSignal(input: RequestInfo | URL, init?: RequestInit): Reques
 }
 
 // The kind before the server: useMe is enabled by a server in a cookie session,
-// and must never see a key session's server as a cookie one, not even for the
-// tick between two assignments.
+// so on the way into a key session the new server is never read as a cookie one,
+// not even for the tick between the two assignments. Out of a key session the
+// order does not help: until the second assignment the old server reads as a
+// cookie session's.
 function adopt(settings: Settings): void {
     sessionKind.value = settings.sessionKind
     serverUrl.value = settings.serverUrl
@@ -132,9 +135,9 @@ export async function clearApiKey(): Promise<void> {
 }
 
 /** Hands the SPA's /rest key to the Rust client, which talks to the same server (cookie flow). */
-export async function setSession(apiKey: string): Promise<void> {
+export async function setSession(key: string): Promise<void> {
     if (!isDesktopApp()) return
-    await invoke('set_session', { apiKey })
+    await invoke('set_session', { apiKey: key })
 }
 
 /** Drops the Rust client's /rest key. */

@@ -246,7 +246,7 @@ describe('host in the desktop app', () => {
         expect(tauri.invoke).not.toHaveBeenCalledWith('get_api_key')
     })
 
-    // Review focus 3: the key card asks again; the window never stays blank.
+    // The key card asks again; the window never stays blank.
     it('keeps the kind and server, and resolves, when the stored key cannot be read', async () => {
         commands({
             get_settings: () => ({ serverUrl: SERVER, sessionKind: 'apiKey' }),

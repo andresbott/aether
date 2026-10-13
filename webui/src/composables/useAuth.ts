@@ -375,14 +375,18 @@ export function useAuth() {
     }
 
     /**
-     * Desktop app: the login view's server step saved a server. Its session
-     * starts afresh: whatever flagged the old one after the switch — a mint the
-     * switch overtook answers 401 by itself — belongs to the server left behind,
-     * and an expiry flag kept would stop a server without login from rendering.
-     * Saving a first server enables /me by itself; saving over one whose /me
-     * (or, in a key session, getUser) failed — even the same address — changes
-     * nothing those queries watch, so their error is reset and the server just
-     * saved is asked again.
+     * Desktop app: the login view saved a server — the server step — or switched
+     * how to sign in to it, with one of the two method links ("Use an API key
+     * instead", "Sign in with a password instead"). Its session starts afresh:
+     * whatever flagged the old one after the switch — a mint the switch overtook
+     * answers 401 by itself — belongs to the server left behind, and an expiry
+     * flag kept would stop a server without login from rendering. Saving a first
+     * server enables /me by itself; saving over one whose /me (or, in a key
+     * session, getUser) failed — even the same address — changes nothing those
+     * queries watch, so their error is reset and the server just saved is asked
+     * again. A key session saved for another server is not: Rust dropped the key
+     * with the old server, so the key card follows and nothing is asked until a
+     * key is stored.
      */
     function serverSaved(): void {
         lastServerUrl.value = null
@@ -429,7 +433,11 @@ export function useAuth() {
         logout: logoutMutation,
         /** Desktop app: sign out of the server and choose another. */
         switchServer,
-        /** Desktop app: the server step saved a server; its identity is asked. */
+        /**
+         * Desktop app: the server step, or a method link, saved a server or how to
+         * sign in to it; its identity is asked — in a key session without a key,
+         * the key card follows instead.
+         */
         serverSaved,
         /** Desktop app: the key card verified a key and is about to store it. */
         apiKeySaved
