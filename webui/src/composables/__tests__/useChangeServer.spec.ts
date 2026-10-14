@@ -16,6 +16,7 @@ vi.mock('@/lib/host', async () => {
     const { ref } = await import('vue')
     return {
         isDesktopApp: () => host.desktopApp,
+        serverHost: (await import('@/lib/host/serverUrl')).serverHost,
         serverUrl: ref<string | null>(null)
     }
 })
@@ -62,8 +63,14 @@ beforeEach(() => {
     document.body.innerHTML = ''
 })
 
+// What leaving costs, said as it is: the queue on this device goes, and the
+// sign-out reaches the server only when it answers. One that cannot be reached
+// keeps its session — a promise of "you will be signed out" would not hold.
+const QUESTION =
+    'Disconnect from nas.local:8075? The queue on this device is cleared, and you are signed out if the server can be reached.'
+
 describe('useChangeServer', () => {
-    it('asks before leaving, naming the server and warning about the sign-out', async () => {
+    it('asks before leaving, naming the server and what leaving costs', async () => {
         const confirmRequire = await ask(mountEntry())
 
         expect(confirmRequire).toHaveBeenCalledOnce()
@@ -71,7 +78,7 @@ describe('useChangeServer', () => {
             expect.objectContaining({
                 group: CHANGE_SERVER_GROUP,
                 header: 'Change server',
-                message: 'Disconnect from nas.local:8075? You will be signed out.',
+                message: QUESTION,
                 acceptLabel: 'Change server',
                 rejectLabel: 'Cancel'
             })
@@ -80,9 +87,7 @@ describe('useChangeServer', () => {
         // other confirmations (warning icon, danger accept button).
         const shown = dialog()!
         expect(shown.querySelector('.p-dialog-title')!.textContent).toBe('Change server')
-        expect(shown.querySelector('.p-confirmdialog-message')!.textContent).toBe(
-            'Disconnect from nas.local:8075? You will be signed out.'
-        )
+        expect(shown.querySelector('.p-confirmdialog-message')!.textContent).toBe(QUESTION)
         expect(shown.querySelector('.p-confirmdialog-icon')!.classList.contains('ms-warning')).toBe(
             true
         )
@@ -130,7 +135,7 @@ describe('useChangeServer', () => {
 
         expect(confirmRequire).toHaveBeenCalledWith(
             expect.objectContaining({
-                message: `Disconnect from ${shown}? You will be signed out.`
+                message: expect.stringMatching(new RegExp(`^Disconnect from ${shown}\\? `))
             })
         )
     })

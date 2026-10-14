@@ -8,7 +8,7 @@ import { apiKey, sessionKind, type SessionKind } from './session'
 import { installTransport } from './transport'
 
 export { onTrayCommand, type TrayCommand } from './events'
-export { serverUrl } from './serverUrl'
+export { serverHost, serverUrl } from './serverUrl'
 export { apiKey, sessionKind, type SessionKind } from './session'
 export { httpFetch } from './transport'
 

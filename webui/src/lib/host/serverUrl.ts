@@ -13,3 +13,16 @@ import { isTauri } from '@tauri-apps/api/core'
  * whenever it is configured, including in specs that never boot the host.
  */
 export const serverUrl: Ref<string | null> = ref(isTauri() ? null : window.location.origin)
+
+/**
+ * How the app names a server address to the user: `host[:port]`, the address
+ * minus its scheme and path. An address that does not parse — only a hand-edited
+ * settings file holds one — is shown as it is.
+ */
+export function serverHost(url: string): string {
+    try {
+        return new URL(url).host
+    } catch {
+        return url
+    }
+}

@@ -1,6 +1,6 @@
 import { useConfirm } from 'primevue/useconfirm'
 import { useAuth } from '@/composables/useAuth'
-import { isDesktopApp, serverUrl } from '@/lib/host'
+import { isDesktopApp, serverHost, serverUrl } from '@/lib/host'
 
 // The group the Change server question is addressed to, and that the one dialog
 // answering it (mounted by PlayerLayout) listens on. PrimeVue shows every
@@ -8,16 +8,6 @@ import { isDesktopApp, serverUrl } from '@/lib/host'
 // ungrouped dialogs of their own (PlaylistDetailView, RadioStationDetailView,
 // UserSettingsView), so an ungrouped question would appear in each of them.
 export const CHANGE_SERVER_GROUP = 'change-server'
-
-// `host[:port]` of the saved address: how the user knows the server, minus the scheme.
-function hostOf(url: string): string {
-    try {
-        return new URL(url).host
-    } catch {
-        // Only a hand-edited settings file gets here; show what it holds.
-        return url
-    }
-}
 
 /**
  * Change server, for the account menus: UserMenu in the desktop shell and
@@ -32,9 +22,12 @@ export function useChangeServer() {
 
     /**
      * Asks whether to leave the current server and, once accepted, switches to
-     * the login view's server step. Leaving signs the user out and empties the
-     * queue on this device, hence the question first. switchServer() never
-     * rejects, which is why accept has nothing to catch. Declining changes nothing.
+     * the login view's server step. Leaving empties the queue on this device and
+     * signs the user out, hence the question first — but the sign-out is a
+     * request to the server, so one that cannot be reached keeps the session
+     * (in its cookie jar too), and the question promises no more than that.
+     * switchServer() never rejects, which is why accept has nothing to catch.
+     * Declining changes nothing.
      */
     function confirmChangeServer(): void {
         const url = serverUrl.value
@@ -43,7 +36,7 @@ export function useChangeServer() {
         confirm.require({
             group: CHANGE_SERVER_GROUP,
             header: 'Change server',
-            message: `Disconnect from ${hostOf(url)}? You will be signed out.`,
+            message: `Disconnect from ${serverHost(url)}? The queue on this device is cleared, and you are signed out if the server can be reached.`,
             icon: 'ms-warning',
             acceptLabel: 'Change server',
             rejectLabel: 'Cancel',

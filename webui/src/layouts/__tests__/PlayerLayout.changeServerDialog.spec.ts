@@ -61,6 +61,7 @@ vi.mock('@/lib/host', async () => {
     const { ref } = await import('vue')
     return {
         isDesktopApp: () => host.desktopApp,
+        serverHost: (await import('@/lib/host/serverUrl')).serverHost,
         serverUrl: ref<string | null>('http://nas.local:8075')
     }
 })
@@ -112,8 +113,9 @@ describe('PlayerLayout Change server dialog in the desktop app', () => {
 
             await layout.find('.entry').trigger('click')
 
-            expect(dialog()!.querySelector('.p-confirmdialog-message')!.textContent).toBe(
-                'Disconnect from nas.local:8075? You will be signed out.'
+            // the wording is useChangeServer.spec's to pin
+            expect(dialog()!.querySelector('.p-confirmdialog-message')!.textContent).toMatch(
+                /^Disconnect from nas\.local:8075\? /
             )
             expect(switchServer).not.toHaveBeenCalled()
 

@@ -411,7 +411,8 @@ describe('MobileBrowseView Change server', () => {
                 expect.objectContaining({
                     group: CHANGE_SERVER_GROUP,
                     header: 'Change server',
-                    message: 'Disconnect from nas.local:8075? You will be signed out.',
+                    // the wording is useChangeServer.spec's to pin
+                    message: expect.stringMatching(/^Disconnect from nas\.local:8075\? /),
                     acceptLabel: 'Change server',
                     rejectLabel: 'Cancel'
                 })
