@@ -52,7 +52,7 @@ beforeEach(() => {
 afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
-    subsonicClient.clearApiKey()
+    subsonicClient.reset()
 })
 
 describe('subsonic client in the desktop app', () => {

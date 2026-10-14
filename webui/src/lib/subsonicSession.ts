@@ -16,24 +16,25 @@ export const subsonicReady = ref(false)
 export const spaTokenId = ref<string | null>(null)
 
 // Single-flight: a burst of 40s after wake must produce ONE mint, not one
-// per in-flight query. The generation is bumped by resetSubsonicSession so a
-// mint started before logout discards its outcome rather than re-installing a
-// live credential the server never knew to revoke — or flagging an expiry on a
-// session that is already over. The reset also lets go of the mint still out,
-// so the next session mints for itself instead of joining a discarded one.
+// per in-flight query. The session generation moves with resetSubsonicSession,
+// so a mint started before logout discards its outcome rather than
+// re-installing a live credential the server never knew to revoke — or flagging
+// an expiry on a session that is already over. The reset also lets go of the
+// mint still out, so the next session mints for itself instead of joining a
+// discarded one.
 let mintInFlight: Promise<'ok' | 'session-gone' | 'failed'> | null = null
-let mintGeneration = 0
 
 type MintResult = 'ok' | 'session-gone' | 'failed'
 
 /**
- * The current session's generation, bumped by every resetSubsonicSession.
- * Whoever awaits a mint compares it before and after: when it moved, a logout,
- * an expiry or a server switch ended the session the mint was for, and its
- * outcome speaks for that session only.
+ * The current session's generation, bumped by every resetSubsonicSession — the
+ * subsonic client's own count, which its requests check against too. Whoever
+ * awaits a mint compares it before and after: when it moved, a logout, an
+ * expiry or a server switch ended the session the mint was for, and its outcome
+ * speaks for that session only.
  */
 export function sessionGeneration(): number {
-    return mintGeneration
+    return subsonicClient.generation()
 }
 
 /**
@@ -76,12 +77,12 @@ export function remintApiKey(): Promise<MintResult> {
     // answer that names its code.
     if (sessionKind.value === 'apiKey') return Promise.resolve('failed')
     if (!mintInFlight) {
-        const generation = mintGeneration
+        const generation = sessionGeneration()
         const mint: Promise<MintResult> = mintSpaToken()
             .then((r) => {
                 // Discard the result if a logout happened mid-flight: the old
                 // tokenId was revoked and the server never learns of this new one.
-                if (generation !== mintGeneration) {
+                if (generation !== sessionGeneration()) {
                     return 'failed' as const
                 }
                 subsonicClient.setApiKey(r.token)
@@ -97,7 +98,7 @@ export function remintApiKey(): Promise<MintResult> {
                 // Discard a failure the same way: a 401 for a session already
                 // reset (a server switch overtook the mint) must not flag the
                 // one running now, nor any failure spend its retry budget.
-                if (generation !== mintGeneration) {
+                if (generation !== sessionGeneration()) {
                     return 'failed' as const
                 }
                 const status = (err as { response?: { status?: number } })?.response?.status
@@ -142,11 +143,12 @@ export function handleRestAuthFailure(): Promise<MintResult> {
  * server left behind until the next session configures the client again.
  */
 export function resetSubsonicSession(): void {
+    // Moves the session generation: whatever the old session still has out — a
+    // mint, a /rest request — answers for it alone.
     subsonicClient.reset()
     void withdrawFromDesktopApp()
     spaTokenId.value = null
     subsonicReady.value = false
-    mintGeneration++
     // A mint still out belongs to the session just ended; it settles on its own
     // and its outcome is discarded.
     mintInFlight = null

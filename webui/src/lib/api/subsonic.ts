@@ -29,7 +29,7 @@ import { httpFetch, isDesktopApp, serverUrl } from '@/lib/host'
 // transparent re-mint would otherwise leave those URLs pointing at the dead
 // token until the component happened to re-render for another reason. Reading
 // the key through a ref makes every such computed a dependency, so a
-// setApiKey/clearApiKey/reset invalidates them and the URLs are rebuilt.
+// setApiKey/reset invalidates them and the URLs are rebuilt.
 const apiKeyRef = ref<string | null>(null)
 
 class SubsonicClient {
@@ -39,8 +39,15 @@ class SubsonicClient {
     private set apiKey(key: string | null) {
         apiKeyRef.value = key
     }
-    private serverUrl: string = ''
+    // The server this session addresses: the host's serverUrl when the session
+    // was configured, kept apart from it so a session never follows a switch.
+    private baseUrl: string = ''
     private authSkipped: boolean = false
+    // Bumped by every reset(), which ends a session (logout, expiry, server
+    // switch). A request notes it when sent, so its answer can tell whether it
+    // still speaks for the session running; the mint does the same
+    // (lib/subsonicSession.ts reads it through generation()).
+    private sessionGeneration = 0
     private readonly clientName = 'aether-web'
     private readonly apiVersion = '1.16.1'
 
@@ -53,20 +60,16 @@ class SubsonicClient {
     initWithDefaults(): void {
         // The host's server is only null in the app before one is chosen, and
         // nothing configures the client then.
-        this.serverUrl = serverUrl.value ?? ''
+        this.baseUrl = serverUrl.value ?? ''
         this.authSkipped = true
         this.apiKey = null
     }
 
     /** Native mode: authenticate every /rest call with the minted PAT. */
     setApiKey(key: string): void {
-        this.serverUrl = serverUrl.value ?? ''
+        this.baseUrl = serverUrl.value ?? ''
         this.apiKey = key
         this.authSkipped = false
-    }
-
-    clearApiKey(): void {
-        this.apiKey = null
     }
 
     /**
@@ -78,7 +81,13 @@ class SubsonicClient {
     reset(): void {
         this.apiKey = null
         this.authSkipped = false
-        this.serverUrl = ''
+        this.baseUrl = ''
+        this.sessionGeneration++
+    }
+
+    /** Which session the client serves: a count bumped by every reset(). */
+    generation(): number {
+        return this.sessionGeneration
     }
 
     hasApiKey(): boolean {
@@ -97,7 +106,7 @@ class SubsonicClient {
             throw new Error('Client not configured')
         }
 
-        const url = new URL(`${this.serverUrl}/rest/${endpoint}`)
+        const url = new URL(`${this.baseUrl}/rest/${endpoint}`)
 
         if (this.apiKey) {
             url.searchParams.append('apiKey', this.apiKey)
@@ -142,12 +151,17 @@ class SubsonicClient {
     }
 
     private async fetchJson(url: string, init?: RequestInit): Promise<any> {
+        const generation = this.sessionGeneration
         const response = await httpFetch(url, init)
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`)
         }
         const data = await response.json()
-        if (this.apiKey && this.isAuthFailure(data)) {
+        // An answer that a session reset overtook speaks for a session that is
+        // over. It fails its own request and nothing more: no verdict on the
+        // session running now, no mint for it, and no retry — which would rebuild
+        // the old request's URL, perhaps another server's, with the new key.
+        if (this.apiKey && this.isAuthFailure(data) && generation === this.sessionGeneration) {
             // The credential was refused. In the cookie flow the token expired
             // mid-session: re-mint once (single-flight) and retry once with the
             // fresh key. In a key session the key is dead: the hook flags the

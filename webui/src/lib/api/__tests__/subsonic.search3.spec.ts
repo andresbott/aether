@@ -27,7 +27,7 @@ describe('subsonic client search3', () => {
     })
     afterEach(() => {
         vi.unstubAllGlobals()
-        subsonicClient.clearApiKey()
+        subsonicClient.reset()
     })
 
     it('sends query, songCount, and songOffset params', async () => {
@@ -62,7 +62,7 @@ describe('subsonic client search3', () => {
     })
 
     it('returns an empty object when not configured', async () => {
-        subsonicClient.clearApiKey()
+        subsonicClient.reset()
         const result = await subsonicClient.search3('', 50, 0)
         expect(result).toEqual({})
         expect(fetch).not.toHaveBeenCalled()

@@ -60,6 +60,28 @@ describe('the /rest credential in a key session', () => {
         }
     )
 
+    // A refusal of a key that is no longer the session's — the key replaced after
+    // an earlier refusal, or a server left behind — says nothing about the key in
+    // use now. Taken for one, it would end that session and forget the new key.
+    it('lets a refusal that a session reset overtook end nothing', async () => {
+        subsonicClient.setApiKey('aether_revoked')
+        let answer!: (response: unknown) => void
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+        )
+
+        const request = subsonicClient.getUser()
+        // The old key's session ended, and the user pasted a new key…
+        resetSubsonicSession()
+        subsonicClient.setApiKey('aether_new')
+        // …before the old key's refusal arrived.
+        answer({ ok: true, json: () => Promise.resolve(refusedWith(44)) })
+
+        await expect(request).rejects.toThrow('Invalid API key')
+        expect(sessionExpired.value).toBe(false)
+    })
+
     // A media element error carries no reason (the player calls remintApiKey on
     // it), so in a key session it is no verdict on the key — the connectivity
     // banner, not a sign-out on a network blip. No budget is spent.
