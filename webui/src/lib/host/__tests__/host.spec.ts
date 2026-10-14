@@ -176,6 +176,54 @@ describe('host in the desktop app', () => {
         expect(init.signal).toBe(request.signal)
     })
 
+    // A caller that passes its own signal (the probe's timeout) keeps it: the
+    // Request's own must not replace the one that bounds the call.
+    it("keeps the caller's own signal over the one a Request carries", async () => {
+        commands({ get_settings: () => ({ serverUrl: SERVER, sessionKind: 'cookie' }) })
+        const host = await loadHost('app')
+        await host.initHost()
+        tauri.pluginFetch.mockResolvedValue(new Response('{}'))
+        const request = new Request(`${SERVER}/api/v0/me`)
+        const callerSignal = new AbortController().signal
+
+        await host.httpFetch(request, { signal: callerSignal })
+
+        const [, init] = tauri.pluginFetch.mock.calls[0] as [Request, RequestInit]
+        expect(init.signal).toBe(callerSignal)
+    })
+
+    // Without the plugin nothing can reach the server: the webview's own fetch is
+    // blocked by the window's CSP and fails without a reason. Requests must fail
+    // with one instead of trying it.
+    describe('when the HTTP plugin cannot load', () => {
+        // The mock registry outlives vi.resetModules(), so the file's own plugin
+        // mock would be served from cache: this one replaces it, then gives it back.
+        beforeEach(() => {
+            vi.doMock('@tauri-apps/plugin-http', () => {
+                throw new Error('Failed to fetch dynamically imported module')
+            })
+        })
+        afterEach(() => {
+            vi.doMock('@tauri-apps/plugin-http', () => {
+                tauri.pluginLoaded()
+                return { fetch: tauri.pluginFetch }
+            })
+        })
+
+        it('fails every request with a reason, never through the page fetch', async () => {
+            commands({ get_settings: () => ({ serverUrl: SERVER, sessionKind: 'cookie' }) })
+            vi.spyOn(console, 'warn').mockImplementation(() => {})
+            const pageFetch = vi.fn().mockResolvedValue(new Response('{}'))
+            vi.stubGlobal('fetch', pageFetch)
+            const host = await loadHost('app')
+
+            await expect(host.initHost()).resolves.toBeUndefined()
+
+            await expect(host.httpFetch(`${SERVER}/api/v0/me`)).rejects.toThrow(/HTTP transport/)
+            expect(pageFetch).not.toHaveBeenCalled()
+        })
+    })
+
     it('setServerUrl adopts the URL as Rust normalised it', async () => {
         commands({
             get_settings: () => ({ serverUrl: null, sessionKind: 'cookie' }),

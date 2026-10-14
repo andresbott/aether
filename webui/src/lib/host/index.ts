@@ -20,6 +20,8 @@ interface Settings {
 
 let desktopApp: boolean | undefined
 
+const TRANSPORT_UNAVAILABLE = "The desktop app's HTTP transport did not load"
+
 /** True inside the desktop player's window, false in a browser tab. */
 export function isDesktopApp(): boolean {
     if (desktopApp === undefined) desktopApp = isTauri()
@@ -37,6 +39,10 @@ export async function initHost(): Promise<void> {
         serverUrl.value = window.location.origin
         return
     }
+    // Until the plugin has loaded — and for good if it cannot — every request
+    // fails with a reason. The webview's own fetch would fail too, blocked by the
+    // window's CSP, but without saying why.
+    installTransport(() => Promise.reject(new Error(TRANSPORT_UNAVAILABLE)))
     try {
         // Imported here, not at the top, so the browser never evaluates the plugin.
         const { fetch: pluginFetch } = await import('@tauri-apps/plugin-http')
