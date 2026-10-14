@@ -24,9 +24,10 @@ import { fileURLToPath } from 'node:url'
 // skipping lines that look like comments would not be enough. One left-to-right
 // pass over strings and comments together: a `//` inside 'http://…' is no
 // comment, a quote inside a comment opens no string. Strings are kept, so a
-// read inside a `${…}` is still seen.
+// read inside a `${…}` is still seen. A `//` right after a backslash is no
+// comment either: it is a regex literal's escaped slash and its closing one.
 const COMMENT_OR_STRING =
-    /('(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\[\s\S]|[^`\\])*`)|\/\*[\s\S]*?\*\/|<!--[\s\S]*?-->|\/\/[^\n]*/g
+    /('(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\[\s\S]|[^`\\])*`)|\/\*[\s\S]*?\*\/|<!--[\s\S]*?-->|(?<!\\)\/\/[^\n]*/g
 
 const stripComments = (text: string): string =>
     text.replace(COMMENT_OR_STRING, (_, quoted?: string) => quoted ?? ' ')
@@ -85,7 +86,13 @@ describe('the page-origin matcher', () => {
             "const base = dev ? 'http://dev:8075' : window.location.origin"
         ],
         ['a read inside a template literal', 'fetch(`${window.location.origin}/rest/ping`)'],
-        ['a read before a trailing comment', 'const origin = window.location.origin // the tab']
+        ['a read before a trailing comment', 'const origin = window.location.origin // the tab'],
+        // The escaped slash and the literal's closing one read as `//`: taken for
+        // a comment, it would hide the rest of the line.
+        [
+            'a read after a regex literal ending in an escaped slash',
+            'const scheme = /^https?:\\/\\//; const here = window.location.origin'
+        ]
     ])('sees %s', (_, code) => {
         expect(readsPageOrigin(code)).toBe(true)
     })
@@ -151,5 +158,11 @@ describe('the scan', () => {
         const host = sourceFiles.filter(inHostLayer).map(read)
         expect(host.some(readsPageOrigin)).toBe(true)
         expect(host.some(importsTauri)).toBe(true)
+    })
+
+    // The host layer is all .ts: a walk that never reached a component would
+    // still pass the check above.
+    it('reaches the components too', () => {
+        expect(sourceFiles.some((rel) => rel.endsWith('.vue'))).toBe(true)
     })
 })
