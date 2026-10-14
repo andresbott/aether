@@ -4,9 +4,8 @@
 //! owner only on Unix. Whether the key is in use is the settings' `SessionKind`;
 //! this file exists only while a key is stored.
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::{fs, io};
-use tauri::{AppHandle, Manager};
 
 const CREDENTIALS_FILE: &str = "credentials.json";
 
@@ -16,32 +15,21 @@ struct Credentials {
     api_key: String,
 }
 
-fn credentials_path(app: &AppHandle) -> io::Result<PathBuf> {
-    app.path()
-        .app_config_dir()
-        .map(|dir| dir.join(CREDENTIALS_FILE))
-        .map_err(|e| io::Error::other(e.to_string()))
+/// The key stored in the config directory `dir`, if any. A missing, damaged or
+/// empty file reads as no key: the login view then asks for one, and the app
+/// starts either way.
+pub fn load_from(dir: &Path) -> Option<String> {
+    read_from(&dir.join(CREDENTIALS_FILE))
 }
 
-/// The stored key, if any. A missing, damaged or empty file reads as no key:
-/// the login view then asks for one, and the app starts either way.
-pub fn load(app: &AppHandle) -> Option<String> {
-    match credentials_path(app) {
-        Ok(path) => read_from(&path),
-        Err(e) => {
-            eprintln!("credentials: no config directory, no key: {e}");
-            None
-        }
-    }
+/// Stores the key in the config directory `dir`, creating it if needed.
+pub fn save_to(dir: &Path, api_key: &str) -> io::Result<()> {
+    write_to(&dir.join(CREDENTIALS_FILE), api_key)
 }
 
-pub fn save(app: &AppHandle, api_key: &str) -> io::Result<()> {
-    write_to(&credentials_path(app)?, api_key)
-}
-
-/// Deletes the stored key. A file that is already gone is not an error.
-pub fn clear(app: &AppHandle) -> io::Result<()> {
-    remove(&credentials_path(app)?)
+/// Deletes the key stored in `dir`. A file that is already gone is not an error.
+pub fn clear_in(dir: &Path) -> io::Result<()> {
+    remove(&dir.join(CREDENTIALS_FILE))
 }
 
 fn read_from(path: &Path) -> Option<String> {
@@ -125,6 +113,7 @@ fn remove(path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     /// A directory under the system temp dir that does not exist yet, unique
     /// to the calling test.

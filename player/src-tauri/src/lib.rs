@@ -1,14 +1,17 @@
 mod commands;
+mod cookie_jar;
 mod credentials;
 mod engine;
 mod error;
 mod events;
 mod protocol;
+mod session;
 mod settings;
 mod state;
 #[cfg(desktop)]
 mod tray;
 
+use session::Session;
 use state::AppState;
 use tauri::Manager;
 
@@ -26,9 +29,24 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .register_asynchronous_uri_scheme_protocol("aether", protocol::handle)
         .setup(|app| {
-            let handle = app.handle();
-            let state = AppState::new(settings::load(handle), credentials::load(handle))?;
+            // Without a config directory nothing loads and every save fails, but
+            // the app still starts: the login view asks for a server.
+            let config_dir = match app.path().app_config_dir() {
+                Ok(dir) => Some(dir),
+                Err(e) => {
+                    eprintln!("session: no config directory, nothing will be saved: {e}");
+                    None
+                }
+            };
+            let state = AppState::new(Session::load(config_dir))?;
             app.manage(state);
+            // The plugin's setup ran in build(): its cookie jar exists by now, and
+            // no response has saved the session cookie in it yet.
+            if let Ok(cache_dir) = app.path().app_cache_dir() {
+                if let Err(e) = cookie_jar::restrict_to_owner(&cache_dir) {
+                    eprintln!("cookie jar: cannot make it owner-only: {e}");
+                }
+            }
             events::spawn_state_emitter(app.handle().clone());
             #[cfg(desktop)]
             tray::setup(app.handle())?;

@@ -1,7 +1,5 @@
 use crate::error::AppError;
 use crate::state::AppState;
-use aether_core::error::CoreError;
-use aether_core::subsonic::SubsonicClient;
 use serde::Serialize;
 use tauri::State;
 
@@ -17,35 +15,26 @@ pub enum ConnectionStatus {
     },
 }
 
-/// Authenticates the Rust-side client against the configured server with the
-/// API key the SPA minted after signing in. Fails with `NotConnected` when no
-/// server has been picked yet.
+/// Connects the Rust-side client to the saved server with the spa token the SPA
+/// minted after signing in. The token is not checked — no round trip — and
+/// `NotConnected` answers when no server has been picked yet.
 #[tauri::command]
 pub fn set_session(state: State<'_, AppState>, api_key: String) -> Result<(), AppError> {
-    // The settings stay read-locked until the client is stored, so a server
-    // change cannot slip in between and leave a session for the old server.
-    let settings = state.settings.read().unwrap();
-    let server_url = settings
-        .server_url
-        .as_deref()
-        .ok_or(CoreError::NotConnected)?;
-    let client = SubsonicClient::with_api_key(server_url, &api_key)?;
-    *state.connection.write().unwrap() = Some(client);
-    Ok(())
+    state.session.set_session(&api_key)
 }
 
 #[tauri::command]
 pub fn clear_session(state: State<'_, AppState>) {
-    *state.connection.write().unwrap() = None;
+    state.session.clear_session();
 }
 
 #[tauri::command]
 pub fn connection_status(state: State<'_, AppState>) -> ConnectionStatus {
-    match state.connection.read().unwrap().as_ref() {
-        Some(c) => ConnectionStatus::Connected {
+    match state.session.client() {
+        Ok(c) => ConnectionStatus::Connected {
             server_url: c.base_url_str(),
         },
-        None => ConnectionStatus::Disconnected,
+        Err(_) => ConnectionStatus::Disconnected,
     }
 }
 
