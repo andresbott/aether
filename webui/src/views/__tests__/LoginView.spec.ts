@@ -9,16 +9,21 @@ const mutateAsync = vi.fn()
 // The gate's desktop-app states; useAuth keeps both false in the browser.
 const needsServer = ref(false)
 const needsApiKey = ref(false)
+// What the saved server's identity bootstrap failed with, when it did.
+const identityError = ref<unknown>(null)
 const switchServer = vi.fn()
 const serverSaved = vi.fn()
+const connectTo = vi.fn()
 const apiKeySaved = vi.fn()
 vi.mock('@/composables/useAuth', () => ({
     useAuth: () => ({
         login: { isPending, mutateAsync },
         needsServer,
         needsApiKey,
+        identityError,
         switchServer,
         serverSaved,
+        connectTo,
         apiKeySaved
     })
 }))
@@ -31,7 +36,6 @@ vi.mock('vue-router', () => ({
 // A browser tab unless a case says otherwise.
 const host = vi.hoisted(() => ({
     desktopApp: false,
-    setServerUrl: vi.fn<(url: string, kind: 'cookie' | 'apiKey') => Promise<string>>(),
     setSessionKind: vi.fn<(kind: 'cookie' | 'apiKey') => Promise<void>>(),
     setApiKey: vi.fn<(key: string) => Promise<void>>()
 }))
@@ -39,9 +43,8 @@ vi.mock('@/lib/host', async () => {
     const { ref } = await import('vue')
     return {
         isDesktopApp: () => host.desktopApp,
+        serverHost: (await import('@/lib/host/serverUrl')).serverHost,
         serverUrl: ref<string | null>(null),
-        sessionKind: ref<'cookie' | 'apiKey'>('cookie'),
-        setServerUrl: host.setServerUrl,
         setSessionKind: host.setSessionKind,
         setApiKey: host.setApiKey,
         httpFetch: vi.fn()
@@ -61,12 +64,14 @@ vi.mock('@/lib/api/Server', async (importOriginal) => ({
 }))
 
 import LoginView from '@/views/LoginView.vue'
-import { serverUrl, sessionKind } from '@/lib/host'
+import { serverUrl } from '@/lib/host'
+import { NotAetherMeError } from '@/lib/api/meShape'
 import {
     AetherAnswerError,
     ApiKeyRejectedError,
     InvalidServerAddressError,
     NotAetherServerError,
+    ServerErrorAnswerError,
     ServerUnreachableError
 } from '@/lib/api/Server'
 
@@ -78,11 +83,9 @@ const mountView = () =>
 
 beforeEach(() => {
     host.desktopApp = false
-    host.setServerUrl.mockReset()
     host.setSessionKind.mockReset()
     host.setApiKey.mockReset()
     serverUrl.value = null
-    sessionKind.value = 'cookie'
     lastServerUrl.value = null
     // The expiry flags and the router are shared by every case below, the
     // desktop app's included: left as the last case set them, they would hide a
@@ -92,8 +95,10 @@ beforeEach(() => {
     routerReplace.mockReset()
     needsServer.value = false
     needsApiKey.value = false
+    identityError.value = null
     switchServer.mockReset()
     serverSaved.mockReset()
+    connectTo.mockReset()
     apiKeySaved.mockReset()
     probeServer.mockReset()
     verifyApiKey.mockReset()
@@ -256,47 +261,34 @@ describe('LoginView in the desktop app', () => {
             expect(connectButton.attributes('disabled')).toBeUndefined()
         })
 
-        // Saving the server is the whole job: the gate then asks its /me and
-        // goes on to the app or to this card's credentials by itself.
-        it('saves the address the probe settled on, then hands over to the gate', async () => {
-            const order: string[] = []
-            probeServer.mockResolvedValue({
-                kind: 'aether',
-                url: SERVER,
-                me: { authMethod: 'native' }
-            })
-            host.setServerUrl.mockImplementation(async (url, kind) => {
-                order.push(`saved ${url} as ${kind}`)
-                return url
-            })
-            serverSaved.mockImplementation(() => order.push('gate told'))
+        // Saving what the probe found is the gate's job (useAuth's connectTo,
+        // which also decides how to sign in to it): the view hands the answer over
+        // as it came — a portal too, with nothing to report — and the gate goes on
+        // to the app, the sign-in card or the key card by itself.
+        it.each([
+            ['an Aether server', { kind: 'aether', url: SERVER, me: { authMethod: 'native' } }],
+            ['a portal', { kind: 'portal', url: 'https://aether.example.org' }]
+        ])('hands %s to the gate as the probe found it', async (_case, answer) => {
+            probeServer.mockResolvedValue(answer)
+            connectTo.mockResolvedValue(undefined)
             const w = mountView()
 
             await connect(w, '  aether.local:8075/ ')
 
             expect(probeServer).toHaveBeenCalledWith('  aether.local:8075/ ')
-            expect(order).toEqual([`saved ${SERVER} as cookie`, 'gate told'])
+            expect(connectTo).toHaveBeenCalledWith(answer)
+            expect(w.find('.login-notice').exists()).toBe(false)
             expect(w.find('.login-error').exists()).toBe(false)
-        })
-
-        // A server that redirected http to https is saved on https.
-        it('saves the https address the probe moved to', async () => {
-            probeServer.mockResolvedValue({
-                kind: 'aether',
-                url: 'https://aether.example.org',
-                me: { authMethod: 'none' }
-            })
-            host.setServerUrl.mockImplementation(async (url) => url)
-            const w = mountView()
-
-            await connect(w, 'aether.example.org')
-
-            expect(host.setServerUrl).toHaveBeenCalledWith('https://aether.example.org', 'cookie')
         })
 
         it.each([
             ['an unreachable server', ServerUnreachableError, `Could not reach ${SERVER}.`],
-            ['no Aether there', NotAetherServerError, `No Aether server answered at ${SERVER}.`]
+            ['no Aether there', NotAetherServerError, `No Aether server answered at ${SERVER}.`],
+            [
+                'a server answering with an error',
+                ServerErrorAnswerError,
+                `The server at ${SERVER} answered with an error.`
+            ]
         ])('reports %s', async (_case, ErrorClass, message) => {
             probeServer.mockRejectedValue(new ErrorClass(SERVER))
             const w = mountView()
@@ -304,8 +296,7 @@ describe('LoginView in the desktop app', () => {
             await connect(w, 'aether.local:8075/')
 
             expect(w.find('.login-error[role="alert"]').text()).toBe(message)
-            expect(host.setServerUrl).not.toHaveBeenCalled()
-            expect(serverSaved).not.toHaveBeenCalled()
+            expect(connectTo).not.toHaveBeenCalled()
         })
 
         it("shows the player's own reason when it refuses to save the address", async () => {
@@ -314,7 +305,7 @@ describe('LoginView in the desktop app', () => {
                 url: SERVER,
                 me: { authMethod: 'none' }
             })
-            host.setServerUrl.mockRejectedValue({
+            connectTo.mockRejectedValue({
                 code: 'Internal',
                 message: 'could not save the settings: permission denied'
             })
@@ -325,7 +316,6 @@ describe('LoginView in the desktop app', () => {
             expect(w.find('.login-error').text()).toBe(
                 'could not save the settings: permission denied'
             )
-            expect(serverSaved).not.toHaveBeenCalled()
         })
 
         // The plugin's rejection is a bare string naming the request URL.
@@ -352,22 +342,7 @@ describe('LoginView in the desktop app', () => {
 
             const error = w.find('.login-error').text()
             expect(error).toBe('Enter the server address without a username or password.')
-            expect(host.setServerUrl).not.toHaveBeenCalled()
-        })
-
-        // Aether behind an auth portal: only an API key gets in, so the server is
-        // saved as a key session and the gate shows the key card.
-        it('saves a portal server as a key session', async () => {
-            probeServer.mockResolvedValue({ kind: 'portal', url: 'http://aether.example.org' })
-            host.setServerUrl.mockImplementation(async (url) => url)
-            const w = mountView()
-
-            await connect(w, 'aether.example.org')
-
-            expect(host.setServerUrl).toHaveBeenCalledWith('http://aether.example.org', 'apiKey')
-            expect(serverSaved).toHaveBeenCalledTimes(1)
-            expect(w.find('.login-notice').exists()).toBe(false)
-            expect(w.find('.login-error').exists()).toBe(false)
+            expect(connectTo).not.toHaveBeenCalled()
         })
 
         it('locks the field and shows progress while connecting', async () => {
@@ -402,62 +377,51 @@ describe('LoginView in the desktop app', () => {
         })
 
         it('opens on the saved address, saying it could not be reached', () => {
+            identityError.value = 'error sending request for url (http://aether.local:8075/api/v0/me)'
+
             const w = mountView()
 
             expect((w.find('#login-server').element as HTMLInputElement).value).toBe(SERVER)
             expect(w.find('.login-error[role="alert"]').text()).toBe(`Could not reach ${SERVER}.`)
         })
 
-        // Saving the same address changes nothing /me watches; the gate is told,
-        // and asks /me again (useAuth.spec, App.serverGate.spec).
-        it('connects to the same address again and has the gate ask /me', async () => {
-            probeServer.mockResolvedValue({
-                kind: 'aether',
-                url: SERVER,
-                me: { authMethod: 'none' }
-            })
-            host.setServerUrl.mockImplementation(async (url) => url)
+        // It did answer: "Could not reach" would send the user to check a
+        // network that works.
+        it('says the saved server answered with an error', () => {
+            identityError.value = { message: 'Request failed', response: { status: 503 } }
+
+            const w = mountView()
+
+            expect(w.find('.login-error[role="alert"]').text()).toBe(
+                `The server at ${SERVER} answered with an error.`
+            )
+        })
+
+        // Another web app on that port, a captive portal's page: something
+        // answered, and it is not Aether.
+        it('says something other than Aether answers at the saved address', () => {
+            identityError.value = new NotAetherMeError()
+
+            const w = mountView()
+
+            expect(w.find('.login-error[role="alert"]').text()).toBe(
+                `No Aether server answered at ${SERVER}.`
+            )
+        })
+
+        // Connect with the saved address as it stands: the gate decides what saving
+        // it again keeps (useAuth.spec), and asks the server again.
+        it('hands the saved address, probed again, to the gate', async () => {
+            const answer = { kind: 'aether', url: SERVER, me: meNative }
+            probeServer.mockResolvedValue(answer)
+            connectTo.mockResolvedValue(undefined)
             const w = mountView()
 
             await w.find('form').trigger('submit')
             await flushPromises()
 
-            expect(host.setServerUrl).toHaveBeenCalledWith(SERVER, 'cookie')
-            expect(serverSaved).toHaveBeenCalledTimes(1)
-        })
-
-        // A key session on a server whose /me answers as Aether (a native server
-        // the user chose a key for, a proxy letting an anonymous /me through): the
-        // same server saved again for a key session keeps its stored key, saved as
-        // a cookie session it would lose it.
-        it('connects to the saved server again as a key session', async () => {
-            sessionKind.value = 'apiKey'
-            probeServer.mockResolvedValue({ kind: 'aether', url: SERVER, me: meNative })
-            host.setServerUrl.mockImplementation(async (url) => url)
-            const w = mountView()
-
-            await w.find('form').trigger('submit')
-            await flushPromises()
-
-            expect(host.setServerUrl).toHaveBeenCalledWith(SERVER, 'apiKey')
-            expect(serverSaved).toHaveBeenCalledTimes(1)
-        })
-
-        // Another server is not the one the key was stored for.
-        it('saves a different address as a cookie session, key session or not', async () => {
-            sessionKind.value = 'apiKey'
-            probeServer.mockResolvedValue({
-                kind: 'aether',
-                url: 'http://other.lan:8075',
-                me: meNative
-            })
-            host.setServerUrl.mockImplementation(async (url) => url)
-            const w = mountView()
-
-            await connect(w, 'other.lan:8075')
-
-            expect(host.setServerUrl).toHaveBeenCalledWith('http://other.lan:8075', 'cookie')
-            expect(serverSaved).toHaveBeenCalledTimes(1)
+            expect(probeServer).toHaveBeenCalledWith(SERVER)
+            expect(connectTo).toHaveBeenCalledWith(answer)
         })
 
         it('keeps what the user typed when another address fails too', async () => {
@@ -488,6 +452,30 @@ describe('LoginView in the desktop app', () => {
 
             await line.find('button').trigger('click')
             expect(switchServer).toHaveBeenCalledTimes(1)
+        })
+
+        // Read out of context, "Change" says nothing of what it changes.
+        it('names the Change link for what it changes', () => {
+            const w = mountView()
+
+            expect(w.find('.login-server button').attributes('aria-label')).toBe('Change server')
+        })
+
+        // Change swaps the sign-in card for the step: a keyboard user should land
+        // in the address field, not on the page behind it.
+        it('puts the focus in the address field once Change has opened the step', async () => {
+            switchServer.mockImplementation(async () => {
+                lastServerUrl.value = serverUrl.value
+                serverUrl.value = null
+                needsServer.value = true
+            })
+            const w = mountView()
+
+            await w.find('.login-server button').trigger('click')
+            await flushPromises()
+
+            expect(document.activeElement).toBe(w.find('#login-server').element)
+            w.unmount()
         })
 
         // switchServer remembers the server it left (useAuth.spec); the step
@@ -653,6 +641,7 @@ describe('LoginView in the desktop app', () => {
             await w.find('.login-server button').trigger('click')
 
             expect(switchServer).toHaveBeenCalledTimes(1)
+            expect(w.find('.login-server button').attributes('aria-label')).toBe('Change server')
         })
 
         // A key typed for the server left must not be sent to the next one: its

@@ -18,6 +18,12 @@ vi.mock('@/lib/api/Server', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/lib/api/Server')>()),
     probeServer
 }))
+// The mocked Server module outlives vi.resetModules, and with it the meShape it
+// loaded first: the error class it checks /me failures against. Pinned the same
+// way, meShape stays that one module for the whole file, so a real getMe loaded
+// after a reset throws the class the server step recognises — as in the app,
+// where every module exists once.
+vi.mock('@/lib/api/meShape', async (importOriginal) => importOriginal())
 vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ clearQueue: vi.fn() }) }))
 vi.mock('@/composables/useQueueSync', () => ({
     useQueueSync: () => ({ stop: vi.fn(), start: vi.fn(), restore: vi.fn() })
@@ -33,6 +39,7 @@ vi.mock('@/lib/host', async () => {
     const apiKey = ref<string | null>(null)
     return {
         isDesktopApp: () => host.desktopApp,
+        serverHost: (await import('@/lib/host/serverUrl')).serverHost,
         // The tray bridge App wires in the app; what it does is its own spec's.
         onTrayCommand: host.onTrayCommand,
         serverUrl,
@@ -290,5 +297,9 @@ describe('App gate in the desktop app', () => {
         expect(get).toHaveBeenCalledWith('/me', expect.anything())
         expect((w.find('#login-server').element as HTMLInputElement).value).toBe(SERVER)
         expect(w.find('.player-layout').exists()).toBe(false)
+        // Something answered: the step says what, not that nothing did.
+        expect(w.find('.login-error[role="alert"]').text()).toBe(
+            `No Aether server answered at ${SERVER}.`
+        )
     })
 })

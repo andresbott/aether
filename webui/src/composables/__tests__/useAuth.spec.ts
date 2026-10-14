@@ -25,12 +25,14 @@ vi.mock('@/composables/useQueueSync', () => ({
 
 // Where the SPA runs: a browser tab on the server's origin unless a case moves
 // it into the desktop app. The IPC wrappers are stood in with what they do to
-// the host's refs — clearServerUrl forgets the server, the key and the kind,
-// clearApiKey forgets the key, setApiKey installs one; the session hand-off has
-// its own spec, but clearSession — what resetSubsonicSession tells the Rust
-// client — is counted.
+// the host's refs — setServerUrl saves the server and the kind, keeping the key
+// only for the same server saved again as a key session (Rust's rule),
+// clearServerUrl forgets the server, the key and the kind, clearApiKey forgets
+// the key, setApiKey installs one; the session hand-off has its own spec, but
+// clearSession — what resetSubsonicSession tells the Rust client — is counted.
 const host = vi.hoisted(() => ({
     desktopApp: false,
+    setServerUrl: vi.fn(),
     clearServerUrl: vi.fn(),
     clearApiKey: vi.fn(),
     clearSession: vi.fn(),
@@ -48,6 +50,13 @@ vi.mock('@/lib/host', async () => {
         sessionKind,
         apiKey,
         httpFetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
+        setServerUrl: async (url: string, kind: 'cookie' | 'apiKey') => {
+            host.setServerUrl(url, kind)
+            if (kind !== 'apiKey' || url !== serverUrl.value) apiKey.value = null
+            sessionKind.value = kind
+            serverUrl.value = url
+            return url
+        },
         clearServerUrl: async () => {
             host.clearServerUrl()
             apiKey.value = null
@@ -157,6 +166,7 @@ describe('useAuth', () => {
         apiKey.value = null
         ;({ lastServerUrl } = await import('@/lib/authState'))
         host.desktopApp = false
+        host.setServerUrl.mockReset()
         host.clearServerUrl.mockReset()
         host.clearApiKey.mockReset()
         host.clearSession.mockReset()
@@ -656,6 +666,19 @@ describe('useAuth', () => {
                 expect(auth.needsServer.value).toBe(false)
             })
 
+            // The server step says why (savedServerProblem, Server.spec), read off
+            // what /me rejected with.
+            it('hands the server step what /me failed with', async () => {
+                const failure = { message: 'Request failed', response: { status: 503 } }
+                getMe.mockReset()
+                getMe.mockRejectedValue(failure)
+                const auth = withAuth()
+                await flushPromises()
+
+                // (vue-query hands it back reactive: equal, not the same object)
+                expect(auth.identityError.value).toEqual(failure)
+            })
+
             // The same address saved again changes nothing /me watches.
             it('asks /me again once a server is saved, even the same one', async () => {
                 getMe.mockResolvedValue(meNone)
@@ -689,6 +712,108 @@ describe('useAuth', () => {
 
             expect(getMe).toHaveBeenCalledTimes(1)
             expect(subsonicReady.value).toBe(true)
+        })
+
+        // What the server step's Connect saves, and how to sign in to it.
+        describe('connectTo', () => {
+            const OTHER = 'http://other.lan:8075'
+
+            beforeEach(() => {
+                getMe.mockResolvedValue(meNone)
+            })
+
+            it('saves the address the probe settled on as a cookie session', async () => {
+                serverUrl.value = null
+                const auth = withAuth()
+                await flushPromises()
+
+                await auth.connectTo({ kind: 'aether', url: 'https://aether.example.org', me: meNone })
+
+                expect(host.setServerUrl).toHaveBeenCalledWith('https://aether.example.org', 'cookie')
+                expect(serverUrl.value).toBe('https://aether.example.org')
+            })
+
+            // Aether behind an auth portal: only an API key gets in, so the gate
+            // shows the key card.
+            it('saves a portal as a key session', async () => {
+                serverUrl.value = null
+                const auth = withAuth()
+                await flushPromises()
+
+                await auth.connectTo({ kind: 'portal', url: OTHER })
+
+                expect(host.setServerUrl).toHaveBeenCalledWith(OTHER, 'apiKey')
+                expect(auth.needsApiKey.value).toBe(true)
+            })
+
+            // Connect after an outage, on a server the user chose a key for: saved
+            // as a cookie session, Rust would delete the stored key.
+            it('saves the saved server of a key session again as a key session', async () => {
+                sessionKind.value = 'apiKey'
+                apiKey.value = 'aether_k3y'
+                const auth = withAuth()
+                await flushPromises()
+
+                await auth.connectTo({ kind: 'aether', url: SERVER, me: meAnonymous })
+
+                expect(host.setServerUrl).toHaveBeenCalledWith(SERVER, 'apiKey')
+                expect(apiKey.value).toBe('aether_k3y')
+            })
+
+            // Another server is not the one the key was stored for.
+            it('saves another server as a cookie session, key session or not', async () => {
+                sessionKind.value = 'apiKey'
+                apiKey.value = 'aether_k3y'
+                const auth = withAuth()
+                await flushPromises()
+
+                await auth.connectTo({ kind: 'aether', url: OTHER, me: meAnonymous })
+
+                expect(host.setServerUrl).toHaveBeenLastCalledWith(OTHER, 'cookie')
+                expect(apiKey.value).toBeNull()
+            })
+
+            // The saved server did not answer, and Connect saves it again: nothing
+            // is left behind, and the gate asks it again (the same address
+            // changes nothing /me watches).
+            it('keeps the saved server’s session when it is saved again', async () => {
+                getMe.mockRejectedValueOnce(new Error('Network Error'))
+                localStorage.setItem('musicPlayer:queue', '[{"id":"t1"}]')
+                const auth = withAuth()
+                await flushPromises()
+                expect(auth.needsServer.value).toBe(true)
+
+                await auth.connectTo({ kind: 'aether', url: SERVER, me: meNone })
+                await flushPromises()
+
+                expect(clearQueue).not.toHaveBeenCalled()
+                expect(localStorage.getItem('musicPlayer:queue')).toBe('[{"id":"t1"}]')
+                expect(getMe).toHaveBeenCalledTimes(2)
+                expect(auth.needsServer.value).toBe(false)
+            })
+
+            // The saved server is down at launch and the user moves to another one
+            // from the server step. As with Change server, nothing of the server
+            // left behind may carry over: its queue would play against the next
+            // server, and the queue sync would push its track ids there.
+            it('leaves the saved server behind before saving another', async () => {
+                getMe.mockRejectedValueOnce(new Error('Network Error'))
+                localStorage.setItem('musicPlayer:queue', '[{"id":"track-on-a"}]')
+                const auth = withAuth()
+                await flushPromises()
+                expect(auth.needsServer.value).toBe(true)
+
+                await auth.connectTo({ kind: 'aether', url: OTHER, me: meNone })
+                await flushPromises()
+
+                expect(clearQueue).toHaveBeenCalled()
+                expect(localStorage.getItem('musicPlayer:queue')).toBeNull()
+                // left first — the queue sync unbound — and only then the next saved
+                expect(stopSync.mock.invocationCallOrder[0]).toBeLessThan(
+                    host.setServerUrl.mock.invocationCallOrder[0]
+                )
+                expect(serverUrl.value).toBe(OTHER)
+            })
         })
 
         it('forgets the server switched away from once another is saved', async () => {
@@ -900,11 +1025,14 @@ describe('useAuth', () => {
             })
 
             // As the login view's Connect does once the probe has answered.
-            async function connectTo(url: string, me: MeResponse, auth: ReturnType<UseAuth>) {
+            // The server step's Connect, once the probe found Aether at `url`.
+            async function connectOnServerStep(
+                url: string,
+                me: MeResponse,
+                auth: ReturnType<UseAuth>
+            ) {
                 getMe.mockResolvedValue(me)
-                serverUrl.value = url
-                await nextTick()
-                auth.serverSaved()
+                await auth.connectTo({ kind: 'aether', url, me })
                 await flushPromises()
             }
 
@@ -939,7 +1067,7 @@ describe('useAuth', () => {
 
                     await auth.switchServer()
                     if (when === 'before') await late401()
-                    await connectTo('http://other.lan:8075', meNone, auth)
+                    await connectOnServerStep('http://other.lan:8075', meNone, auth)
                     if (when === 'after') await late401()
 
                     expect(sessionExpired.value).toBe(false)
@@ -970,7 +1098,7 @@ describe('useAuth', () => {
 
                     await auth.switchServer()
                     if (when === 'before') await lateRefusal()
-                    await connectTo('http://other.lan:8075', meNone, auth)
+                    await connectOnServerStep('http://other.lan:8075', meNone, auth)
                     if (when === 'after') await lateRefusal()
 
                     expect(sessionExpired.value).toBe(false)
@@ -989,7 +1117,7 @@ describe('useAuth', () => {
                 await auth.switchServer()
                 sessionExpired.value = true
                 await flushPromises()
-                await connectTo('http://other.lan:8075', meNone, auth)
+                await connectOnServerStep('http://other.lan:8075', meNone, auth)
 
                 expect(sessionExpired.value).toBe(false)
                 expect(subsonicReady.value).toBe(true)
@@ -1131,6 +1259,16 @@ describe('useAuth', () => {
             expect(auth.isLoading.value).toBe(false)
             expect(host.clearApiKey).not.toHaveBeenCalled()
             expect(apiKey.value).toBe('aether_k3y')
+        })
+
+        it('hands the server step what getUser failed with', async () => {
+            apiKey.value = 'aether_k3y'
+            const rejection = `error sending request for url (${SERVER}/rest/getUser.view)`
+            vi.stubGlobal('fetch', vi.fn().mockRejectedValue(rejection))
+            const auth = withAuth()
+            await flushPromises()
+
+            expect(auth.identityError.value).toBe(rejection)
         })
 
         it('logs out by forgetting the key, deliberately, with no /api/v0 call', async () => {

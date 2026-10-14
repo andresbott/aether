@@ -1,5 +1,5 @@
 import { apiClient } from '@/lib/api/client'
-import { isMeResponse } from '@/lib/api/meShape'
+import { isMeResponse, NotAetherMeError } from '@/lib/api/meShape'
 import type {
     MeResponse,
     User,
@@ -22,9 +22,7 @@ const ME_TIMEOUT_MS = 10_000
  */
 export async function getMe(): Promise<MeResponse> {
     const { data } = await apiClient.get<unknown>('/me', { timeout: ME_TIMEOUT_MS })
-    if (!isMeResponse(data)) {
-        throw new Error('The server did not answer /api/v0/me as an Aether server.')
-    }
+    if (!isMeResponse(data)) throw new NotAetherMeError()
     return data
 }
 

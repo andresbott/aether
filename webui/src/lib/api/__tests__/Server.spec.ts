@@ -12,11 +12,14 @@ import {
     ApiKeyRejectedError,
     InvalidServerAddressError,
     NotAetherServerError,
+    ServerErrorAnswerError,
     ServerUnreachableError,
     normalizeServerUrl,
     probeServer,
+    savedServerProblem,
     verifyApiKey
 } from '@/lib/api/Server'
+import { NotAetherMeError } from '@/lib/api/meShape'
 
 const SERVER = 'http://aether.local:8075'
 const PING = `${SERVER}/rest/ping?f=json&v=1.16.1&c=aether-player`
@@ -119,6 +122,17 @@ describe('probeServer', () => {
         answer(json({ error: 'unauthorized' }, 401), json(pingEnvelope))
 
         await expect(probeServer(SERVER)).resolves.toEqual({ kind: 'portal', url: SERVER })
+    })
+
+    // A server error is no portal's answer — a portal redirects anonymous callers
+    // or refuses them — and signing in needs /api/v0, healthy /rest or not.
+    // Saved as a portal, the server would ask for an API key it never needed.
+    it("reports the server's error when /me fails, even with a healthy ping", async () => {
+        answer(json({ title: 'Internal Server Error' }, 500), json(pingEnvelope))
+
+        const probe = probeServer(SERVER)
+        await expect(probe).rejects.toBeInstanceOf(ServerErrorAnswerError)
+        await expect(probe).rejects.toThrow(`The server at ${SERVER} answered with an error.`)
     })
 
     it('reports no Aether when /me is missing and the ping is no envelope', async () => {
@@ -405,6 +419,36 @@ describe('probeServer https upgrade', () => {
         answer(redirectTo(`${HTTPS}/api/v0/me`), transportFailure)
 
         await expect(probeServer(HTTP)).rejects.toThrow(`Could not reach ${HTTPS}.`)
+    })
+})
+
+// The server step, reopened because the saved server's identity bootstrap
+// failed, says why — from what that bootstrap rejected with, and never in that
+// error's own words (a transport rejection names the request URL, key included).
+describe('savedServerProblem', () => {
+    it.each([
+        ['no answer (axios)', { message: 'Network Error', code: 'ERR_NETWORK', request: {} }],
+        ['a bare transport rejection', `error sending request for url (${SERVER}/api/v0/me)`],
+        ['a timeout', { message: 'timeout of 10000ms exceeded', code: 'ECONNABORTED', request: {} }]
+    ])('reads %s as a server it could not reach', (_case, err) => {
+        expect(savedServerProblem(err, SERVER)).toBe(`Could not reach ${SERVER}.`)
+    })
+
+    it.each([
+        ['a server error', 503],
+        ['a refusal', 401]
+    ])('reads %s as a server that answered with an error', (_case, status) => {
+        const err = { message: 'Request failed', response: { status, data: {} }, request: {} }
+
+        expect(savedServerProblem(err, SERVER)).toBe(
+            `The server at ${SERVER} answered with an error.`
+        )
+    })
+
+    it('reads an answer that is not Aether’s /me as something else answering', () => {
+        expect(savedServerProblem(new NotAetherMeError(), SERVER)).toBe(
+            `No Aether server answered at ${SERVER}.`
+        )
     })
 })
 

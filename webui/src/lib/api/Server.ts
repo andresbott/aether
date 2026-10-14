@@ -5,7 +5,7 @@
 // would read these answers as a lost session, and the subsonic client's 40/44
 // branch would read a wrong key as an expiry.
 import { httpFetch } from '@/lib/host'
-import { isMeResponse } from '@/lib/api/meShape'
+import { isMeResponse, NotAetherMeError } from '@/lib/api/meShape'
 import type { MeResponse, MeUser } from '@/types/users'
 
 /**
@@ -43,6 +43,15 @@ export class NotAetherServerError extends Error {
     }
 }
 
+/** The server answered, with an error of its own (a 5xx): it is there, but not working. */
+export class ServerErrorAnswerError extends Error {
+    name = 'ServerErrorAnswerError'
+
+    constructor(url: string) {
+        super(`The server at ${url} answered with an error.`)
+    }
+}
+
 /** The server refused the key (Subsonic error 40 or 44): wrong here, or revoked. */
 export class ApiKeyRejectedError extends Error {
     name = 'ApiKeyRejectedError'
@@ -55,6 +64,21 @@ export class ApiKeyRejectedError extends Error {
 /** Aether answered an error of its own (any other code); its message is shown as written. */
 export class AetherAnswerError extends Error {
     name = 'AetherAnswerError'
+}
+
+/**
+ * Why the saved server at `url` did not let the app in, for the server step: read
+ * off what its identity bootstrap (/me, or getUser in a key session) rejected
+ * with. Something other than Aether answered; Aether, or a proxy in front of it,
+ * answered with an error status; or nothing answered at all. Only these
+ * sentences reach the screen, never the error's own text — a transport rejection
+ * names the request URL, apiKey included.
+ */
+export function savedServerProblem(err: unknown, url: string): string {
+    if (err instanceof NotAetherMeError) return new NotAetherServerError(url).message
+    const status = (err as { response?: { status?: unknown } } | null)?.response?.status
+    if (typeof status === 'number') return new ServerErrorAnswerError(url).message
+    return new ServerUnreachableError(url).message
 }
 
 const INVALID_ADDRESS = 'Enter a server address such as http://aether.local:8075.'
@@ -118,6 +142,9 @@ async function probeAt(url: string): Promise<ProbeResult> {
     // one upgrade at most.
     const secure = httpsUpgrade(url, me)
     if (secure !== null) return probeAt(secure)
+    // A server error is no portal's answer — a portal redirects or refuses an
+    // anonymous call — and signing in needs /api/v0, whatever /rest says.
+    if (me.status >= 500) throw new ServerErrorAnswerError(url)
     const ping = await probe(url, `${url}${PING}`)
     if (isAetherEnvelope(ping.body)) return { kind: 'portal', url }
     throw new NotAetherServerError(url)

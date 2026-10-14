@@ -12,8 +12,10 @@ import {
     clearServerUrl,
     isDesktopApp,
     serverUrl,
-    sessionKind
+    sessionKind,
+    setServerUrl
 } from '@/lib/host'
+import type { ProbeResult } from '@/lib/api/Server'
 import {
     subsonicReady,
     spaTokenId,
@@ -396,6 +398,34 @@ export function useAuth() {
     }
 
     /**
+     * Desktop app: the server step's Connect found a server at the address typed
+     * (`answer`, from the probe), which is saved here, with how to sign in to it.
+     * A portal keeps /api/v0 closed to the app, so only an API key gets in: it is
+     * saved as a key session, and the gate shows the key card. So is the saved
+     * server of a key session saved again (Connect after an outage): Rust keeps a
+     * stored key only for the same server saved again as a key session, and a
+     * cookie save would delete it. After Change the kind is already back to
+     * cookie, so a new server never inherits a key session. Anything else is a
+     * cookie session: /me asks the server, then the gate shows the app for auth
+     * "none", the sign-in card for "native". Rejects when the player refuses the
+     * address, with the IPC error.
+     *
+     * A server other than the saved one — the step is up because the saved one
+     * did not answer, and the user moves on — is left first, exactly as Change
+     * server leaves it (switchServer): its queue and local data must not carry
+     * over to the next server, reachable or not. The same server saved again
+     * keeps everything.
+     */
+    async function connectTo(answer: ProbeResult): Promise<void> {
+        const saved = serverUrl.value
+        const keySession =
+            answer.kind === 'portal' || (sessionKind.value === 'apiKey' && answer.url === saved)
+        if (saved !== null && answer.url !== saved) await switchServer()
+        await setServerUrl(answer.url, keySession ? 'apiKey' : 'cookie')
+        serverSaved()
+    }
+
+    /**
      * Desktop app: the login view's key card verified a key with getUser and is
      * about to store it. The session starts afresh — a refused key's expiry is
      * over — and the identity the verification answered seeds the rest identity
@@ -427,12 +457,22 @@ export function useAuth() {
         needsLogin,
         /** Desktop app without a server, or its server did not answer: the login view asks for one. */
         needsServer,
+        /**
+         * What the identity bootstrap rejected with — /me, or getUser in a key
+         * session — so the server step can say why the saved server is not in
+         * use (savedServerProblem). Never shown as it is.
+         */
+        identityError: computed<unknown>(() =>
+            apiKeySession.value ? identity.error.value : me.error.value
+        ),
         /** Desktop app: the login view asks for an API key. */
         needsApiKey,
         login: loginMutation,
         logout: logoutMutation,
         /** Desktop app: sign out of the server and choose another. */
         switchServer,
+        /** Desktop app: save the server the server step's probe found. */
+        connectTo,
         /**
          * Desktop app: the server step, or a method link, saved a server or how to
          * sign in to it; its identity is asked — in a key session without a key,

@@ -7,6 +7,19 @@ import type { AuthMethod, MeResponse } from '@/types/users'
 
 const AUTH_METHODS: readonly AuthMethod[] = ['none', 'native', 'proxy-header']
 
+/**
+ * The server answered /api/v0/me, but not as Aether does. getMe rejects with it,
+ * so the desktop app's server step can tell "something else answered" from "no
+ * answer".
+ */
+export class NotAetherMeError extends Error {
+    name = 'NotAetherMeError'
+
+    constructor() {
+        super('The server did not answer /api/v0/me as an Aether server.')
+    }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

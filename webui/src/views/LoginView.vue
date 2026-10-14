@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
@@ -8,21 +8,16 @@ import Password from 'primevue/password'
 import { useAuth } from '@/composables/useAuth'
 import { apiErrorMessage } from '@/lib/apiError'
 import { lastServerUrl, sessionLostUnexpectedly } from '@/lib/authState'
-import {
-    isDesktopApp,
-    serverUrl,
-    sessionKind,
-    setApiKey,
-    setServerUrl,
-    setSessionKind
-} from '@/lib/host'
+import { isDesktopApp, serverHost, serverUrl, setApiKey, setSessionKind } from '@/lib/host'
 import {
     AetherAnswerError,
     ApiKeyRejectedError,
     InvalidServerAddressError,
     NotAetherServerError,
+    ServerErrorAnswerError,
     ServerUnreachableError,
     probeServer,
+    savedServerProblem,
     verifyApiKey
 } from '@/lib/api/Server'
 import BrandMark from '@/components/common/BrandMark.vue'
@@ -32,7 +27,16 @@ import BrandMark from '@/components/common/BrandMark.vue'
 // bookmark. A successful login always lands on the home page, regardless
 // of the URL the browser sat on while logged out.
 
-const { login, needsServer, needsApiKey, switchServer, serverSaved, apiKeySaved } = useAuth()
+const {
+    login,
+    needsServer,
+    needsApiKey,
+    identityError,
+    switchServer,
+    serverSaved,
+    connectTo,
+    apiKeySaved
+} = useAuth()
 const router = useRouter()
 
 // Which card shows. Only the desktop app ever needs the first two: the server
@@ -93,18 +97,26 @@ const desktopApp = isDesktopApp()
 const serverAddress = ref('')
 const connecting = ref(false)
 const serverError = ref('')
+const serverField = ref<ComponentPublicInstance | null>(null)
 
 // Entering the server step, the field offers the address the user left through
-// Change, else the saved server that did not answer — saying so — else nothing.
-// What the user types is kept while the step stays up.
+// Change, else the saved server that did not let the app in — saying why: no
+// answer, an error answer, or something other than Aether answering — else
+// nothing. What the user types is kept while the step stays up.
 watch(
     card,
     (now) => {
         if (now !== 'server') return
         serverAddress.value = lastServerUrl.value ?? serverUrl.value ?? ''
-        // A server still set means the step is up because it did not answer.
+        // A server still set means the step is up because its identity failed.
         serverError.value =
-            serverUrl.value === null ? '' : new ServerUnreachableError(serverUrl.value).message
+            serverUrl.value === null
+                ? ''
+                : savedServerProblem(identityError.value, serverUrl.value)
+        // The field is where the user goes next — after Change too, where the
+        // card swaps under a keyboard user and autofocus, honoured once per
+        // page, does nothing.
+        void nextTick(() => (serverField.value?.$el as HTMLElement | undefined)?.focus())
     },
     { immediate: true }
 )
@@ -116,24 +128,10 @@ async function onConnect() {
     serverError.value = ''
     connecting.value = true
     try {
-        const answer = await probeServer(serverAddress.value)
-        // The address as the probe settled it: normalised, and on https when
-        // the server redirected there. A portal keeps /api/v0 closed to the
-        // app, so only an API key gets in: saved as a key session, the gate
-        // shows the key card. So is the saved server when it already is a key
-        // session (Connect after an outage, on a server the user chose a key
-        // for): the player keeps a stored key only for the same server saved
-        // again as a key session, and a cookie save would delete it. After
-        // Change, clearServerUrl has already reset the kind, so a new server
-        // never inherits a key session; only Connect on the saved server keeps
-        // it. Anything else is a cookie session: /me asks the saved server,
-        // then the app shows for auth "none", this card's credentials for
-        // "native".
-        const keySession =
-            answer.kind === 'portal' ||
-            (sessionKind.value === 'apiKey' && answer.url === serverUrl.value)
-        await setServerUrl(answer.url, keySession ? 'apiKey' : 'cookie')
-        serverSaved()
+        // The gate saves what the probe found — the address as the probe settled
+        // it: normalised, and on https when the server redirected there — and
+        // decides how to sign in to it (useAuth's connectTo).
+        await connectTo(await probeServer(serverAddress.value))
     } catch (err) {
         serverError.value = connectErrorMessage(err)
     } finally {
@@ -150,6 +148,7 @@ function connectErrorMessage(err: unknown): string {
         err instanceof InvalidServerAddressError ||
         err instanceof ServerUnreachableError ||
         err instanceof NotAetherServerError ||
+        err instanceof ServerErrorAnswerError ||
         err instanceof ApiKeyRejectedError ||
         err instanceof AetherAnswerError
     ) {
@@ -166,16 +165,9 @@ function isHostError(err: unknown): err is { code: string; message: string } {
 }
 
 // `Server · host[:port]` above the credentials: where they are about to go.
-const serverHost = computed(() => {
-    const url = serverUrl.value
-    if (url === null) return ''
-    try {
-        return new URL(url).host
-    } catch {
-        // Only a hand-edited settings file gets here; show what it holds.
-        return url
-    }
-})
+const savedServerHost = computed(() =>
+    serverUrl.value === null ? '' : serverHost(serverUrl.value)
+)
 
 // --- API key card (desktop app only) ---
 
@@ -299,6 +291,7 @@ async function onUsePassword() {
                     <label for="login-server">Server address</label>
                     <InputText
                         id="login-server"
+                        ref="serverField"
                         v-model="serverAddress"
                         placeholder="http://aether.local:8075"
                         autocomplete="url"
@@ -328,11 +321,12 @@ async function onUsePassword() {
                      deliberate logout the user knows why the card is here. -->
                 <p v-if="sessionLostUnexpectedly" class="login-expired">{{ API_KEY_REVOKED }}</p>
 
-                <p v-if="serverHost" class="login-server">
-                    <span>Server · {{ serverHost }}</span>
+                <p v-if="savedServerHost" class="login-server">
+                    <span>Server · {{ savedServerHost }}</span>
                     <button
                         type="button"
                         class="login-link"
+                        aria-label="Change server"
                         :disabled="connectingKey || switchingMethod"
                         @click="switchServer()"
                     >
@@ -383,11 +377,12 @@ async function onUsePassword() {
                     Your session has expired — please sign in again.
                 </p>
 
-                <p v-if="desktopApp && serverHost" class="login-server">
-                    <span>Server · {{ serverHost }}</span>
+                <p v-if="desktopApp && savedServerHost" class="login-server">
+                    <span>Server · {{ savedServerHost }}</span>
                     <button
                         type="button"
                         class="login-link"
+                        aria-label="Change server"
                         :disabled="login.isPending.value || switchingMethod"
                         @click="switchServer()"
                     >
