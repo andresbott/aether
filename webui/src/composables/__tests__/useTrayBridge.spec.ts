@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import type { TrayCommand } from '@/lib/host'
-import { useTrayBridge, resetTrayBridgeForTests } from '@/composables/useTrayBridge'
+
+// The bridge installs once per app, in module state, and production code carries
+// no way to undo that: every case loads a fresh copy of the module instead.
+let useTrayBridge: (typeof import('@/composables/useTrayBridge'))['useTrayBridge']
 
 // The desktop app's tray menu lives in Rust and sends Play / Pause and Next as
 // events; the bridge turns them into the SPA player's own calls for the life of
@@ -38,8 +41,9 @@ const installer = () =>
         }
     })
 
-beforeEach(() => {
-    resetTrayBridgeForTests()
+beforeEach(async () => {
+    vi.resetModules()
+    ;({ useTrayBridge } = await import('@/composables/useTrayBridge'))
     host.desktopApp = true
     player.togglePlayPause.mockReset()
     player.playNext.mockReset()

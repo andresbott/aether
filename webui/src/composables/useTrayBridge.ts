@@ -1,4 +1,4 @@
-import { effectScope, type EffectScope } from 'vue'
+import { effectScope } from 'vue'
 import { usePlayer } from '@/composables/usePlayer'
 import { isDesktopApp, onTrayCommand } from '@/lib/host'
 
@@ -11,18 +11,17 @@ import { isDesktopApp, onTrayCommand } from '@/lib/host'
 // module-level singleton that keeps playing on the settings routes, where
 // PlayerLayout is unmounted, so the tray has to keep working there too.
 let installed = false
-// Detached, like useMediaSession's: no component adopts it, so the unmount of
-// whichever one called us cannot dispose what the bridge owns.
-let scope: EffectScope | null = null
 
 export function useTrayBridge(): void {
     if (installed || !isDesktopApp()) return
     installed = true
-    scope = effectScope(true)
-    // usePlayer() registers its watchers in whatever scope is active, so it runs
-    // in this one rather than in the caller's. Intentional: one set of the
-    // player's persistence watchers thereby lives as long as the app does.
-    scope.run(() => {
+    // Detached, like useMediaSession's: no component adopts it, so the unmount
+    // of whichever one called us cannot dispose what the bridge owns — and
+    // nothing ever stops it. usePlayer() registers its watchers in whatever
+    // scope is active, so it runs in this one rather than in the caller's.
+    // Intentional: one set of the player's persistence watchers thereby lives as
+    // long as the app does.
+    effectScope(true).run(() => {
         void subscribe(usePlayer())
     })
 }
@@ -38,11 +37,4 @@ async function subscribe(player: ReturnType<typeof usePlayer>): Promise<void> {
         // Only the tray menu is lost; the app works without it.
         console.warn('Tray commands unavailable', err)
     }
-}
-
-/** Test hook: allow a fresh install with new mocks. */
-export function resetTrayBridgeForTests(): void {
-    scope?.stop()
-    scope = null
-    installed = false
 }
