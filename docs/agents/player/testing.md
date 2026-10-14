@@ -59,19 +59,27 @@ tools and WebView2 (preinstalled on Windows 10+).
   error-code mapping/serialization (`error.rs`, `InvalidServerUrl` and
   `Internal` included), the connection-status JSON shape without `username`
   (`commands/connection.rs`), the settings JSON shape and its file round trip
-  — missing or damaged file → defaults (`settings.rs`), the stored API key's
-  round trip, its owner-only `0600` mode (re-tightened on overwrite), a
-  missing, damaged or empty file reading as no key, and the damaged-file log
-  note never quoting the key (`credentials.rs`), what connects at startup —
-  only a key session with a server and a key (`connection_for` in `state.rs`,
-  pure, so no audio engine) — and the event names and tray payloads
-  (`events.rs`; of those, the webview listens only for `tray://command` so
-  far). One exception:
-  `engine/desktop.rs` carries three `download` tests — two against a one-shot
-  loopback stub (plain `std::net`, no mock crate, no audio device), one
-  against a closed port — pinning that the body comes back and that neither a
-  failed send nor a bad status leaks the key into the error text. If a handler
-  needs real logic tests, that logic probably belongs in core.
+  — a missing file → the defaults, quietly; a damaged one → the defaults, with
+  a problem to log; a save replaces the file rather than rewriting it in place
+  (`settings.rs`) — the stored API key's round trip, its owner-only `0600`
+  mode (re-tightened on overwrite), a missing, damaged or empty file reading
+  as no key, and the damaged-file log note never quoting the key
+  (`credentials.rs`), the cookie jar made owner-only and a missing one left
+  alone (`cookie_jar.rs`), and the event names and tray payloads (`events.rs`;
+  of those, the webview listens only for `tray://command` so far). The
+  exceptions carry real logic, kept testable without Tauri: `session.rs` drives
+  the settings/session guarantees on a temp config directory — `set_session`
+  and `set_api_key` answering `NotConnected` without a server, saving another
+  server and Change server dropping the session, the same server saved again
+  as a key session keeping its key and another server costing it, a failed
+  settings write leaving settings and session untouched, a key session
+  connecting again at the next launch, and what connects at startup (only a
+  key session with a server and a key) — and `engine/desktop.rs` carries three
+  `download` tests — two against a one-shot loopback stub (plain `std::net`, no
+  mock crate, no audio device), one against a closed port — pinning that the
+  body comes back and that neither a failed send nor a bad status leaks the
+  key into the error text. If a handler needs real logic tests, that logic
+  probably belongs in core, or at least out of the handler.
 - **`webui`** — the shared SPA's suite is the root's `make ui-test`, not a
   player gate; a player-motivated UI change is tested there, under
   [../frontend.md](../frontend.md)'s and [../testing.md](../testing.md)'s
@@ -93,8 +101,6 @@ tools and WebView2 (preinstalled on Windows 10+).
   unit-tested in `webui/` against a faked host layer or `@tauri-apps/*`, and
   the real-window run is user acceptance.
 - Known untested paths (catalogued, fine to add tests for): `cover_art_url`
-  with `size: None`, resolver-failure paths in `Player`, and the
-  settings/session command guarantees — `set_session` and `set_api_key`
-  answering `NotConnected` without a server, `set_server_url` /
-  `clear_server_url` dropping the session, `set_server_url` keeping a key for
-  the same server, a failed settings write leaving both untouched.
+  with `size: None` and resolver-failure paths in `Player`. The thin Tauri glue
+  — the command wrappers, `setup`'s calls, `async` on the commands — has no
+  unit seam; what it calls is tested.

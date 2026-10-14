@@ -17,7 +17,7 @@ the server-selection decisions D1–D9
 | Webui driving playback over IPC (the Rust engine) | **Not implemented** | Follow-up #1, narrowed by server selection to playback, queue, `player://state` and the tray: the SPA plays through its own `<audio>` (`webui/src/composables/usePlayer.ts`) while the Rust `Player` stays idle. A `webui/` plan under [../frontend.md](../frontend.md)'s rules; do not bolt IPC calls into webui components ad hoc — they belong in `webui/src/lib/host/` |
 | API-key login (key card in the login view, portal servers included) | Implemented (2026-10-11, [D9](architecture.md#server-selection-decisions)) | A `portal` probe saves the server as a key session; the key card (`webui/src/views/LoginView.vue`) verifies a pasted key with `getUser` (`verifyApiKey`, `webui/src/lib/api/Server.ts`) before `set_api_key` stores it; the session is `/rest` only — identity from `getUser` (`useRestIdentity`), `apiClient` refuses to send, and everything riding `/api/v0` hides behind `useAuth().managementApi` ([../frontend.md](../frontend.md#desktop-app-mode-libhost)). Also offered on native servers ("Use an API key instead"). Logout forgets the key; revoking it is the web UI's job |
 | Administering a portal server from inside the app | **Not supported** | Admin needs `/api/v0`, which the portal keeps closed to the app; the browser hand-off D7 described is the narrowed follow-up in `TODO.md`. Listening works with a key (row above) |
-| Metadata editor pictures in the app | **Broken in the app** | Picture previews and the artist image build `<img>` URLs from `apiClient.defaults.baseURL` (`webui/src/lib/api/Metadata.ts:187`, `webui/src/views/settings/metadata-editor/PicturesSection.vue:207`) and copy-picture calls a raw `fetch` (`Metadata.ts:128`); the `/api/v0` picture endpoints are cookie-authenticated, so neither loads from the webview. Fix: fetch through the plugin + object URLs (follow-up). The music UI is unaffected — its images come from `/rest/getCoverArt` |
+| Metadata editor pictures in the app | **Broken in the app** | Picture previews and the artist image build `<img>` URLs from `apiClient.defaults.baseURL` (`webui/src/lib/api/Metadata.ts:187`, `webui/src/views/settings/metadata-editor/PicturesSection.vue:207`) and copy-picture calls a raw `fetch` (`Metadata.ts:128`); the `/api/v0` picture endpoints are cookie-authenticated, so neither loads from the webview. Fix: fetch through the plugin + object URLs (follow-up; the window CSP already admits `blob:` for them). The music UI is unaffected — its images come from `/rest/getCoverArt` |
 | Library browsing (artists, albums, album, search) | Implemented, unused by the SPA | `src-tauri/src/commands/library.rs` → `SubsonicClient` (thin Subsonic passthrough). The SPA browses over HTTP through the plugin instead ([D6](architecture.md#server-selection-decisions)); these commands' fate is tracked in `TODO.md`, with the playback retrofit |
 | Desktop playback (play/pause/resume/stop/seek/volume) | Implemented, idle | `src-tauri/src/commands/playback.rs` → `Player` → `RodioEngine` (`src-tauri/src/engine/desktop.rs`); nothing calls it while the SPA plays in the webview |
 | Queue (set/next/prev/get) + auto-advance | Implemented, idle | `aether-core` `Queue` + `Player::poll()`; poller in `src-tauri/src/events.rs` |
@@ -62,7 +62,10 @@ Changes to `webui/` belong to webui-scoped plans, not backend plans.
   reaches the server — and a cross-site one would not carry the session cookie
   anyway. Every request goes through `httpFetch` from `webui/src/lib/host/`
   (`apiClient` uses it as its fetch adapter in the app); the metadata editor's
-  raw picture `fetch` is the known casualty.
+  raw picture `fetch` is the known casualty. The one sanctioned exception is the
+  browser tab's `navigator.sendBeacon` for the final play-queue save, which a
+  tab's CSP allows and which outlives the page; in the app the same save rides
+  the transport.
 - Do not import `@tauri-apps/*`, or read `location.origin`, outside
   `webui/src/lib/host/` — `webui/src/lib/host/__tests__/originAgnostic.spec.ts`
   fails the suite when anything does.

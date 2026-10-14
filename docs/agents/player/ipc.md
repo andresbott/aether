@@ -10,15 +10,23 @@ Two kinds of traffic cross it. The SPA's requests to the server ride
 `tauri-plugin-http` (`.plugin(tauri_plugin_http::init())` in `lib.rs`): its
 `fetch` is an IPC call that reqwest executes in Rust with the plugin's cookie
 jar — none of our commands is involved, and the capability below scopes it.
-Everything else is the commands and events on this page. The SPA reaches both
-only through its host layer, `webui/src/lib/host/` (see
+A request body crosses IPC as a JSON array of byte values (the plugin's
+`fetch` turns it into `Array.from(new Uint8Array(…))`), several times its size
+on the wire and parsed on both sides: a multi-megabyte upload, such as a large
+cover image, is noticeably slow in the app. Everything else is the commands
+and events on this page. The SPA reaches both only through its host layer,
+`webui/src/lib/host/` (see
 [../frontend.md](../frontend.md#desktop-app-mode-libhost)).
 
 ## Commands
 
 All fallible commands return `Result<T, AppError>`. Names/args below are the
 Rust snake_case; Tauri exposes args camelCased to JS (`api_key` → `apiKey`,
-`position_ms` → `positionMs`).
+`position_ms` → `positionMs`). The settings, key and session commands are
+one-line wrappers around `Session` (`src-tauri/src/session.rs`, where their
+guarantees are tested); the five that write files (`set_server_url`,
+`set_session_kind`, `clear_server_url`, `set_api_key`, `clear_api_key`) are
+`async`, since Tauri runs a sync command on the main thread.
 
 | Group | Command | Notes |
 |---|---|---|
@@ -30,7 +38,7 @@ Rust snake_case; Tauri exposes args camelCased to JS (`api_key` → `apiKey`,
 | Key | `get_api_key()` | the key stored in `credentials.json` (app config dir, owner-only on Unix), or null; infallible. The SPA installs it on its own `/rest` client at startup |
 | | `set_api_key(api_key)` | stores the key the SPA has verified with `getUser`, forces `sessionKind = apiKey` and builds `SubsonicClient::with_api_key` for the saved server — no round trip. `NotConnected` without a server, `InvalidServerUrl` for a hand-edited address, `Internal` when a file cannot be written |
 | | `clear_api_key()` | deletes `credentials.json` (a missing file is fine), drops the connection, keeps the kind so the key card comes back; `Internal` when the delete fails. Logout and a revoked key call it |
-| Session | `set_session(api_key)` | the cookie flow's hand-off: builds `SubsonicClient::with_api_key` for the saved server and stores it in `AppState.connection` — no round trip, nothing validated. `NotConnected` when no server is saved (`InvalidServerUrl` only for a hand-edited address that no longer parses). The SPA calls it after every (re)mint of its `spa` token; a key session never does, Rust holds that key itself |
+| Session | `set_session(api_key)` | the cookie flow's hand-off: builds `SubsonicClient::with_api_key` for the saved server and stores it as the session's client — no round trip: the token is not checked, the SPA just minted it. `NotConnected` when no server is saved (`InvalidServerUrl` only for a hand-edited address that no longer parses). The SPA calls it after every (re)mint of its `spa` token; a key session never does, Rust holds that key itself |
 | | `clear_session()` | drops the client; infallible. The SPA calls it on logout, expiry and a server switch |
 | | `connection_status()` | tagged enum: `{"status":"disconnected"}` or `{"status":"connected","serverUrl":…}` — tags are lowercase (fixed during the bootstrap; keep them lowercase), `serverUrl` is the normalised address, and there is no `username` (the session is a key, not a login). Unused by the SPA |
 | Browsing | `get_artists()`, `get_albums(list_type, size, offset)`, `get_album(id)`, `search(query)` | thin passthrough of Subsonic shapes (`getArtists`, `getAlbumList2`, `getAlbum`, `search3`) — do not invent new shapes. Unused by the SPA, which browses over HTTP through the plugin |
@@ -134,15 +142,20 @@ means adding its permission here, not widening globally. The schemas under
 
 The window CSP (`app.security.csp` in `src-tauri/tauri.conf.json`):
 
-- `img-src 'self' aether: http://aether.localhost data: http: https:` and
+- `img-src 'self' aether: http://aether.localhost data: blob: http: https:` and
   `media-src 'self' http: https:` — covers and audio load straight from the
   server the user picked, any host, hence the bare schemes; `aether:` and
-  `http://aether.localhost` keep the custom protocol loadable.
+  `http://aether.localhost` keep the custom protocol loadable; `blob:` is for
+  the object URLs the cover editors preview a staged upload with
+  (`URL.createObjectURL`) — `'self'` does not cover them, and without it the
+  preview is a broken image while the upload itself works.
 - `connect-src 'self' ipc: http://ipc.localhost` — IPC only. The plugin's
   requests are IPC calls, so the webview never connects to the server itself,
   and a `fetch`, XHR or `sendBeacon` aimed at the server is blocked: that is
   why every SPA request goes through the host transport, the final play-queue
   save on `pagehide` included (`savePlayQueueBeacon` falls back to it in the
-  app).
+  app; a browser tab keeps `navigator.sendBeacon`, the one sanctioned
+  exception to the transport rule, since its CSP allows it and a beacon
+  outlives the page).
 - A new protocol or resource kind needs a matching CSP change, or it silently
   fails to load.

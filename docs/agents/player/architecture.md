@@ -18,7 +18,7 @@ under [Key decisions](#server-selection-decisions) below, and API-key login on
 2026-10-11 (D9 there).
 
 Paths in `docs/agents/player/` are relative to `player/` unless they start with
-`webui/`, `docs/` or `.github/`.
+`webui/`, `server/`, `docs/` or `.github/`.
 
 Other player docs: [features.md](features.md) (what exists / what is
 deliberately missing), [ipc.md](ipc.md) (command surface, events, errors,
@@ -33,7 +33,8 @@ change, [../subsonic-api.md](../subsonic-api.md) for what the server answers.
     webui/  (the shared Vue 3 SPA — vite build, opened as the window; HTTP via `tauri-plugin-http` in the app, playback still in the webview)
        |
     src-tauri/  crate `aether-app` — thin Tauri shell
-       |   commands/* (IPC handlers)   settings.rs (settings.json)   credentials.rs (credentials.json)   protocol.rs (aether://)
+       |   commands/* (thin IPC handlers)   session.rs (settings + key + client, the guarantees)   protocol.rs (aether://)
+       |   settings.rs (settings.json)   credentials.rs (credentials.json)   cookie_jar.rs (the plugin's jar, owner-only)
        |   events.rs   engine/* (per-OS PlaybackEngine impls)   tray.rs   tauri-plugin-http
        v
     crates/aether-core/  pure Rust, NO Tauri dependency
@@ -111,25 +112,30 @@ Rules each layer enforces:
   amended 2026-10-11, [D9](#server-selection-decisions)):** `settings.json`
   `{ "serverUrl": …, "sessionKind": "cookie" | "apiKey" }` in `app_config_dir()`
   (`src-tauri/src/settings.rs`) — the normalised address of the server the user
-  picked and how the SPA signs in to it; a missing or damaged file yields the
-  defaults, so it can never keep the app from starting. In a key session the
-  API key the user pasted — a revocable PAT, never a password — sits beside it
-  in `credentials.json` (`src-tauri/src/credentials.rs`), written owner-only
-  (`0600`) on Unix and re-chmodded on every overwrite, loaded at startup and
-  deleted on logout, on a refused key, on a server change and on a switch back
-  to password sign-in (`set_session_kind` to `cookie`). The cookie session is
-  not the player's to store: it is the HTTP plugin's cookie jar
+  picked and how the SPA signs in to it; written to a temp file and renamed
+  over the old one, so a save cut short leaves the old settings; a missing file
+  (a first launch) quietly yields the defaults and a damaged one does too, with
+  a line on stderr, so it can never keep the app from starting. In a key
+  session the API key the user pasted — a revocable PAT, never a password —
+  sits beside it in `credentials.json` (`src-tauri/src/credentials.rs`), written
+  owner-only (`0600`) on Unix and re-chmodded on every overwrite, loaded at
+  startup and deleted on logout, on a refused key, on a server change and on a
+  switch back to password sign-in (`set_session_kind` to `cookie`). The cookie
+  session is not the player's to store: it is the HTTP plugin's cookie jar
   (`app_cache_dir()/.cookies`, loaded at startup and rewritten whenever a
   response sets a cookie, and once more on exit, so a crash loses at most a
   save still in flight; only persistent cookies are written, and Aether's
   session cookie is one) plus the SPA's 48h `spa` token, pushed to Rust in
-  memory (`set_session`) and dropped on logout, expiry or a server change.
-  **No password is ever stored**: it travels once, in the login request the
-  plugin carries, and `normalize_server_url` refuses an address with
-  credentials in it. The keyring is gone and stays gone; at startup `AppState`
-  loads the settings and the key and connects at once when both name a key
-  session (`state::connection_for`), else it starts disconnected until the SPA
-  hands over its token.
+  memory (`set_session`) and dropped on logout, expiry or a server change. The
+  plugin creates the jar with the default mode; `setup` makes it owner-only
+  too (`src-tauri/src/cookie_jar.rs`) — the session cookie in it reaches
+  `/api/v0` and can mint keys — and the plugin's in-place rewrites keep that
+  mode. **No password is ever stored**: it only travels, in the login and
+  change-password requests the plugin carries, and `normalize_server_url`
+  refuses an address with credentials in it. The keyring is gone and stays
+  gone; at startup `Session::load` (`src-tauri/src/session.rs`) reads the
+  settings and the key and connects at once when both name a key session, else
+  it starts disconnected until the SPA hands over its token.
 - **Close-to-tray:** window close is intercepted (`prevent_close` + hide) so
   playback continues in the webview (the window is hidden, not destroyed);
   quit only via the tray menu. Unverified on macOS so far, where a hidden
@@ -184,8 +190,8 @@ git-ignored historical record — nothing here depends on it.
 - **D4 — The player stores the server address, the sign-in kind and, in a key
   session, the pasted API key; never a password.** `settings.json` holds
   `{ "serverUrl", "sessionKind" }`, `credentials.json` the key, owner-only,
-  with the same exposure as the cookie jar that already persists the session
-  cookie; the password is posted once through the transport, and
+  like the cookie jar that already persists the session cookie (made owner-only
+  at startup); the password is only posted through the transport, and
   `credentials.rs` is back in this narrower form while the `keyring`
   dependency stays removed (amended by D9).
 - **D5 — The app-only controls, all gated on `isDesktopApp()`.** The login card
@@ -235,11 +241,11 @@ git-ignored historical record — nothing here depends on it.
 ## Domain types worth knowing
 
 - `aether_core::subsonic::SubsonicClient` — cheap to clone (commands clone it
-  out of `AppState.connection: Arc<RwLock<Option<SubsonicClient>>>`).
+  out of the session's `connection: Arc<RwLock<Option<SubsonicClient>>>`).
   Subsonic API v1.16.1, client name `aether-player`. Two auth schemes, never
   mixed (the server answers a mix with error 43): `with_api_key` sends the
   OpenSubsonic `apiKey` — what `set_session` builds from the SPA's `spa` token
-  and what `set_api_key` / `state::connection_for` build from the stored key,
+  and what `set_api_key` and `Session::load` build from the stored key,
   the only client the app creates — and `new` signs every request with a fresh
   salt + md5 token (used by the tests only now). Both constructors
   accept only an address `normalize_server_url` would (http/https with a
@@ -247,16 +253,20 @@ git-ignored historical record — nothing here depends on it.
   normalised form. Error texts never carry a request URL, because a `/rest`
   URL carries the key: `without_url()` strips it wherever reqwest would print
   it — the send error in `get()`, the engine's `download`, `protocol.rs`.
-- `AppState` (`src-tauri/src/state.rs`) — `settings: RwLock<Settings>` and
+- `Session` (`src-tauri/src/session.rs`) — what the settings, key and session
+  commands share, held by `AppState` (`src-tauri/src/state.rs`) next to the
+  `Player`: the config directory, `settings: RwLock<Settings>`,
   `api_key: RwLock<Option<String>>` (the key from `credentials.json`, mirrored
-  in memory) next to `connection`, with a lock order: **`settings` → `api_key`
-  → `connection`**. `set_session` holds the settings read lock until the
-  client is stored, and `set_server_url`/`set_session_kind`/`clear_server_url`
-  hold the settings write lock, and the key lock after it, while they persist
-  the files and rebuild the client from what is left (`state::connection_for`),
-  so a session can never be stored for a server that is no longer the
-  configured one. `set_api_key` and `clear_api_key` take the same locks in the
-  same order.
+  in memory) and `connection`, with a lock order: **`settings` → `api_key` →
+  `connection`**. `set_session` holds the settings read lock until the client
+  is stored, and `set_server_url`/`set_session_kind`/`clear_server_url` hold
+  the settings write lock, and the key lock after it, while they persist the
+  files and rebuild the client from what is left, so a session can never be
+  stored for a server that is no longer the configured one. `set_api_key` and
+  `clear_api_key` take the same locks in the same order. It works on a plain
+  directory, so its tests drive those guarantees without a Tauri app or an
+  audio engine; the commands are one-line wrappers, the ones that write files
+  `async` so the disk stays off the main thread.
 - `aether_core::player::Player` — owns a `Mutex<Inner>` (queue, paused,
   stopped, volume) plus `Arc<dyn PlaybackEngine>` and
   `Arc<dyn StreamUrlResolver>`. See [playback.md](playback.md) for the lock
@@ -275,13 +285,10 @@ git-ignored historical record — nothing here depends on it.
   follow-up fix; the blocking behavior is the accepted v0 design, not a bug.
 - `eprintln!` used for logging throughout (poll loop, settings, tray) — no
   structured logging yet.
-- Untested paths: `cover_art_url` with `size: None`, resolver-failure paths
-  in `Player`, and the settings/session command guarantees (`set_session` and
-  `set_api_key` answering `NotConnected` without a server, `set_server_url` /
-  `clear_server_url` dropping the session, `set_server_url` keeping a key for
-  the same server, a failed settings write leaving both untouched) — no
-  committed test covers them. `build_url` with a path prefix is covered now
-  (`requests_keep_the_server_path_prefix`).
+- Untested paths: `cover_art_url` with `size: None` and resolver-failure
+  paths in `Player`. `build_url` with a path prefix is covered now
+  (`requests_keep_the_server_path_prefix`), and so are the settings/session
+  guarantees (`session.rs`'s tests).
 - Registered but unused by the SPA (server selection, 2026-10-10): the
   browsing commands in `commands/library.rs`, the playback and queue
   commands, and `connection_status`. They still compile against tested core

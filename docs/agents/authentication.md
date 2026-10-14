@@ -118,11 +118,15 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   call); if the mint call itself 401s, the *session* is gone → mode-specific
   reaction (below). Surface "session expired" in the player instead of a
   generic error when a stream's next range request fails. Generation counter
-  discards mints resolving after a logout, an expiry or a server switch —
-  their success and their refusal alike — and the reset lets go of such a mint,
-  so the next session mints its own. The generation check keeps `remintApiKey`
-  itself from flagging an expiry for a stale mint, but the `/api/v0`
-  interceptor still flags a 401 that came from the configured server.
+  (the subsonic client's, bumped by every session reset) discards mints
+  resolving after a logout, an expiry or a server switch — their success and
+  their refusal alike — and the reset lets go of such a mint, so the next
+  session mints its own. A `/rest` 40/44 answering a request sent before the
+  reset is discarded the same way: no mint, no retry (which would rebuild the
+  old request's URL, perhaps another server's, with the new session's key), no
+  expiry. The generation check keeps `remintApiKey` itself from flagging an
+  expiry for a stale mint, but the `/api/v0` interceptor still flags a 401
+  that came from the configured server.
 
 **One session per device.** The same user may be signed in from several
 first-party Aether apps at once — browsers today, native apps later — so a `spa`

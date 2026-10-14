@@ -120,13 +120,15 @@ When a view diverges from these registries, the registry wins.
   goes through `httpFetch`; `initWithDefaults()` is the
   **auth-method-`none`** path only — authenticated modes call `setApiKey()`
   with the PAT minted by `lib/subsonicSession.ts`, or with the stored key in a
-  key session — and `reset()` forgets either, server included; see
-  [subsonic-api.md](subsonic-api.md) and
+  key session — and `reset()` forgets either, server included, and moves the
+  session `generation()`, which the client's own requests and the mint check
+  their answers against; see [subsonic-api.md](subsonic-api.md) and
   [authentication.md](authentication.md)). `Server.ts` is the desktop app's
-  server probe and, in `verifyApiKey`, the check of a pasted key (see "Desktop
-  app mode" below), and `meShape.ts`'s `isMeResponse` is what counts as
-  Aether's `/me`: `getMe` rejects any other answer, and the probe applies the
-  same check.
+  server probe, in `verifyApiKey` the check of a pasted key and, in
+  `savedServerProblem`, the server step's reason for a saved server that did
+  not let the app in (see "Desktop app mode" below); `meShape.ts`'s
+  `isMeResponse` is what counts as Aether's `/me`: `getMe` rejects any other
+  answer with `NotAetherMeError`, and the probe applies the same check.
 - `types/` — one file per API domain, mirroring backend response shapes.
 - `lib/apiError.ts` — **the only place a thrown API error becomes text.** Use
   `apiErrorMessage(err, fallback)` instead of re-deriving
@@ -290,18 +292,24 @@ it and stays the same code in a tab and in the app.
   `app.mount` (an async function rather than a top-level await, which Vite's
   default build target rejects). In the app it imports
   `@tauri-apps/plugin-http` lazily (the browser never evaluates it), installs
-  the plugin's `fetch` as the transport and reads `get_settings`. It never
-  throws: a failure reading the settings leaves the server unset, so the login
-  view asks for one instead of the window staying blank, and a failed
-  `get_api_key` leaves the server and the kind set with no key, so the key
-  card asks again.
+  the plugin's `fetch` as the transport and reads `get_settings`. Until the
+  plugin has loaded — and for good if it cannot — the installed transport
+  rejects every request with "The desktop app's HTTP transport did not load",
+  never falling back to the webview's own `fetch`, which the CSP would block
+  without saying why. It never throws: a failure reading the settings leaves
+  the server unset, so the login view asks for one instead of the window
+  staying blank, and a failed `get_api_key` leaves the server and the kind set
+  with no key, so the key card asks again.
 - `serverUrl` (a ref) — where every `/api/v0` and `/rest` request goes, with
   no trailing slash: the page's origin in a tab (never null); in the app the
   saved server (an origin, plus a path prefix when the server sits under one),
   null until one is chosen. `setServerUrl(url, kind)` saves it, with how to
   sign in to it (`cookie` or `apiKey`), and adopts the URL as Rust normalised
   it; `clearServerUrl()` forgets it; both throw in a tab, where only the page
-  decides the server.
+  decides the server. `serverHost(url)` is how the app names a server to the
+  user — `host[:port]`, the address minus scheme and path, or the text as it
+  is when it does not parse — for the sign-in card's line and Change server's
+  question.
   `setSession`/`clearSession` hand the `/rest` key to the Rust client and take
   it back (no-ops in a tab); `appVersion()` is the player's version (null in a
   tab).
@@ -323,14 +331,18 @@ it and stays the same code in a tab and in the app.
 **Every request to the server goes through `httpFetch`.** `apiClient` does in
 the app (see `lib/api/` above), `subsonic.ts` always does, and the final
 play-queue save on `pagehide` (`savePlayQueueBeacon`) takes it in the app
-instead of `sendBeacon`, which the CSP blocks. Media is the deliberate
+instead of `sendBeacon`, which the CSP blocks — a browser tab keeps
+`sendBeacon`, the one sanctioned exception. Media is the deliberate
 exception: `getStreamUrl` / `getCoverArtUrl` are plain URLs on the server with
 the `apiKey` in the query, loaded by `<audio>` / `<img>` straight from it.
 **Never show or log a transport rejection's text**: the plugin rejects with a
 plain string that names the request URL, `apiKey` included. The server step
 renders only its own copy, `subsonic.ts`'s warnings are bare labels, and
 `apiErrorMessage` turns a request that got no response into
-`NETWORK_MESSAGE`. Known gap: the metadata
+`NETWORK_MESSAGE` — a bare string too, which only the plugin throws (an abort
+reaches axios callers as its own `CanceledError`), so the detail views, which
+show `apiErrorMessage(error)`, say the server could not be reached and the
+connectivity banner comes up. Known gap: the metadata
 editor's picture previews and copy-picture bypass the transport and do not
 load in the app ([player/features.md](player/features.md)).
 
@@ -340,8 +352,10 @@ Outside `lib/host/`, no code reads `location.origin` — however it is reached
 answer to "where is the server", so ask `serverUrl` — and none imports
 `@tauri-apps/*`, so the dependency on the app stays behind one seam. A
 string-aware stripper tells code from comments and strings, so prose may quote
-either, and a vacuity check asserts that the host layer's own files trip both
-matchers, so a pass is never for lack of looking.
+either (a `//` right after a backslash — a regex literal's escaped slash and
+its closing one — is no comment), and vacuity checks assert that the host
+layer's own files trip both matchers and that the walk reaches the `.vue`
+files, so a pass is never for lack of looking.
 
 **The gate** (`useAuth`, `App.vue`, `LoginView`). The login view replaces the
 app while any of three holds:
@@ -351,7 +365,8 @@ app while any of three holds:
   refused key, and only while no identity is known yet — a failed refetch of a
   known one never drops the running app to the server step) — the saved server
   is down or has moved, and the window would otherwise stay blank with no way
-  to pick another.
+  to pick another. `useAuth().identityError` is what that query rejected with,
+  and the step reads its reason off it (`savedServerProblem`, below).
 - `needsLogin` — unchanged: a cookie session on a `native` server with no user,
   or an expired session.
 - `needsApiKey` — app only: a key session without a key (none pasted yet,
@@ -395,19 +410,24 @@ window blank for most of a minute) nor refetches when the network comes back
 (`refetchOnReconnect` — it would take the server step away mid-typing); the
 browser keeps both. `getMe` carries a 10 s timeout so a server that drops
 packets cannot hold the window blank for minutes, and rejects an answer that
-is not shaped like Aether's `/me` (`isMeResponse`), so a saved address that
-now answers as something else — another web app on that port, a captive
-portal's page — brings the server step back instead of rendering the app
-against it.
+is not shaped like Aether's `/me` (`isMeResponse`) with `NotAetherMeError`, so
+a saved address that now answers as something else — another web app on that
+port, a captive portal's page — brings the server step back instead of
+rendering the app against it.
 
 **The server step** (`LoginView`, app only) is a "Server address" field
-(placeholder `http://aether.local:8075`) and Connect. Entering the step, the
-field offers `lastServerUrl` (`lib/authState.ts`: the server last left through
-Change), else the saved server that did not answer — saying "Could not reach
-{url}." under it. Connect runs `probeServer` (`lib/api/Server.ts`), which talks
-through `httpFetch` directly rather than `apiClient` (that client refuses to
-send without a server, and its 401 handling would read the probe's answers as
-a lost session):
+(placeholder `http://aether.local:8075`) and Connect; the field takes the focus
+whenever the step shows, after *Change* too (autofocus, honoured once per page,
+would not). Entering the step, the field offers `lastServerUrl`
+(`lib/authState.ts`: the server last left through Change), else the saved
+server that did not let the app in — saying why under it, from
+`identityError` (`savedServerProblem` in `lib/api/Server.ts`): "No Aether
+server answered at {url}." for a `NotAetherMeError`, "The server at {url}
+answered with an error." for an answer with an error status, "Could not reach
+{url}." for no answer at all. Connect runs `probeServer` (`lib/api/Server.ts`),
+which talks through `httpFetch` directly rather than `apiClient` (that client
+refuses to send without a server, and its 401 handling would read the probe's
+answers as a lost session):
 
 1. Normalise: trim, prepend `http://` when no scheme is typed, refuse another
    scheme, refuse embedded credentials up front ("Enter the server address
@@ -419,7 +439,10 @@ a lost session):
    answer shaped like Aether's `/me` (`isMeResponse`: a known `authMethod`, a
    `user` that is null or has a `login`, a `features` object) is Aether. A
    301/302/307/308 from an http address to `https` on the same host re-runs
-   the probe once there, and that https address is the one saved.
+   the probe once there, and that https address is the one saved. A 5xx is
+   "The server at {url} answered with an error." — no portal answers that way
+   (a portal redirects or refuses an anonymous call), and signing in needs
+   `/api/v0` however healthy `/rest` is.
 3. Anything else: `GET /rest/ping?f=json&v=1.16.1&c=aether-player`. `/rest`
    stays open in every proxy setup, and Aether stamps `type: "Aether"` on every
    envelope, errors included — such an envelope (compared without case) is
@@ -429,19 +452,26 @@ a lost session):
    answered at {url}.", and a request that fails or times out "Could not reach
    {url}."
 
-An answer is saved (`setServerUrl(url, kind)`) and `serverSaved()` starts a
-fresh session (`startFreshSession()`) and resets an errored identity query, so
-the address is asked again even when unchanged. The kind is `cookie` for an
-Aether `/me` and `apiKey` for a portal — and also for an Aether answer on the
-saved server of a key session (`sessionKind` is `apiKey` and the probe settled
-on the saved address), which is what Connect after an outage does. After
-*Change* the kind is already `cookie`, so a new server never inherits a key
-session. Rust keeps the stored key in that same case (the same server saved
-again for a key session), so Connect never costs it. The gate then shows the
+The view hands the answer to `useAuth().connectTo(answer)`, which owns what
+saving it means. A server other than the saved one — the step is up because
+the saved one did not answer, and the user moves on — is left first, exactly
+as Change server leaves it (`switchServer()`, below): its queue and local data
+must not carry over to the next server, reachable or not. Then the answer is
+saved (`setServerUrl(url, kind)`) and `serverSaved()` starts a fresh session
+(`startFreshSession()`) and resets an errored identity query, so the address
+is asked again even when unchanged. The kind is `cookie` for an Aether `/me`
+and `apiKey` for a portal — and also for an Aether answer on the saved server
+of a key session (`sessionKind` is `apiKey` and the probe settled on the saved
+address), which is what Connect after an outage does; the same server saved
+again keeps everything. After *Change* the kind is already `cookie`, so a new
+server never inherits a key session. Rust keeps the stored key in that same
+case (the same server saved again for a key session), so Connect never costs
+it. The gate then shows the
 app (auth `none`, or a session the cookie jar still holds), the sign-in card
 (`native` without one) or the key card (a key session without a key). In the
 app the sign-in card carries a muted `Server · host` line with a *Change* link
-above the username, and a "Use an API key instead" link
+(named "Change server" for screen readers, as on the key card) above the
+username, and a "Use an API key instead" link
 (`setSessionKind('apiKey')`, then `serverSaved()`).
 
 **The key card** (`LoginView`, app only): the server line with *Change*, one
@@ -483,13 +513,17 @@ to send. What the switch overtook still answers afterwards, before the next
 server is saved or after, speaks for the session just ended and flags nothing —
 kept, an expiry flag would stop a server without login from ever rendering. In
 the app `client.ts` flags an expiry only for a 401 whose request went to the
-server configured now (its stamped `baseURL`); a mint's outcome counts only
-while its session generation is current (see the hand-off below); and
-`serverSaved()` clears anything else that flagged the old session before the
-next server was saved. The sign-in card's *Change* calls `switchServer()`
-directly. The account menus go through
+server configured now (its stamped `baseURL`); a mint's outcome, and a `/rest`
+answer's 40/44, count only while their session generation is current (see the
+hand-off below); and `serverSaved()` clears anything else that flagged the old
+session before the next server was saved. The sign-in card's *Change* calls
+`switchServer()` directly, and so does `connectTo` before saving a server other
+than the saved one. The account menus go through
 `composables/useChangeServer.ts`: `confirmChangeServer()` asks "Disconnect from
-{host}? You will be signed out." in the `change-server` confirm group, which the
+{host}? The queue on this device is cleared, and you are signed out if the
+server can be reached." — the sign-out is a request, and a server that cannot
+be reached keeps its session, in the plugin's cookie jar too, so the question
+promises no more — in the `change-server` confirm group, which the
 one grouped `ConfirmDialog` that `PlayerLayout.vue` mounts in the app answers —
 outside the shell swap, so it serves both shells, and grouped so the views' own
 ungrouped dialogs do not show the question too. *Change server* (`ms-dns`)
@@ -505,12 +539,16 @@ a server the user has since left must never reach it — and
 `resetSubsonicSession` withdraws it (`clearSession`) and resets the client
 whole (`SubsonicClient.reset()`: the key, auth `none` and the server), so
 nothing addresses the server left behind until the next session configures
-it. The reset also bumps the session generation and lets go of a mint still
+it. The reset also bumps the session generation — the client's own count,
+`generation()`, which `sessionGeneration()` reads — and lets go of a mint still
 out: that mint's outcome, success or refusal, is discarded (`'failed'`, no
 expiry flag from `remintApiKey` itself, no retry budget spent), the next
 session mints its own instead of joining it, and `useAuth`'s mint watcher
-ignores an outcome whose generation moved while it waited
-(`sessionGeneration()`). That mint's request rides `apiClient`, though, so the
+ignores an outcome whose generation moved while it waited. The client's own
+requests note the generation when sent: a 40/44 answering one sent before a
+reset fails that request and nothing more — no mint, no expiry, and above all
+no retry, which would rebuild the old request's URL, perhaps the server just
+left, with the new session's key. That mint's request rides `apiClient`, though, so the
 `client.ts` interceptor still flags its 401 whenever the request went to the
 configured server (always in a browser tab; in the app when the server did not
 change). A failed hand-off only warns, with neither the key nor an error text
@@ -523,7 +561,9 @@ a browser — so Connected apps names the player.
 `useMediaSession`'s: the tray's `play_pause` calls `usePlayer().togglePlayPause()`
 and `next` calls `playNext()` on every layout — the settings routes unmount
 `PlayerLayout` while the music plays on. A refused subscription only warns;
-the app works without the tray.
+the app works without the tray. Nothing ever undoes the install — there is no
+reset hook in production code; its spec loads a fresh copy of the module per
+case.
 
 ## Admin — libraries and scan folders
 
