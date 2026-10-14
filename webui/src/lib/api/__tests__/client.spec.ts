@@ -86,6 +86,20 @@ describe('apiClient in the desktop app', () => {
         ])
     })
 
+    // The plugin rejects a request that got no answer with a bare string naming
+    // its URL. Through axios that must read as a connectivity failure — the
+    // banner's cue — and its text must never become the message.
+    it('turns a bare-string transport rejection into the network message', async () => {
+        const host = fakeHost(true, SERVER)
+        host.httpFetch.mockRejectedValue(`error sending request for url (${SERVER}/api/v0/me)`)
+        const { apiClient } = await loadClient(host)
+        const { apiErrorMessage, NETWORK_MESSAGE } = await import('@/lib/apiError')
+
+        const err = await apiClient.get('/me').catch((e: unknown) => e)
+
+        expect(apiErrorMessage(err)).toBe(NETWORK_MESSAGE)
+    })
+
     // Nothing should request before the login view's server step has picked a
     // server; if something does, it must fail loudly instead of going nowhere.
     it('refuses to send a request while no server is configured', async () => {

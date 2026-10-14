@@ -16,6 +16,7 @@ import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersi
 import { usePlayer } from '@/composables/usePlayer'
 import { useAuth } from '@/composables/useAuth'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { apiErrorMessage } from '@/lib/apiError'
 import { groupAlbumsByReleaseType } from '@/lib/releaseGrouping'
 import type { Song } from '@/types/subsonic'
 import type { ArtistImagePick } from '@/types/artists'
@@ -352,7 +353,7 @@ const onQueue = async (): Promise<void> => {
 
         <div v-else-if="error" class="error">
             <i class="ms-warning" style="font-size: 2rem"></i>
-            <p>{{ error.message }}</p>
+            <p>{{ apiErrorMessage(error) }}</p>
         </div>
 
         <ContentScaffold v-else-if="artist" title="" show-back @back="router.back()">

@@ -124,6 +124,7 @@ import ArtistView from '@/views/ArtistView.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
 import ArtistImageSearchDialog from '@/components/library/ArtistImageSearchDialog.vue'
 import { resetCoverVersions } from '@/composables/useCoverVersion'
+import { NETWORK_MESSAGE } from '@/lib/apiError'
 
 // Records what v-tooltip was bound with, so specs can assert on the tooltip
 // text the way the real directive would render it.
@@ -195,6 +196,17 @@ describe('ArtistView', () => {
         error.value = { message: 'boom' }
         const w = mountView()
         expect(w.find('.error').text()).toContain('boom')
+    })
+
+    // In the desktop app a request that got no answer rejects with the HTTP
+    // plugin's bare string, which names the request URL, apiKey included.
+    it('says the server could not be reached on a transport failure, without its text', () => {
+        error.value =
+            'error sending request for url (http://h:8075/rest/getArtist.view?apiKey=aether_s3cret)'
+
+        const w = mountView()
+
+        expect(w.find('.error').text()).toBe(NETWORK_MESSAGE)
     })
 
     it('shows no scaffold title text and the artist name in the hero', () => {

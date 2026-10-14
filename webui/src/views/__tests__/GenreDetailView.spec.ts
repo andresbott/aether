@@ -5,12 +5,13 @@ import PrimeVue from 'primevue/config'
 import FileUpload from 'primevue/fileupload'
 
 const genres = ref<any[]>([])
+const genresError = ref<unknown>(null)
 const items = ref<any[]>([])
 const updateCoverMutate = vi.fn()
 const updateCoverIsPending = ref(false)
 
 vi.mock('@/composables/useSubsonicQueries', () => ({
-    useGenres: () => ({ data: genres, isLoading: ref(false), error: ref(null) }),
+    useGenres: () => ({ data: genres, isLoading: ref(false), error: genresError }),
     useUpdateGenreCover: () => ({ mutate: updateCoverMutate, isPending: updateCoverIsPending })
 }))
 
@@ -67,6 +68,7 @@ vi.mock('primevue/useconfirm', () => ({
 
 import GenreDetailView from '@/views/GenreDetailView.vue'
 import { resetCoverVersions } from '@/composables/useCoverVersion'
+import { NETWORK_MESSAGE } from '@/lib/apiError'
 
 const mountView = () =>
     mount(GenreDetailView, {
@@ -100,6 +102,7 @@ beforeEach(() => {
     genres.value = [
         { value: 'Jazz', songCount: 100, albumCount: 20, coverArt: 'genre-jazz' }
     ]
+    genresError.value = null
     items.value = []
     updateCoverMutate.mockClear()
     updateCoverIsPending.value = false
@@ -109,6 +112,21 @@ beforeEach(() => {
     global.URL.revokeObjectURL = vi.fn()
     mockGetGeneratedCoverPreviewUrl.mockClear()
     mockGetGeneratedCoverPreviewUrl.mockReturnValue('generated:preview')
+})
+
+// In the desktop app a request that got no answer rejects with the HTTP plugin's
+// bare string, which names the request URL, apiKey included. The page must say
+// what happened, and nothing of that string.
+describe('GenreDetailView when the genres cannot be loaded', () => {
+    it('says the server could not be reached, without the transport text', () => {
+        genres.value = []
+        genresError.value =
+            'error sending request for url (http://h:8075/rest/getGenres.view?apiKey=aether_s3cret)'
+
+        const w = mountView()
+
+        expect(w.find('.error').text()).toBe(NETWORK_MESSAGE)
+    })
 })
 
 describe('GenreDetailView cover editing', () => {
