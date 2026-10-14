@@ -430,6 +430,23 @@ describe('normalizeServerUrl', () => {
         expect(normalizeServerUrl(typed)).toBe(normalised)
     })
 
+    // Where URL parsing rewrites what was typed. The gate compares this form with
+    // the one the player's Rust side saves (normalize_server_url) to tell whether
+    // Connect saved the same server again, which keeps a stored key: both must
+    // rewrite these the same way. client.rs pins the same table.
+    it.each([
+        ['http://h:80', 'http://h'],
+        ['https://h:443/aether/', 'https://h/aether'],
+        // 443 is https's default, not http's
+        ['http://h:443', 'http://h:443'],
+        // scheme and host are case-insensitive, a path prefix is not
+        ['HTTP://Music.Example.COM:8075/Aether', 'http://music.example.com:8075/Aether'],
+        ['http://[::1]:8075/', 'http://[::1]:8075'],
+        ['http://[FE80:0:0:0:0:0:0:1]/', 'http://[fe80::1]']
+    ])('rewrites %j as the player does, to %j', (typed, normalised) => {
+        expect(normalizeServerUrl(typed)).toBe(normalised)
+    })
+
     it.each([
         '',
         'http://',

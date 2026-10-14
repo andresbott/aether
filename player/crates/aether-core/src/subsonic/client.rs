@@ -588,6 +588,30 @@ mod tests {
         }
     }
 
+    // Where URL parsing rewrites what was typed. The SPA normalises an address
+    // before Rust does (normalizeServerUrl in webui/src/lib/api/Server.ts) and
+    // compares the two forms to tell whether Connect saved the same server
+    // again, which keeps a stored key — so both sides must rewrite these the same
+    // way. Server.spec.ts pins the same table.
+    #[test]
+    fn normalize_server_url_elides_default_ports_lowercases_hosts_and_compresses_ipv6() {
+        for (input, want) in [
+            ("http://h:80", "http://h"),
+            ("https://h:443/aether/", "https://h/aether"),
+            // 443 is https's default, not http's
+            ("http://h:443", "http://h:443"),
+            // scheme and host are case-insensitive, a path prefix is not
+            (
+                "HTTP://Music.Example.COM:8075/Aether",
+                "http://music.example.com:8075/Aether",
+            ),
+            ("http://[::1]:8075/", "http://[::1]:8075"),
+            ("http://[FE80:0:0:0:0:0:0:1]/", "http://[fe80::1]"),
+        ] {
+            assert_normalised(input, want);
+        }
+    }
+
     #[test]
     fn normalize_server_url_rejects_other_schemes() {
         for input in ["ftp://h/music", "file:///srv/music", "ws://h:8075"] {
