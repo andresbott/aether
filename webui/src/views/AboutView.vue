@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import { useVersion } from '@/composables/useVersion'
 import { useViewport } from '@/composables/useViewport'
+import { appVersion, isDesktopApp, serverUrl } from '@/lib/host'
 import { VISIBLE_SHORTCUTS } from '@/utils/shortcuts'
 
 const { data: serverVersion } = useVersion()
@@ -10,11 +11,35 @@ const { isTouch } = useViewport()
 
 // Same prefix rule as the settings sidebar version string: "v" only before
 // bare numeric versions, non-release builds ("dev-build") shown verbatim.
+const prefixed = (v: string) => (/^\d/.test(v) ? `v${v}` : v)
+
 const versionLabel = computed(() => {
     const v = serverVersion.value?.version
     if (!v) return ''
-    return /^\d/.test(v) ? `v${v}` : v
+    return prefixed(v)
 })
+
+// Version, Commit and Built describe the SERVER (useVersion answers from the
+// server the page talks to). Inside the desktop app there is a second version,
+// the player's own, so the app lists both it and the server it is connected to,
+// and labels the server's version as such so the two cannot be confused.
+const desktopApp = isDesktopApp()
+
+// Asked of the Rust side once. Until it answers, and if it cannot, the row reads
+// "unknown" like the server's version does: never an error on this page.
+const appVersionText = ref<string | null>(null)
+if (desktopApp) {
+    appVersion()
+        .then((v) => {
+            appVersionText.value = v
+        })
+        .catch(() => {
+            // Stays "unknown".
+        })
+}
+const appVersionLabel = computed(() =>
+    appVersionText.value ? prefixed(appVersionText.value) : 'unknown'
+)
 
 const commitLabel = computed(() => {
     const c = serverVersion.value?.commit
@@ -56,9 +81,19 @@ const buildTime = computed(() => serverVersion.value?.build_time || '')
 
                 <section class="about-section">
                     <h2>Build</h2>
-                    <dl class="info-table">
+                    <dl class="info-table" :class="{ 'wide-labels': desktopApp }">
+                        <template v-if="desktopApp">
+                            <div class="info-row">
+                                <dt>App</dt>
+                                <dd>{{ appVersionLabel }}</dd>
+                            </div>
+                            <div class="info-row">
+                                <dt>Server</dt>
+                                <dd class="address">{{ serverUrl }}</dd>
+                            </div>
+                        </template>
                         <div class="info-row">
-                            <dt>Version</dt>
+                            <dt>{{ desktopApp ? 'Server version' : 'Version' }}</dt>
                             <dd>{{ versionLabel || 'unknown' }}</dd>
                         </div>
                         <div v-if="commitLabel" class="info-row">
@@ -159,6 +194,19 @@ const buildTime = computed(() => serverVersion.value?.build_time || '')
 
 .info-row dd {
     margin: 0;
+}
+
+/* "Server version" does not fit the 5.5rem label column: it would wrap, and the
+   value would sit on the first line of a two-line label. */
+.info-table.wide-labels .info-row dt {
+    width: 7.5rem;
+}
+
+/* An address is one unbreakable word; a long one wraps instead of pushing the
+   page sideways. */
+.address {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .mono {

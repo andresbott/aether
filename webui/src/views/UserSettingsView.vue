@@ -24,13 +24,17 @@ const { mode, options, hiddenUnlocked } = useTheme()
 // are device-level settings only. authRequired is true only in native mode:
 // under proxy-header the identity provider owns the credential, so there is no
 // local password to change.
-const { currentUser, authRequired, logout } = useAuth()
+const { currentUser, authRequired, managementApi, logout } = useAuth()
 const toast = useToast()
 
 // The change-password form belongs only to a signed-in native user: proxy-header
-// delegates credentials to the IdP (nothing to change here) and auth method
-// "none" has no user at all.
+// delegates credentials to the IdP (nothing to change here), auth method "none"
+// has no user at all, and a key session has no password.
 const canChangePassword = computed(() => authRequired.value && currentUser.value !== null)
+
+// The tokens live on /api/v0: a user is needed to own them, and the management
+// API to reach them — a key session has the user but not the API.
+const canManageTokens = computed(() => currentUser.value !== null && managementApi.value)
 
 const pwCurrent = ref('')
 const pwNew = ref('')
@@ -68,7 +72,7 @@ async function onChangePassword(): Promise<void> {
     }
 }
 
-const { data: tokens } = useTokens(computed(() => currentUser.value !== null))
+const { data: tokens } = useTokens(canManageTokens)
 // First-party tokens an Aether app minted for itself (this web player today;
 // a mobile or desktop app mints the same way).
 const sessionTokens = computed(() => tokens.value?.filter((t) => t.kind === 'session') ?? [])
@@ -84,15 +88,16 @@ interface SettingsTab {
     icon: string
 }
 
-// The access tab needs a user to own the tokens; with auth method "none" only
-// the device-level General settings exist. Account holds the change-password
-// form, so it appears only where a password can be changed (native + signed in).
+// The access tab needs a user to own the tokens and the management API to reach
+// them (canManageTokens); with auth method "none" only the device-level General
+// settings exist. Account holds the change-password form, so it appears only
+// where a password can be changed (native + signed in).
 const tabs = computed<SettingsTab[]>(() => [
     { id: 'general', label: 'General', icon: 'ms-person' },
     ...(canChangePassword.value
         ? ([{ id: 'account', label: 'Account', icon: 'ms-lock' }] as SettingsTab[])
         : []),
-    ...(currentUser.value
+    ...(canManageTokens.value
         ? ([{ id: 'access', label: 'Connected apps', icon: 'ms-mobile' }] as SettingsTab[])
         : [])
 ])
@@ -372,7 +377,7 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
                     </section>
 
                     <section
-                        v-if="currentUser"
+                        v-if="canManageTokens"
                         v-show="activeTab === 'access'"
                         id="panel-access"
                         class="settings-panel tokens-section"
@@ -534,7 +539,7 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
 
         <!-- Overlays live outside the panels: PrimeVue teleports them to the body,
              so they must not depend on which tab is currently shown. -->
-        <template v-if="currentUser">
+        <template v-if="canManageTokens">
             <ConfirmDialog />
 
             <Dialog v-model:visible="createVisible" modal :header="createHeader" :closable="true">

@@ -24,8 +24,9 @@ vi.mock('vue-router', () => ({
 const isLoading = ref(false)
 const needsLogin = ref(false)
 const isAdmin = ref(false)
+const managementApi = ref(true)
 vi.mock('@/composables/useAuth', () => ({
-    useAuth: () => ({ isLoading, needsLogin, isAdmin })
+    useAuth: () => ({ isLoading, needsLogin, isAdmin, managementApi })
 }))
 
 import App from '@/App.vue'
@@ -35,6 +36,7 @@ beforeEach(() => {
     isLoading.value = false
     needsLogin.value = false
     isAdmin.value = false
+    managementApi.value = true
     replace.mockClear()
 })
 
@@ -54,6 +56,17 @@ describe('App admin redirect', () => {
         mount(App)
         await nextTick()
         expect(replace).not.toHaveBeenCalled()
+    })
+
+    // An admin's key session has the role but no /api/v0: the admin area is a
+    // dead door there, so a typed /settings URL goes home too.
+    it('sends an admin without the management API home', async () => {
+        route.meta = { layout: 'settings' }
+        isAdmin.value = true
+        managementApi.value = false
+        mount(App)
+        await nextTick()
+        expect(replace).toHaveBeenCalledWith('/')
     })
 
     it('does not redirect while /me is still loading', async () => {

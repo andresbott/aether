@@ -1,17 +1,24 @@
 use crate::error::CoreError;
 use rand::{distributions::Alphanumeric, Rng};
 use serde::Deserialize;
-use url::Url;
+use url::{ParseError, Url};
 
 pub const API_VERSION: &str = "1.16.1";
 pub const CLIENT_NAME: &str = "aether-player";
+
+/// How requests prove who is asking. The two parameter sets are never sent
+/// together: the server answers a mix with error 43.
+#[derive(Clone)]
+enum Auth {
+    Password { username: String, password: String },
+    ApiKey(String),
+}
 
 #[derive(Clone)]
 pub struct SubsonicClient {
     http: reqwest::Client,
     base_url: Url,
-    username: String,
-    password: String,
+    auth: Auth,
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,34 +62,111 @@ pub(crate) struct AlbumList2 {
     pub album: Vec<super::models::Album>,
 }
 
+/// Checks a server address: an `http` or `https` URL with a host and without
+/// credentials (the player never stores a password), a query or a fragment (the
+/// client adds its own query to every request). A missing host (`http://`) is
+/// refused by the URL parser itself.
+fn parse_server_url(input: &str) -> Result<Url, CoreError> {
+    let url = Url::parse(input).map_err(|e| {
+        CoreError::InvalidServerUrl(match e {
+            ParseError::RelativeUrlWithoutBase => {
+                "missing scheme, expected http:// or https://".into()
+            }
+            other => other.to_string(),
+        })
+    })?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(CoreError::InvalidServerUrl(format!(
+            "unsupported scheme {:?}, expected http or https",
+            url.scheme()
+        )));
+    }
+    // empty userinfo (`http://@h/`) is dropped by the parser and carries nothing
+    if !url.username().is_empty() || url.password().is_some_and(|p| !p.is_empty()) {
+        return Err(CoreError::InvalidServerUrl(
+            "credentials are not allowed in the server address".into(),
+        ));
+    }
+    if url.query().is_some() {
+        return Err(CoreError::InvalidServerUrl(
+            "must not contain a query".into(),
+        ));
+    }
+    if url.fragment().is_some() {
+        return Err(CoreError::InvalidServerUrl(
+            "must not contain a fragment".into(),
+        ));
+    }
+    Ok(url)
+}
+
+/// The text of a validated server URL, without trailing slashes.
+fn canonical(url: &Url) -> String {
+    url.as_str().trim_end_matches('/').to_string()
+}
+
+/// Checks a server address and returns its canonical form: an `http` or
+/// `https` URL with a host, no credentials, query or fragment and no trailing
+/// slash (`http://h:8075/` becomes `http://h:8075`). The port and a path
+/// prefix, for a server mounted behind a reverse proxy, are kept.
+///
+/// [`SubsonicClient`] applies the same checks to the address it is built with.
+pub fn normalize_server_url(input: &str) -> Result<String, CoreError> {
+    parse_server_url(input).map(|url| canonical(&url))
+}
+
 impl SubsonicClient {
+    /// A client that signs requests with the salted-token scheme (`u`/`t`/`s`).
     pub fn new(base_url: &str, username: &str, password: &str) -> Result<Self, CoreError> {
-        let base_url = Url::parse(base_url)
-            .map_err(|e| CoreError::InvalidResponse(format!("invalid server url: {e}")))?;
+        Self::with_auth(
+            base_url,
+            Auth::Password {
+                username: username.to_string(),
+                password: password.to_string(),
+            },
+        )
+    }
+
+    /// A client that sends an OpenSubsonic API key (`apiKey`) instead of a
+    /// username and password.
+    pub fn with_api_key(base_url: &str, api_key: &str) -> Result<Self, CoreError> {
+        Self::with_auth(base_url, Auth::ApiKey(api_key.to_string()))
+    }
+
+    fn with_auth(base_url: &str, auth: Auth) -> Result<Self, CoreError> {
         Ok(Self {
             http: reqwest::Client::new(),
-            base_url,
-            username: username.to_string(),
-            password: password.to_string(),
+            base_url: parse_server_url(base_url)?,
+            auth,
         })
     }
 
-    /// Fresh salt + token per call, per the Subsonic auth scheme.
+    /// The credentials followed by the fixed client parameters. Password auth
+    /// uses a fresh salt + token per call, per the Subsonic auth scheme; an
+    /// API key is sent as is.
     fn auth_query(&self) -> Vec<(String, String)> {
-        let salt: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(12)
-            .map(char::from)
-            .collect();
-        let token = format!("{:x}", md5::compute(format!("{}{}", self.password, salt)));
-        vec![
-            ("u".into(), self.username.clone()),
-            ("t".into(), token),
-            ("s".into(), salt),
+        let mut query = match &self.auth {
+            Auth::Password { username, password } => {
+                let salt: String = rand::thread_rng()
+                    .sample_iter(&Alphanumeric)
+                    .take(12)
+                    .map(char::from)
+                    .collect();
+                let token = format!("{:x}", md5::compute(format!("{password}{salt}")));
+                vec![
+                    ("u".into(), username.clone()),
+                    ("t".into(), token),
+                    ("s".into(), salt),
+                ]
+            }
+            Auth::ApiKey(key) => vec![("apiKey".into(), key.clone())],
+        };
+        query.extend([
             ("v".into(), API_VERSION.into()),
             ("c".into(), CLIENT_NAME.into()),
             ("f".into(), "json".into()),
-        ]
+        ]);
+        query
     }
 
     pub(crate) fn build_url(&self, path: &str, params: &[(&str, &str)]) -> Url {
@@ -110,12 +194,11 @@ impl SubsonicClient {
         params: &[(&str, &str)],
     ) -> Result<ResponseBody, CoreError> {
         let url = self.build_url(path, params);
-        let resp = self
-            .http
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| CoreError::ServerUnreachable(e.to_string()))?;
+        let resp = self.http.get(url).send().await.map_err(|e| {
+            // reqwest appends the request URL to the message, and the URL
+            // carries the API key
+            CoreError::ServerUnreachable(e.without_url().to_string())
+        })?;
         let envelope: Envelope = resp
             .json()
             .await
@@ -123,7 +206,8 @@ impl SubsonicClient {
         let body = envelope.subsonic_response;
         if body.status != "ok" {
             return match body.error {
-                Some(ApiError { code: 40, .. }) => Err(CoreError::AuthFailed),
+                // 40: wrong or missing credentials, 44: invalid apiKey
+                Some(ApiError { code: 40 | 44, .. }) => Err(CoreError::AuthFailed),
                 Some(ApiError { code, message }) => Err(CoreError::Api { code, message }),
                 None => Err(CoreError::InvalidResponse("failed without error".into())),
             };
@@ -192,12 +276,9 @@ impl SubsonicClient {
         }
     }
 
+    /// The server address in the form [`normalize_server_url`] returns.
     pub fn base_url_str(&self) -> String {
-        self.base_url.to_string()
-    }
-
-    pub fn username_str(&self) -> String {
-        self.username.clone()
+        canonical(&self.base_url)
     }
 }
 
@@ -238,6 +319,57 @@ mod tests {
         assert_eq!(q["f"], "json");
         let expected = format!("{:x}", md5::compute(format!("sesame{}", q["s"])));
         assert_eq!(q["t"], expected, "token must be md5(password + salt)");
+        assert!(
+            !q.contains_key("apiKey"),
+            "password auth must not send an apiKey"
+        );
+    }
+
+    #[tokio::test]
+    async fn ping_with_api_key_sends_only_the_key() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/rest/ping"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(ok_body("")))
+            .mount(&server)
+            .await;
+
+        let client = SubsonicClient::with_api_key(&server.uri(), "s3cr3t").unwrap();
+        client.ping().await.unwrap();
+
+        let reqs = server.received_requests().await.unwrap();
+        let q: std::collections::HashMap<String, String> = reqs[0]
+            .url
+            .query_pairs()
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
+        assert_eq!(q["apiKey"], "s3cr3t");
+        // the server answers a key mixed with password params with error 43
+        for password_param in ["u", "t", "s"] {
+            assert!(
+                !q.contains_key(password_param),
+                "api key auth must not send `{password_param}`"
+            );
+        }
+        assert_eq!(q["v"], "1.16.1");
+        assert_eq!(q["c"], "aether-player");
+        assert_eq!(q["f"], "json");
+    }
+
+    #[tokio::test]
+    async fn ping_maps_error_44_to_auth_failed() {
+        let server = MockServer::start().await;
+        let body = r#"{"subsonic-response":{"status":"failed","version":"1.16.1",
+            "error":{"code":44,"message":"Invalid API key"}}}"#;
+        Mock::given(method("GET"))
+            .and(path("/rest/ping"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(body))
+            .mount(&server)
+            .await;
+
+        let client = SubsonicClient::with_api_key(&server.uri(), "revoked").unwrap();
+        let err = client.ping().await.unwrap_err();
+        assert!(matches!(err, CoreError::AuthFailed));
     }
 
     #[tokio::test]
@@ -259,9 +391,17 @@ mod tests {
     #[tokio::test]
     async fn ping_unreachable_server_maps_to_server_unreachable() {
         // port 1 is never listening
-        let client = SubsonicClient::new("http://127.0.0.1:1", "u", "p").unwrap();
+        let client = SubsonicClient::with_api_key("http://127.0.0.1:1", "s3cr3t-key").unwrap();
         let err = client.ping().await.unwrap_err();
-        assert!(matches!(err, CoreError::ServerUnreachable(_)));
+        match err {
+            // the error text ends up in the UI and the logs; the key rides in
+            // the request URL, which reqwest would otherwise print
+            CoreError::ServerUnreachable(reason) => assert!(
+                !reason.contains("s3cr3t-key"),
+                "the api key leaked into the error: {reason}"
+            ),
+            other => panic!("expected ServerUnreachable, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -367,5 +507,163 @@ mod tests {
         let q: std::collections::HashMap<_, _> = url.query_pairs().collect();
         assert_eq!(q["id"], "c9");
         assert_eq!(q["size"], "300");
+    }
+
+    #[tokio::test]
+    async fn requests_keep_the_server_path_prefix() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/aether/rest/ping"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(ok_body("")))
+            .mount(&server)
+            .await;
+
+        // the trailing slash must not turn into `//rest/ping`
+        let base = format!("{}/aether/", server.uri());
+        let client = SubsonicClient::with_api_key(&base, "k").unwrap();
+        client.ping().await.unwrap();
+    }
+
+    #[test]
+    fn constructors_reject_invalid_server_urls() {
+        let err = SubsonicClient::new("ftp://example.com", "u", "p").err();
+        assert!(matches!(err, Some(CoreError::InvalidServerUrl(_))));
+        let err = SubsonicClient::with_api_key("example.com", "k").err();
+        assert!(matches!(err, Some(CoreError::InvalidServerUrl(_))));
+    }
+
+    #[test]
+    fn base_url_str_is_the_normalised_address() {
+        for input in [
+            "http://example.com:8075",
+            "http://example.com:8075/",
+            "https://example.com/aether/",
+        ] {
+            let client = SubsonicClient::new(input, "u", "p").unwrap();
+            assert_eq!(client.base_url_str(), normalize_server_url(input).unwrap());
+        }
+    }
+
+    /// Asserts that `input` normalises to `want`.
+    fn assert_normalised(input: &str, want: &str) {
+        let got = normalize_server_url(input)
+            .unwrap_or_else(|e| panic!("{input:?} should be accepted: {e}"));
+        assert_eq!(got, want, "input {input:?}");
+    }
+
+    /// Asserts that `input` is refused with `InvalidServerUrl`.
+    fn assert_rejected(input: &str) {
+        match normalize_server_url(input) {
+            Err(CoreError::InvalidServerUrl(_)) => {}
+            other => panic!("{input:?} should be an invalid server url, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn normalize_server_url_trims_trailing_slashes() {
+        for (input, want) in [
+            ("http://h:8075", "http://h:8075"),
+            ("http://h:8075/", "http://h:8075"),
+            ("https://music.example.com///", "https://music.example.com"),
+            ("http://h/aether/", "http://h/aether"),
+            // pasted addresses often carry stray whitespace
+            ("  http://h:8075/\n", "http://h:8075"),
+        ] {
+            assert_normalised(input, want);
+        }
+    }
+
+    #[test]
+    fn normalize_server_url_keeps_port_and_path_prefix() {
+        for (input, want) in [
+            ("http://192.168.1.5:8075", "http://192.168.1.5:8075"),
+            ("https://example.com:8443/", "https://example.com:8443"),
+            ("http://h/aether", "http://h/aether"),
+            (
+                "https://example.com:8443/media/aether/",
+                "https://example.com:8443/media/aether",
+            ),
+        ] {
+            assert_normalised(input, want);
+        }
+    }
+
+    // Where URL parsing rewrites what was typed. The SPA normalises an address
+    // before Rust does (normalizeServerUrl in webui/src/lib/api/Server.ts) and
+    // compares the two forms to tell whether Connect saved the same server
+    // again, which keeps a stored key — so both sides must rewrite these the same
+    // way. Server.spec.ts pins the same table.
+    #[test]
+    fn normalize_server_url_elides_default_ports_lowercases_hosts_and_compresses_ipv6() {
+        for (input, want) in [
+            ("http://h:80", "http://h"),
+            ("https://h:443/aether/", "https://h/aether"),
+            // 443 is https's default, not http's
+            ("http://h:443", "http://h:443"),
+            // scheme and host are case-insensitive, a path prefix is not
+            (
+                "HTTP://Music.Example.COM:8075/Aether",
+                "http://music.example.com:8075/Aether",
+            ),
+            ("http://[::1]:8075/", "http://[::1]:8075"),
+            ("http://[FE80:0:0:0:0:0:0:1]/", "http://[fe80::1]"),
+        ] {
+            assert_normalised(input, want);
+        }
+    }
+
+    #[test]
+    fn normalize_server_url_rejects_other_schemes() {
+        for input in ["ftp://h/music", "file:///srv/music", "ws://h:8075"] {
+            assert_rejected(input);
+        }
+    }
+
+    #[test]
+    fn normalize_server_url_rejects_a_missing_scheme() {
+        for input in [
+            "",
+            "aether.local",
+            "192.168.1.5:8075",
+            "localhost:8075",
+            "//h:8075",
+        ] {
+            assert_rejected(input);
+        }
+    }
+
+    #[test]
+    fn normalize_server_url_rejects_a_missing_host() {
+        for input in ["http://", "https:///", "http://:8075"] {
+            assert_rejected(input);
+        }
+    }
+
+    #[test]
+    fn normalize_server_url_rejects_query_and_fragment() {
+        for input in [
+            "http://h:8075/?token=x",
+            "http://h:8075?x=1",
+            "http://h/aether/#top",
+            "http://h/?",
+            "http://h/#",
+        ] {
+            assert_rejected(input);
+        }
+    }
+
+    #[test]
+    fn normalize_server_url_rejects_credentials() {
+        // the player never stores a password, so none may ride in the address
+        for input in ["http://user:pw@h:8075/", "http://user@h/", "http://:pw@h/"] {
+            assert_rejected(input);
+        }
+        let reason = normalize_server_url("http://user:pw@h/")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            reason.contains("credentials"),
+            "unexpected reason: {reason}"
+        );
     }
 }

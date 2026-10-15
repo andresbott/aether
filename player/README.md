@@ -1,18 +1,22 @@
 # Aether Player
 
-Desktop music player for Aether and other OpenSubsonic servers: a Tauri 2 app
-whose Rust backend plays the music and whose window is the same Vue 3 SPA the
-server embeds (`../webui`). Linux, macOS and Windows.
+Desktop music player for Aether: a Tauri 2 app whose window is the same Vue 3
+SPA the server embeds (`../webui`) and whose Rust backend remembers the server,
+carries the SPA's requests and runs the tray. Linux, macOS and Windows.
 
-> **Pre-release.** The UI still talks HTTP to a server; driving it over Tauri
-> IPC is the open follow-up — see `docs/agents/player/features.md`.
+> **Pre-release.** The window asks for the server's address first, then signs
+> in as the browser does, or with a pasted API key (the way into a server
+> behind an auth portal), and plays in the webview for now: moving playback
+> into the Rust engine is the open follow-up, and administering a portal
+> server from the app is not supported — see `docs/agents/player/features.md`.
 
 ## Layout
 
 - `crates/aether-core` — pure Rust core: Subsonic client, queue/player, engine
   trait. Never depends on Tauri.
-- `src-tauri` — the Tauri shell: IPC commands, desktop audio engine (rodio),
-  tray, credentials, events.
+- `src-tauri` — the Tauri shell: IPC commands, the saved server and, in a key
+  session, the pasted API key, the HTTP plugin the SPA's requests ride, desktop
+  audio engine (rodio), tray, events.
 - `package.json` — pins the `@tauri-apps/cli` only; the frontend is `../webui`.
 
 ## Development
@@ -26,7 +30,9 @@ Run everything from the repo root (`make help` lists the targets):
     make player-build     # production bundles into player/target/release/bundle
 
 `make -C player <target>` runs the same targets without the prefix (`prepare`,
-`run`, `lint`, `test`, `fmt`, `build`, `check-deps`).
+`run`, `lint`, `test`, `fmt`, `build`, `check-deps`). With the Aether server
+running locally (`make run`, on :8075), give the window's server step
+`http://localhost:8075`.
 
 Linux build prerequisites (Debian/Ubuntu):
 

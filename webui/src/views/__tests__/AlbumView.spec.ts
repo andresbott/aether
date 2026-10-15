@@ -17,6 +17,7 @@ const album = {
 
 // Mutable ref so individual tests can swap in a multi-disc album.
 const albumData = ref<unknown>(markRaw(album))
+const albumError = ref<unknown>(null)
 
 const isTouch = ref(false)
 vi.mock('@/composables/useViewport', () => ({
@@ -27,7 +28,7 @@ const toggleStarMutate = vi.fn()
 const updateCoverMutate = vi.fn()
 const updateCoverIsPending = ref(false)
 vi.mock('@/composables/useSubsonicQueries', () => ({
-    useAlbum: () => ({ data: albumData, isLoading: ref(false), error: ref(null) }),
+    useAlbum: () => ({ data: albumData, isLoading: ref(false), error: albumError }),
     useToggleStar: () => ({ mutate: toggleStarMutate }),
     useUpdateAlbumCover: () => ({ mutate: updateCoverMutate, isPending: updateCoverIsPending })
 }))
@@ -84,6 +85,7 @@ vi.mock('primevue/useconfirm', () => ({
 import AlbumView from '@/views/AlbumView.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
 import { resetCoverVersions } from '@/composables/useCoverVersion'
+import { NETWORK_MESSAGE } from '@/lib/apiError'
 
 const mountView = () =>
     mount(AlbumView, {
@@ -117,6 +119,7 @@ const mountView = () =>
 
 beforeEach(() => {
     albumData.value = markRaw(album)
+    albumError.value = null
     isTouch.value = false
     playAlbum.mockClear()
     addMultipleToQueue.mockClear()
@@ -133,6 +136,21 @@ beforeEach(() => {
     global.URL.revokeObjectURL = vi.fn()
     mockGetGeneratedCoverPreviewUrl.mockClear()
     mockGetGeneratedCoverPreviewUrl.mockReturnValue('generated:preview')
+})
+
+// In the desktop app a request that got no answer rejects with the HTTP plugin's
+// bare string, which names the request URL, apiKey included. The page must say
+// what happened, and nothing of that string.
+describe('AlbumView when the album cannot be loaded', () => {
+    it('says the server could not be reached, without the transport text', () => {
+        albumData.value = undefined
+        albumError.value =
+            'error sending request for url (http://h:8075/rest/getAlbum.view?apiKey=aether_s3cret)'
+
+        const w = mountView()
+
+        expect(w.find('.error').text()).toBe(NETWORK_MESSAGE)
+    })
 })
 
 describe('AlbumView hero eyebrow', () => {

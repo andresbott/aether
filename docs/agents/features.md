@@ -83,14 +83,20 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 
 ## Desktop player (`player/`, see [player/features.md](player/features.md))
 
-The Tauri app's own table lives next to its docs. The headline: connection
-(keyring-backed), Subsonic browsing passthroughs, rodio playback with queue and
-auto-advance, cover art over `aether://`, tray and close-to-tray are
-implemented; **the SPA does not drive it over IPC yet** — the shipped bundles
-open the shared webui, which still speaks HTTP and finds no server at a
-`tauri://` origin. That retrofit (`AetherClient` transport abstraction) is the
-player's follow-up #1; progressive streaming, the offline cache and the mobile
-engines are the others.
+The Tauri app's own table lives next to its docs. The headline: server
+selection (the login view asks for the server first; the app keeps its URL and
+sign-in kind in `settings.json` and, in a key session, the pasted API key in
+`credentials.json` — no keyring, no stored password), the shared webui
+over `tauri-plugin-http` (every `/api/v0` and `/rest` request leaves from Rust,
+which holds the session cookie), tray and close-to-tray are implemented, and
+the music plays in the webview's `<audio>`. Rodio playback with queue and
+auto-advance, the Subsonic browsing passthroughs and cover art over `aether://`
+are built but unused: **moving playback into that engine over IPC** is the
+player's follow-up #1, narrowed by server selection; API-key login
+(2026-10-11) lets the app use a server behind a portal in a `/rest`-only
+session; administering such a server from the app, the metadata editor's
+pictures in the app, progressive streaming, the offline cache and the mobile
+engines are the other follow-ups.
 
 ## Not implemented (catalogued in TODO.md — read it first)
 

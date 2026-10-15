@@ -4,7 +4,8 @@ import {
     apiFieldErrors,
     apiFieldErrorMap,
     isCanceledError,
-    isRateLimitError
+    isRateLimitError,
+    NETWORK_MESSAGE
 } from '@/lib/apiError'
 
 // The server answers /api/v0 failures as an RFC 9457 problem+json body:
@@ -100,6 +101,17 @@ describe('apiErrorMessage', () => {
         expect(apiErrorMessage(err)).toBe(
             'The server could not be reached. Check your connection and try again.'
         )
+    })
+
+    // In the desktop app the HTTP plugin rejects a request that got no answer
+    // with a bare string — no Error, no response — and the string names the
+    // request URL, apiKey included. It is a connectivity failure, and its text
+    // must never reach the screen.
+    it('reads a bare-string rejection as a network failure, never showing it', () => {
+        const rejection =
+            'error sending request for url (http://h:8075/rest/getAlbum.view?apiKey=aether_s3cret)'
+
+        expect(apiErrorMessage(rejection, 'Could not load the album.')).toBe(NETWORK_MESSAGE)
     })
 
     it('distinguishes server errors from network failures', () => {

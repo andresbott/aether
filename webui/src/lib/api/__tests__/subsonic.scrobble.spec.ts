@@ -35,10 +35,12 @@ describe('subsonicClient.scrobble', () => {
     it('never rejects when the request fails, and warns instead', async () => {
         vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))))
         // The warn is the intended behaviour, so assert it rather than let it
-        // print: an expected failure must not look like a broken test run.
+        // print: an expected failure must not look like a broken test run. It
+        // is the label alone: in the desktop app the error text names the
+        // request URL, apiKey included.
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
         await expect(subsonicClient.scrobble('tr-1')).resolves.toBeUndefined()
-        expect(warn).toHaveBeenCalledWith('scrobble failed', expect.any(Error))
+        expect(warn).toHaveBeenCalledWith('scrobble failed')
         warn.mockRestore()
     })
 })

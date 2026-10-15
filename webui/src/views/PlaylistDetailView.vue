@@ -31,6 +31,7 @@ import { useSongsDrag } from '@/composables/useSongsDrag'
 import { useRowSelection } from '@/composables/useRowSelection'
 import { reorderQueue } from '@/utils/queueReorder'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { apiErrorMessage } from '@/lib/apiError'
 import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
 import type { Song } from '@/types/subsonic'
 
@@ -415,7 +416,7 @@ onUnmounted(() => {
 
         <div v-else-if="error" class="error">
             <i class="ms-warning" style="font-size: 2rem"></i>
-            <p>{{ error.message }}</p>
+            <p>{{ apiErrorMessage(error) }}</p>
         </div>
 
         <ContentScaffold v-else-if="playlist" title="" show-back @back="router.back()">

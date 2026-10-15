@@ -1,0 +1,305 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
+import { createRouter, createMemoryHistory } from 'vue-router'
+import PrimeVue from 'primevue/config'
+import type { MeResponse } from '@/types/users'
+
+// The desktop app's gate end to end: the real useAuth, login view and vue-query
+// decide; only the server's answers, the probe and the host are stood in.
+const { getMe, mintSpaToken, probeServer } = vi.hoisted(() => ({
+    getMe: vi.fn(),
+    mintSpaToken: vi.fn(),
+    probeServer: vi.fn()
+}))
+vi.mock('@/lib/api/Users', () => ({ getMe }))
+vi.mock('@/lib/api/Tokens', () => ({ mintSpaToken }))
+vi.mock('@/lib/api/Server', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/api/Server')>()),
+    probeServer
+}))
+// The mocked Server module outlives vi.resetModules, and with it the meShape it
+// loaded first: the error class it checks /me failures against. Pinned the same
+// way, meShape stays that one module for the whole file, so a real getMe loaded
+// after a reset throws the class the server step recognises — as in the app,
+// where every module exists once.
+vi.mock('@/lib/api/meShape', async (importOriginal) => importOriginal())
+vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ clearQueue: vi.fn() }) }))
+vi.mock('@/composables/useQueueSync', () => ({
+    useQueueSync: () => ({ stop: vi.fn(), start: vi.fn(), restore: vi.fn() })
+}))
+
+// A mocked module outlives vi.resetModules, so its serverUrl ref is one for the
+// whole file: cases set it through the import, not through the factory.
+const host = vi.hoisted(() => ({ desktopApp: true, onTrayCommand: vi.fn() }))
+vi.mock('@/lib/host', async () => {
+    const { ref } = await import('vue')
+    const serverUrl = ref<string | null>(null)
+    const sessionKind = ref<'cookie' | 'apiKey'>('cookie')
+    const apiKey = ref<string | null>(null)
+    return {
+        isDesktopApp: () => host.desktopApp,
+        serverHost: (await import('@/lib/host/serverUrl')).serverHost,
+        // The tray bridge App wires in the app; what it does is its own spec's.
+        onTrayCommand: host.onTrayCommand,
+        serverUrl,
+        sessionKind,
+        apiKey,
+        // As the IPC wrappers do: the saved address and kind become the session.
+        setServerUrl: async (url: string, kind: 'cookie' | 'apiKey') => {
+            // Rust keeps a stored key only for the same server saved as a key session.
+            if (kind !== 'apiKey' || url !== serverUrl.value) apiKey.value = null
+            sessionKind.value = kind
+            serverUrl.value = url
+            return url
+        },
+        setSessionKind: async (kind: 'cookie' | 'apiKey') => {
+            sessionKind.value = kind
+        },
+        setApiKey: async (key: string) => {
+            sessionKind.value = 'apiKey'
+            apiKey.value = key
+        },
+        clearApiKey: async () => {
+            apiKey.value = null
+        },
+        // The real subsonic client asks getUser through here: the page fetch,
+        // which a case stubs with the server's answer.
+        httpFetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
+        clearServerUrl: vi.fn(),
+        setSession: async () => {},
+        clearSession: async () => {}
+    }
+})
+
+const SERVER = 'http://aether.local:8075'
+
+const meNone: MeResponse = {
+    authMethod: 'none',
+    user: null,
+    features: { userManagement: false }
+}
+const meProxyAnonymous: MeResponse = {
+    authMethod: 'proxy-header',
+    user: null,
+    features: { userManagement: false }
+}
+const meNative: MeResponse = {
+    authMethod: 'native',
+    user: null,
+    features: { userManagement: true }
+}
+
+async function setServer(url: string | null) {
+    const { serverUrl } = await import('@/lib/host')
+    serverUrl.value = url
+}
+
+async function mountApp() {
+    const { default: App } = await import('@/App.vue')
+    const router = createRouter({
+        history: createMemoryHistory(),
+        routes: [{ path: '/', component: { template: '<div>Home</div>' } }]
+    })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const wrapper = mount(App, {
+        global: {
+            plugins: [router, PrimeVue, [VueQueryPlugin, { queryClient: qc }]],
+            stubs: { PlayerLayout: { template: '<div class="player-layout" />' } }
+        }
+    })
+    await router.isReady()
+    await flushPromises()
+    return wrapper
+}
+
+describe('App gate in the desktop app', () => {
+    beforeEach(async () => {
+        // useAuth installs its watchers once per module; every case starts clean.
+        vi.resetModules()
+        getMe.mockReset()
+        mintSpaToken.mockReset()
+        probeServer.mockReset()
+        host.desktopApp = true
+        host.onTrayCommand.mockReset()
+        host.onTrayCommand.mockResolvedValue(() => {})
+        await setServer(null)
+        const { sessionKind, apiKey } = await import('@/lib/host')
+        sessionKind.value = 'cookie'
+        apiKey.value = null
+    })
+
+    afterEach(() => vi.unstubAllGlobals())
+
+    // A disabled /me is not loading, so nothing holds the login view back.
+    it('shows the server step, and asks nobody, while no server is chosen', async () => {
+        const w = await mountApp()
+
+        expect(w.find('#login-server').exists()).toBe(true)
+        expect(getMe).not.toHaveBeenCalled()
+    })
+
+    // The tray drives the player on every layout, so App wires it, not PlayerLayout
+    // (a stub here, and unmounted on the settings routes). The server step is as
+    // far from a player layout as the app gets, and the bridge is up all the same.
+    it('wires the tray bridge itself, with no player layout showing', async () => {
+        const w = await mountApp()
+
+        expect(w.find('.player-layout').exists()).toBe(false)
+        expect(host.onTrayCommand).toHaveBeenCalledOnce()
+    })
+
+    it('asks for an API key instead of a blank window on a portal-only server', async () => {
+        await setServer('http://aether.example.org')
+        getMe.mockResolvedValue(meProxyAnonymous)
+
+        const w = await mountApp()
+
+        expect(w.find('#login-api-key').exists()).toBe(true)
+        expect(w.find('#login-server').exists()).toBe(false)
+        expect(w.find('#login-username').exists()).toBe(false)
+    })
+
+    // A relaunch with a stored key: the app renders from getUser alone.
+    it('renders the app from a stored key without asking /me', async () => {
+        await setServer(SERVER)
+        const { sessionKind, apiKey } = await import('@/lib/host')
+        sessionKind.value = 'apiKey'
+        apiKey.value = 'aether_k3y'
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue({
+                ok: true,
+                json: () =>
+                    Promise.resolve({
+                        'subsonic-response': {
+                            status: 'ok',
+                            version: '1.16.1',
+                            type: 'Aether',
+                            user: { username: 'alice', adminRole: false }
+                        }
+                    })
+            })
+        )
+
+        const w = await mountApp()
+
+        expect(getMe).not.toHaveBeenCalled()
+        expect(w.find('.login-view').exists()).toBe(false)
+        expect(w.find('.player-layout').exists()).toBe(true)
+    })
+
+    // In a browser tab the proxy's portal redirect handles it, as before.
+    it('leaves a browser tab on a proxy-header server to its proxy', async () => {
+        host.desktopApp = false
+        await setServer('http://localhost:3000')
+        getMe.mockResolvedValue(meProxyAnonymous)
+
+        const w = await mountApp()
+
+        expect(w.find('.login-view').exists()).toBe(false)
+    })
+
+    // The saved server is down at launch: the server step comes back on its
+    // address instead of a blank window, and Connect on the same address asks
+    // /me again — which the server, back up, now answers.
+    it('recovers from a saved server that did not answer at launch', async () => {
+        await setServer(SERVER)
+        // A /me asked again unprompted would never settle, taking the step away.
+        getMe
+            .mockRejectedValueOnce(new Error('Network Error'))
+            .mockReturnValue(new Promise(() => {}))
+        probeServer.mockResolvedValue({ kind: 'aether', url: SERVER, me: meNone })
+
+        const w = await mountApp()
+
+        // The login view mounting on the failure does not ask again by itself.
+        expect(getMe).toHaveBeenCalledTimes(1)
+        expect((w.find('#login-server').element as HTMLInputElement).value).toBe(SERVER)
+        expect(w.find('.login-error').text()).toBe(`Could not reach ${SERVER}.`)
+        expect(w.find('.player-layout').exists()).toBe(false)
+
+        // Back up: Connect on the same address asks /me again.
+        getMe.mockResolvedValue(meNone)
+        await w.find('form').trigger('submit')
+        await flushPromises()
+
+        expect(getMe).toHaveBeenCalledTimes(2)
+        expect(w.find('.login-view').exists()).toBe(false)
+        expect(w.find('.player-layout').exists()).toBe(true)
+    })
+
+    // The same outage in a key session, on a server whose /me answers as Aether
+    // (a native server the user chose a key for): Connect on the saved address
+    // keeps the key session, and with it the stored key, so the app comes back
+    // from getUser alone. Saved as a cookie session the key would be deleted and
+    // /me asked instead.
+    it('recovers a key session from a saved server that did not answer at launch', async () => {
+        await setServer(SERVER)
+        const { sessionKind, apiKey } = await import('@/lib/host')
+        sessionKind.value = 'apiKey'
+        apiKey.value = 'aether_k3y'
+        const fetchMock = vi.fn().mockRejectedValue(new Error('Network Error'))
+        vi.stubGlobal('fetch', fetchMock)
+        probeServer.mockResolvedValue({ kind: 'aether', url: SERVER, me: meNative })
+
+        const w = await mountApp()
+
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect((w.find('#login-server').element as HTMLInputElement).value).toBe(SERVER)
+        expect(w.find('.login-error').text()).toBe(`Could not reach ${SERVER}.`)
+        expect(w.find('.player-layout').exists()).toBe(false)
+
+        // Back up: Connect on the same address asks getUser again, with the key kept.
+        fetchMock.mockResolvedValue({
+            ok: true,
+            json: () =>
+                Promise.resolve({
+                    'subsonic-response': {
+                        status: 'ok',
+                        version: '1.16.1',
+                        type: 'Aether',
+                        user: { username: 'alice', adminRole: false }
+                    }
+                })
+        })
+        await w.find('form').trigger('submit')
+        await flushPromises()
+
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+        expect(getMe).not.toHaveBeenCalled()
+        expect(sessionKind.value).toBe('apiKey')
+        expect(apiKey.value).toBe('aether_k3y')
+        expect(w.find('.login-view').exists()).toBe(false)
+        expect(w.find('.player-layout').exists()).toBe(true)
+    })
+
+    // The saved address answers 200, but not as Aether: another web app now on
+    // that port, a captive portal's page. Taken for /me, it would render the app
+    // against it; the server step comes back on the address instead.
+    it('asks for a server again when the saved address answers as something else', async () => {
+        await setServer(SERVER)
+        // The real getMe, with the page answered at the api client: the AbortSignal
+        // getMe's timeout puts on the request is jsdom's, which Node's Request
+        // refuses, so the transport cannot carry it here.
+        const { apiClient } = await import('@/lib/api/client')
+        const get = vi.spyOn(apiClient, 'get').mockResolvedValue({
+            data: '<!doctype html><title>Router login</title>',
+            status: 200
+        })
+        const { getMe: requestMe } =
+            await vi.importActual<typeof import('@/lib/api/Users')>('@/lib/api/Users')
+        getMe.mockImplementation(requestMe)
+
+        const w = await mountApp()
+
+        expect(get).toHaveBeenCalledOnce()
+        expect(get).toHaveBeenCalledWith('/me', expect.anything())
+        expect((w.find('#login-server').element as HTMLInputElement).value).toBe(SERVER)
+        expect(w.find('.player-layout').exists()).toBe(false)
+        // Something answered: the step says what, not that nothing did.
+        expect(w.find('.login-error[role="alert"]').text()).toBe(
+            `No Aether server answered at ${SERVER}.`
+        )
+    })
+})

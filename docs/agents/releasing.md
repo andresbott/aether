@@ -264,9 +264,10 @@ working directory cannot shadow the packaged one.
   CLAUDE.md). There are no schema migration guarantees between tags; do not
   add migration code to satisfy a release.
 - **The player's bundle identifier `dev.andresbott.aether.player` is
-  immutable.** It is the OS keyring service name (a change orphans every
-  stored password) and what makes an update the same app to the OS. The
-  player's version is tauri's, not the Rust crate's — see above.
+  immutable.** Tauri derives the app's config and cache directories from it
+  (a change forgets every saved server and session) and it is what makes an
+  update the same app to the OS. The player's version is tauri's, not the
+  Rust crate's — see above.
 
 See [testing.md](testing.md) for the `make verify` gate and
 [architecture.md](architecture.md) for the embed/composition layout.

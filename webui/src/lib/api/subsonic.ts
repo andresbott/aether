@@ -18,16 +18,18 @@ import type {
     SavedPlayQueue,
     Starred2,
     CatalogView,
-    MusicFolders
+    MusicFolders,
+    SubsonicUser
 } from '@/types/subsonic'
 import { ref } from 'vue'
+import { httpFetch, isDesktopApp, serverUrl } from '@/lib/host'
 
 // The apiKey is REACTIVE on purpose. getCoverArtUrl/getStreamUrl are called
 // from component computeds, which bake the key into the URL they return; a
 // transparent re-mint would otherwise leave those URLs pointing at the dead
 // token until the component happened to re-render for another reason. Reading
 // the key through a ref makes every such computed a dependency, so a
-// setApiKey/clearApiKey invalidates them and the URLs are rebuilt.
+// setApiKey/reset invalidates them and the URLs are rebuilt.
 const apiKeyRef = ref<string | null>(null)
 
 class SubsonicClient {
@@ -37,27 +39,55 @@ class SubsonicClient {
     private set apiKey(key: string | null) {
         apiKeyRef.value = key
     }
-    private serverUrl: string = ''
+    // The server this session addresses: the host's serverUrl when the session
+    // was configured, kept apart from it so a session never follows a switch.
+    private baseUrl: string = ''
     private authSkipped: boolean = false
+    // Bumped by every reset(), which ends a session (logout, expiry, server
+    // switch). A request notes it when sent, so its answer can tell whether it
+    // still speaks for the session running; the mint does the same
+    // (lib/subsonicSession.ts reads it through generation()).
+    private sessionGeneration = 0
     private readonly clientName = 'aether-web'
     private readonly apiVersion = '1.16.1'
 
+    // getUser is a key session's bootstrap, so it is bounded like getMe is for
+    // the cookie flow: a server that silently drops packets would otherwise
+    // hold the window blank until the system gave up on the connection.
+    private readonly bootstrapTimeoutMs = 10_000
+
     /** Auth method "none": no credentials on any /rest call. */
     initWithDefaults(): void {
-        this.serverUrl = window.location.origin
+        // The host's server is only null in the app before one is chosen, and
+        // nothing configures the client then.
+        this.baseUrl = serverUrl.value ?? ''
         this.authSkipped = true
         this.apiKey = null
     }
 
     /** Native mode: authenticate every /rest call with the minted PAT. */
     setApiKey(key: string): void {
-        this.serverUrl = window.location.origin
+        this.baseUrl = serverUrl.value ?? ''
         this.apiKey = key
         this.authSkipped = false
     }
 
-    clearApiKey(): void {
+    /**
+     * Forgets the session whatever its auth (logout, expiry, server switch): the
+     * key, auth "none" and the server. Left configured, a client from a server
+     * without login would keep addressing that server after a switch, until the
+     * next server's session configured it again.
+     */
+    reset(): void {
         this.apiKey = null
+        this.authSkipped = false
+        this.baseUrl = ''
+        this.sessionGeneration++
+    }
+
+    /** Which session the client serves: a count bumped by every reset(). */
+    generation(): number {
+        return this.sessionGeneration
     }
 
     hasApiKey(): boolean {
@@ -76,7 +106,7 @@ class SubsonicClient {
             throw new Error('Client not configured')
         }
 
-        const url = new URL(`${this.serverUrl}/rest/${endpoint}`)
+        const url = new URL(`${this.baseUrl}/rest/${endpoint}`)
 
         if (this.apiKey) {
             url.searchParams.append('apiKey', this.apiKey)
@@ -102,7 +132,10 @@ class SubsonicClient {
         throw new Error('Unknown error')
     }
 
-    /** True for the auth failures a fresh token can cure (40/44). */
+    /**
+     * True for the auth failures (40/44). In a cookie session a fresh token can
+     * cure them; in a key session the key is gone.
+     */
     private isAuthFailure(data: any): boolean {
         const code = data?.['subsonic-response']?.error?.code
         return data?.['subsonic-response']?.status === 'failed' && (code === 40 || code === 44)
@@ -118,20 +151,26 @@ class SubsonicClient {
     }
 
     private async fetchJson(url: string, init?: RequestInit): Promise<any> {
-        const response = await fetch(url, init)
+        const generation = this.sessionGeneration
+        const response = await httpFetch(url, init)
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`)
         }
         const data = await response.json()
-        if (this.apiKey && this.isAuthFailure(data)) {
-            // The token expired mid-session: re-mint once (single-flight) and
-            // retry once with the fresh key. A dead session flips
-            // sessionExpired inside remintApiKey and we fail the request.
-            const { remintApiKey } = await import('@/lib/subsonicSession')
-            const result = await remintApiKey()
+        // An answer that a session reset overtook speaks for a session that is
+        // over. It fails its own request and nothing more: no verdict on the
+        // session running now, no mint for it, and no retry — which would rebuild
+        // the old request's URL, perhaps another server's, with the new key.
+        if (this.apiKey && this.isAuthFailure(data) && generation === this.sessionGeneration) {
+            // The credential was refused. In the cookie flow the token expired
+            // mid-session: re-mint once (single-flight) and retry once with the
+            // fresh key. In a key session the key is dead: the hook flags the
+            // expiry and we fail the request.
+            const { handleRestAuthFailure } = await import('@/lib/subsonicSession')
+            const result = await handleRestAuthFailure()
             if (result === 'ok') {
                 const retryUrl = this.rebuildWithFreshKey(url)
-                const retry = await fetch(retryUrl, init)
+                const retry = await httpFetch(retryUrl, init)
                 if (!retry.ok) {
                     throw new Error(`HTTP error! status: ${retry.status}`)
                 }
@@ -143,10 +182,11 @@ class SubsonicClient {
 
     private async request<T>(
         endpoint: string,
-        params: Record<string, string | number | boolean | undefined> = {}
+        params: Record<string, string | number | boolean | undefined> = {},
+        init?: RequestInit
     ): Promise<T> {
         const url = this.buildUrl(endpoint, params)
-        const data = (await this.fetchJson(url)) as SubsonicResponse<T>
+        const data = (await this.fetchJson(url, init)) as SubsonicResponse<T>
         if (data['subsonic-response'].status === 'failed') {
             this.handleFailedResponse(data)
         }
@@ -161,6 +201,29 @@ class SubsonicClient {
         } catch {
             return false
         }
+    }
+
+    /**
+     * The caller's own record. Aether answers the resolved owner whatever the
+     * `username` parameter says, so none is sent: a key session learns its login
+     * and role here (the cookie flow asks /api/v0/me instead).
+     */
+    async getUser(): Promise<SubsonicUser> {
+        // AbortSignal.timeout where the runtime has it (every webview the app
+        // ships in); without it the request is simply unbounded, as before.
+        const signal =
+            typeof AbortSignal.timeout === 'function'
+                ? AbortSignal.timeout(this.bootstrapTimeoutMs)
+                : undefined
+        const response = await this.request<{ user: SubsonicUser }>('getUser.view', {}, { signal })
+        return response.user
+    }
+
+    /** The server's version, read off a ping's envelope; null when it carries none. */
+    async serverVersion(): Promise<string | null> {
+        if (!this.isConfigured()) return null
+        const response = await this.request<{ serverVersion?: string }>('ping.view')
+        return response.serverVersion ?? null
     }
 
     async getMusicFolders(): Promise<MusicFolders> {
@@ -627,8 +690,10 @@ class SubsonicClient {
         if (!this.isConfigured()) return
         try {
             await this.request('scrobble.view', { id, submission: true })
-        } catch (err) {
-            console.warn('scrobble failed', err)
+        } catch {
+            // A label only: the failure text can name the request URL, apiKey
+            // included (the desktop app's transport rejects with it).
+            console.warn('scrobble failed')
         }
     }
 
@@ -655,8 +720,8 @@ class SubsonicClient {
             if (data['subsonic-response'].status === 'failed') {
                 this.handleFailedResponse(data)
             }
-        } catch (err) {
-            console.warn('savePlayQueue failed', err)
+        } catch {
+            console.warn('savePlayQueue failed') // label only, as in scrobble
         }
     }
 
@@ -671,11 +736,20 @@ class SubsonicClient {
         if (!this.isConfigured()) return false
         if (songIds.length === 0) return false
         try {
-            if (typeof navigator?.sendBeacon !== 'function') return false
+            const desktopApp = isDesktopApp()
+            if (!desktopApp && typeof navigator?.sendBeacon !== 'function') return false
             const url = new URL(this.buildUrl('savePlayQueueByIndex.view'))
             songIds.forEach((id) => url.searchParams.append('id', id))
             url.searchParams.append('currentIndex', String(currentIndex))
             url.searchParams.append('position', String(Math.max(0, Math.round(positionMs))))
+            if (desktopApp) {
+                // The app window's CSP confines connect-src to IPC, so a beacon
+                // could not leave. Best effort through the transport instead: the
+                // window hides on close rather than unloading, so this runs only
+                // on a reload or a quit.
+                void httpFetch(url.toString()).catch(() => {})
+                return true
+            }
             return navigator.sendBeacon(url.toString())
         } catch {
             return false
@@ -693,8 +767,8 @@ class SubsonicClient {
             const queue = response.playQueueByIndex
             if (!queue || !queue.entry || queue.entry.length === 0) return null
             return queue
-        } catch (err) {
-            console.warn('getPlayQueue failed', err)
+        } catch {
+            console.warn('getPlayQueue failed') // label only, as in scrobble
             return null
         }
     }

@@ -92,8 +92,9 @@ vi.mock('@/composables/usePlayer', () => ({
 
 // Image curation is admin-only; most specs run as admin so the edit bar exists.
 const isAdmin = ref(true)
+const managementApi = ref(true)
 vi.mock('@/composables/useAuth', () => ({
-    useAuth: () => ({ isAdmin })
+    useAuth: () => ({ isAdmin, managementApi })
 }))
 
 vi.mock('vue-router', () => ({
@@ -123,6 +124,7 @@ import ArtistView from '@/views/ArtistView.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
 import ArtistImageSearchDialog from '@/components/library/ArtistImageSearchDialog.vue'
 import { resetCoverVersions } from '@/composables/useCoverVersion'
+import { NETWORK_MESSAGE } from '@/lib/apiError'
 
 // Records what v-tooltip was bound with, so specs can assert on the tooltip
 // text the way the real directive would render it.
@@ -172,6 +174,7 @@ beforeEach(() => {
     imageSource.value = null
     imageSourceRefetch.mockClear()
     isAdmin.value = true
+    managementApi.value = true
     // Cover versions are module-level (they must outlive a component), so they
     // leak between tests unless cleared.
     resetCoverVersions()
@@ -193,6 +196,17 @@ describe('ArtistView', () => {
         error.value = { message: 'boom' }
         const w = mountView()
         expect(w.find('.error').text()).toContain('boom')
+    })
+
+    // In the desktop app a request that got no answer rejects with the HTTP
+    // plugin's bare string, which names the request URL, apiKey included.
+    it('says the server could not be reached on a transport failure, without its text', () => {
+        error.value =
+            'error sending request for url (http://h:8075/rest/getArtist.view?apiKey=aether_s3cret)'
+
+        const w = mountView()
+
+        expect(w.find('.error').text()).toBe(NETWORK_MESSAGE)
     })
 
     it('shows no scaffold title text and the artist name in the hero', () => {
@@ -458,6 +472,31 @@ describe('ArtistView image-source refresh', () => {
 
         expect(imageSourceRefetch).toHaveBeenCalled()
     })
+
+    // The note comes from /api/v0, which a key session never has: a save there
+    // still lands, but must not ask for the note again (refetch ignores `enabled`).
+    it('does not refetch the image source after a save without the management API', async () => {
+        managementApi.value = false
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const file = new File(['x'], 'a.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await w.vm.$nextTick()
+        await w.find('.edit-action-save').trigger('click')
+        await flushPromises()
+
+        // The save went through and left edit mode...
+        expect(coverMutate).toHaveBeenCalledWith(
+            expect.objectContaining({ artistId: 'ar-1', coverFile: file }),
+            expect.anything()
+        )
+        expect(w.find('.hero-cover').classes()).not.toContain('flipped')
+        // ...without asking for the note.
+        expect(imageSourceRefetch).not.toHaveBeenCalled()
+    })
 })
 
 // Remove clears aether's own stored image. When the served image is a file from
@@ -699,6 +738,21 @@ describe('ArtistView online image search', () => {
         await w.find('[data-test="open-image-search"]').trigger('click')
         expect(dialog.props('visible')).toBe(true)
         expect(dialog.props('artistName')).toBe('Pink Floyd')
+    })
+
+    // The search rides the admin-only /api/v0; a key session has none, so an
+    // admin's key gets upload and generate but no online search. Remove needs the
+    // image source (also /api/v0) to tell aether's image from a folder's, so it is
+    // offered only for an upload staged in this edit.
+    it('offers no search without the management API', async () => {
+        managementApi.value = false
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        expect(w.find('[data-test="open-image-search"]').exists()).toBe(false)
+        expect(w.findComponent(ArtistImageSearchDialog).exists()).toBe(false)
     })
 })
 

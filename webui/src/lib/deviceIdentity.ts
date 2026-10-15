@@ -3,6 +3,7 @@
 // native apps later — and the server keys one session token per device id, so
 // this id is what keeps one app signing in from signing another out
 // (docs/agents/authentication.md).
+import { isDesktopApp } from '@/lib/host'
 import { loadFromLocalStorage, saveToLocalStorage } from '@/utils/localStorage'
 
 /**
@@ -75,8 +76,11 @@ function match(table: Array<[string, RegExp]>, ua: string): string | null {
  */
 export function getDeviceName(): string {
     const ua = navigator.userAgent
-    const browser = match(BROWSERS, ua)
     const platform = match(PLATFORMS, ua)
+    // The desktop player's user agent is the system webview's, which would list
+    // the app as a browser ("Safari on macOS"): name the app instead.
+    if (isDesktopApp()) return `Aether Player on ${platform ?? 'desktop'}`
+    const browser = match(BROWSERS, ua)
     if (browser && platform) return `${browser} on ${platform}`
     return browser ?? platform ?? 'Aether'
 }

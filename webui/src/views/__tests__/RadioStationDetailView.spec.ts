@@ -30,7 +30,8 @@ vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playNow }) }))
 // Discover is admin-only (it proxies the admin /api/v0/radiobrowser routes);
 // most specs run as admin so the button exists.
 const isAdmin = ref(true)
-vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ isAdmin }) }))
+const managementApi = ref(true)
+vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ isAdmin, managementApi }) }))
 vi.mock('@/utils/radioSong', () => ({ stationToSong: (s: InternetRadioStation) => ({ id: s.id }) }))
 
 const { fetchRadioFavicon } = vi.hoisted(() => ({
@@ -103,6 +104,7 @@ beforeEach(() => {
     push.mockClear()
     fetchRadioFavicon.mockClear()
     isAdmin.value = true
+    managementApi.value = true
     global.URL.createObjectURL = vi.fn(() => 'blob:mock')
     global.URL.revokeObjectURL = vi.fn()
     mockGetGeneratedCoverPreviewUrl.mockClear()
@@ -155,6 +157,14 @@ describe('RadioStationDetailView', () => {
     // non-admin creating a station by hand gets no Discover affordance.
     it('create mode: hides Discover from non-admins', () => {
         isAdmin.value = false
+        const w = mountView({ create: true })
+        expect(w.find('.discover-station').exists()).toBe(false)
+        expect(w.findComponent(SearchDialogStub).exists()).toBe(false)
+    })
+
+    // Discover proxies radio-browser through /api/v0; a key session has none.
+    it('create mode: hides Discover without the management API, even for admins', () => {
+        managementApi.value = false
         const w = mountView({ create: true })
         expect(w.find('.discover-station').exists()).toBe(false)
         expect(w.findComponent(SearchDialogStub).exists()).toBe(false)

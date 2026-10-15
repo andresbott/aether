@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
+import type { ConfirmationOptions } from 'primevue/confirmationoptions'
 import type { MenuItem } from 'primevue/menuitem'
 import BrandMark from '@/components/common/BrandMark.vue'
+import { CHANGE_SERVER_GROUP } from '@/composables/useChangeServer'
 import { BROWSE_SHELF_SIZE } from '@/lib/browseShelf'
 
 const push = vi.fn()
@@ -41,11 +43,31 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
 }))
 
 const logoutMutate = vi.fn()
+const switchServer = vi.fn()
 const isAdmin = ref(false)
-const authRequired = ref(true)
+const canSignOut = ref(true)
+const managementApi = ref(true)
 vi.mock('@/composables/useAuth', () => ({
-    useAuth: () => ({ isAdmin, authRequired, logout: { mutate: logoutMutate } })
+    useAuth: () => ({
+        isAdmin,
+        canSignOut,
+        managementApi,
+        logout: { mutate: logoutMutate },
+        switchServer
+    })
 }))
+
+// A browser tab unless a case says otherwise; the rest of the host layer stays real.
+const host = vi.hoisted(() => ({ desktopApp: false }))
+vi.mock('@/lib/host', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/lib/host')>()),
+    isDesktopApp: () => host.desktopApp
+}))
+
+// Change server asks through PrimeVue's confirmation service; the dialog showing
+// the question is PlayerLayout's, so here only the question itself is observed.
+const confirmRequire = vi.fn<(options: ConfirmationOptions) => void>()
+vi.mock('primevue/useconfirm', () => ({ useConfirm: () => ({ require: confirmRequire }) }))
 
 // Stubs so the spec asserts what the view PASSES to the shelves (its own
 // responsibility) rather than their markup — BrowseShelf has its own spec.
@@ -74,6 +96,7 @@ const MenuStub = {
 }
 
 import MobileBrowseView from '@/views/MobileBrowseView.vue'
+import { serverUrl } from '@/lib/host'
 
 const mountView = () =>
     mount(MobileBrowseView, {
@@ -115,6 +138,10 @@ beforeEach(() => {
     push.mockReset()
     replace.mockReset()
     logoutMutate.mockReset()
+    switchServer.mockReset()
+    confirmRequire.mockReset()
+    host.desktopApp = false
+    serverUrl.value = 'http://nas.local:8075'
     shell.value = 'mobile'
     discoveryItems.value = []
     discoveryLoading.value = false
@@ -125,7 +152,8 @@ beforeEach(() => {
     genres.value = []
     stations.value = []
     isAdmin.value = false
-    authRequired.value = true
+    canSignOut.value = true
+    managementApi.value = true
 })
 
 describe('MobileBrowseView sections', () => {
@@ -287,8 +315,14 @@ describe('MobileBrowseView header', () => {
         ])
     })
 
+    it('offers Admin only with the management API, even to an admin', () => {
+        isAdmin.value = true
+        managementApi.value = false
+        expect(menuLabels(mountView())).toEqual(['User settings', 'About', '—', 'Log out'])
+    })
+
     it('drops Log out when there is no session (auth method none)', () => {
-        authRequired.value = false
+        canSignOut.value = false
         expect(menuLabels(mountView())).toEqual(['User settings', 'About'])
     })
 
@@ -305,6 +339,98 @@ describe('MobileBrowseView header', () => {
         expect(push).toHaveBeenCalledWith('/about')
         run('Log out')
         expect(logoutMutate).toHaveBeenCalled()
+    })
+})
+
+// The ⋮ menu is the phone's whole account surface, so Change server has to be
+// there too (UserMenu, the desktop's, is not on the phone shell). What the
+// question says and how it is answered is useChangeServer's own spec; the menu
+// has to put the entry in place and raise the question.
+describe('MobileBrowseView Change server', () => {
+    const items = (w: ReturnType<typeof mountView>) =>
+        w.findComponent(MenuStub).props('model') as MenuItem[]
+    const run = (w: ReturnType<typeof mountView>, label: string) =>
+        items(w).find((i) => i.label === label)!.command!({
+            originalEvent: new Event('click'),
+            item: {}
+        })
+
+    // The page's own origin is the server there, so there is none to change: even
+    // with an address known, the menu lists what it always did.
+    it('is not offered in a browser tab', () => {
+        expect(menuLabels(mountView())).toEqual(['User settings', 'About', '—', 'Log out'])
+    })
+
+    describe('in the desktop app', () => {
+        beforeEach(() => {
+            host.desktopApp = true
+        })
+
+        it('sits between the separator and Log out, as in the desktop account menu', () => {
+            expect(menuLabels(mountView())).toEqual([
+                'User settings',
+                'About',
+                '—',
+                'Change server',
+                'Log out'
+            ])
+        })
+
+        it('keeps the entries admins get', () => {
+            isAdmin.value = true
+            expect(menuLabels(mountView())).toEqual([
+                'User settings',
+                'Admin',
+                'About',
+                '—',
+                'Change server',
+                'Log out'
+            ])
+        })
+
+        it('is the only entry below the separator when there is no session to end', () => {
+            canSignOut.value = false
+            expect(menuLabels(mountView())).toEqual([
+                'User settings',
+                'About',
+                '—',
+                'Change server'
+            ])
+        })
+
+        it('has the same icon as the desktop menu’s entry', () => {
+            const entry = items(mountView()).find((i) => i.label === 'Change server')!
+            expect(entry.icon).toBe('ms-dns')
+        })
+
+        it('asks before leaving, naming the server', () => {
+            run(mountView(), 'Change server')
+
+            expect(confirmRequire).toHaveBeenCalledOnce()
+            expect(confirmRequire).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    group: CHANGE_SERVER_GROUP,
+                    header: 'Change server',
+                    // the wording is useChangeServer.spec's to pin
+                    message: expect.stringMatching(/^Disconnect from nas\.local:8075\? /),
+                    acceptLabel: 'Change server',
+                    rejectLabel: 'Cancel'
+                })
+            )
+            // Nothing happens before the answer.
+            expect(switchServer).not.toHaveBeenCalled()
+        })
+
+        it('switches server once the question is accepted, without logging out twice', () => {
+            run(mountView(), 'Change server')
+
+            confirmRequire.mock.calls[0][0].accept!()
+
+            expect(switchServer).toHaveBeenCalledOnce()
+            expect(switchServer).toHaveBeenCalledWith()
+            // switchServer signs out by itself; the Log out entry would repeat it.
+            expect(logoutMutate).not.toHaveBeenCalled()
+        })
     })
 })
 

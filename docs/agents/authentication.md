@@ -118,7 +118,15 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   call); if the mint call itself 401s, the *session* is gone → mode-specific
   reaction (below). Surface "session expired" in the player instead of a
   generic error when a stream's next range request fails. Generation counter
-  discards mints resolving after logout.
+  (the subsonic client's, bumped by every session reset) discards mints
+  resolving after a logout, an expiry or a server switch — their success and
+  their refusal alike — and the reset lets go of such a mint, so the next
+  session mints its own. A `/rest` 40/44 answering a request sent before the
+  reset is discarded the same way: no mint, no retry (which would rebuild the
+  old request's URL, perhaps another server's, with the new session's key), no
+  expiry. The generation check keeps `remintApiKey` itself from flagging an
+  expiry for a stale mint, but the `/api/v0` interceptor still flags a 401
+  that came from the configured server.
 
 **One session per device.** The same user may be signed in from several
 first-party Aether apps at once — browsers today, native apps later — so a `spa`
@@ -140,9 +148,36 @@ mint (`app/router/handlers/tokens/tokens.go`) sweeps only:
 Other apps' live sessions survive, which is what keeps one app signing in from
 signing another out. `deviceId` is required and validated (1–64 chars of
 `[A-Za-z0-9_-]`, no `:` so it cannot forge a scope) — a bad one is a 400.
-`deviceName` is cosmetic ("Firefox on Linux", derived from the UA), truncated to
-100 runes rather than rejected, and falls back to `aether-web`; it is the row
-label in User settings → Connected apps → Your Aether apps.
+`deviceName` is cosmetic ("Firefox on Linux", derived from the UA; "Aether
+Player on Linux" in the desktop app), truncated to 100 runes rather than
+rejected, and falls back to `aether-web`; it is the row label in User settings
+→ Connected apps → Your Aether apps.
+
+**The desktop app runs the same native flow**, or a `/rest`-only key session
+(`player/`, the SPA as its window). Its `/api/v0` and `/rest` requests leave
+from Rust through `tauri-plugin-http`, whose cookie jar
+(`app_cache_dir()/.cookies`, saved as cookies are set) holds the session cookie
+— the webview itself could not send it: every request from its `tauri://`
+origin is cross-site and the cookie is `SameSite=Lax`. So login, `/me`, the
+boot mint and the per-device sweep run unchanged, with no server-side branch,
+and `getDeviceName()` names the app ("Aether Player on <platform>",
+`webui/src/lib/deviceIdentity.ts`) rather than the webview's browser. The
+minted `spa` token is also handed to the player's Rust client, in memory only
+(`set_session`, inside the mint's generation check), and withdrawn on logout,
+expiry and a server switch; the player stores no password. **A key session
+needs none of this**: the user pastes a PAT created under User settings →
+Connected apps, the login view verifies it with `getUser` and Rust stores it
+owner-only (`credentials.json`); identity and role come from `getUser`
+(`username`, `adminRole`), `/me` is never asked, the mint never runs, and the
+SPA's `/api/v0` client refuses to send. That is what lets the app use a server
+behind Authelia, whose ACL bypasses `/rest` and keeps `/api/v0` closed to it:
+the server step recognises such a server with a two-step probe — `/api/v0/me`,
+then the bypassed `/rest/ping`, whose error envelope carries Aether's
+`type: "Aether"` — and saves it as a key session
+([frontend.md](frontend.md#desktop-app-mode-libhost)). A `/rest` error 40 or 44
+in a key session means the key was revoked or has expired: the SPA forgets it
+and asks for another. Revoking stays in the web UI; administering a portal
+server from inside the app is the narrowed follow-up in TODO.md.
 
 Token classes — implemented in `userauth`'s `pat` service with a `scope` tag
 distinguishing behavior:
@@ -219,9 +254,15 @@ Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
   because aether commonly runs plain-HTTP on a LAN.
 - The SPA gate lives in `App.vue` + `useAuth()`: `/me` bootstraps, the login
   view replaces the whole app (not a route) while `authMethod` is `native`
-  and `user` is null, and an axios interceptor flips a shared
-  `sessionExpired` flag on any `/api/v0` 401 so an expired session re-opens
-  the gate mid-flight. Logout and session expiry both purge the device
+  and `user` is null (in the desktop app also while no server is chosen or
+  the chosen one does not answer as Aether, while a key session has no key,
+  and on a proxy-header server — see
+  [frontend.md](frontend.md#desktop-app-mode-libhost)), and an axios
+  interceptor flips a shared `sessionExpired` flag on any `/api/v0` 401 (in
+  the desktop app only for a request sent to the server still configured: a
+  401 a server switch overtook speaks for a session already over) so an
+  expired session re-opens the gate mid-flight. Logout and session expiry
+  both purge the device
   (`purgeLocalSession` in `useAuth`): stop playback (queue sync unbinds first
   so the emptied queue is not pushed to the server), clear localStorage, and
   reset the query cache.
@@ -363,7 +404,9 @@ header-authorized mint endpoint. On 401 from `/api/v0` (Authelia session
 expired): full-page reload so the portal redirect kicks in (the expiry
 watcher in `useAuth` branches on `authMethod === 'proxy-header'`). Configure
 Authelia to answer non-HTML requests with 401 instead of 302 (it keys off
-`Accept`) so the SPA sees a clean failure, not portal HTML.
+`Accept`) so the SPA sees a clean failure, not portal HTML. The desktop app
+does not take this flow: behind such a portal it signs in with an API key in a
+`/rest`-only session (see "The desktop app runs the same native flow" above).
 
 Implementation (`app/router/proxy_auth.go`, `app/cmd/users.go
 setupProxyAuth`): `userauth`'s `auth/headerauth` handler validates the

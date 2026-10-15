@@ -20,12 +20,20 @@ export async function login(
     return data
 }
 
+// Logging out is best effort — the local session is purged whatever the server
+// answers — and the desktop app's server switch waits for it before moving on.
+// Bounded, so a server that silently drops packets cannot hold that wait, or the
+// window behind it, for the minutes the system takes to give up on the connection.
+const LOGOUT_TIMEOUT_MS = 10_000
+
 /**
  * POST /api/v0/auth/logout — clears the session cookie; when the SPA's spa
  * token id is passed the server best-effort revokes it too.
  */
 export async function logout(spaTokenId?: string): Promise<void> {
-    await apiClient.post('/auth/logout', spaTokenId ? { tokenId: spaTokenId } : undefined)
+    await apiClient.post('/auth/logout', spaTokenId ? { tokenId: spaTokenId } : undefined, {
+        timeout: LOGOUT_TIMEOUT_MS
+    })
 }
 
 /**

@@ -16,6 +16,7 @@ import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersi
 import { usePlayer } from '@/composables/usePlayer'
 import { useAuth } from '@/composables/useAuth'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { apiErrorMessage } from '@/lib/apiError'
 import { groupAlbumsByReleaseType } from '@/lib/releaseGrouping'
 import type { Song } from '@/types/subsonic'
 import type { ArtistImagePick } from '@/types/artists'
@@ -28,10 +29,12 @@ const toggleStar = useToggleStar()
 const updateCover = useUpdateArtistCover()
 const setImageFromSearch = useSetArtistImageFromSearch()
 
-// Editing the artist image is curation, and half of it (the online search,
-// the image-source note) rides on the admin-only /api/v0 surface — so the
-// whole edit affordance is admin-only rather than a bar that 403s midway.
-const { isAdmin } = useAuth()
+// Editing the artist image is curation, admin-only. The online search and the
+// image-source note ride the admin-only /api/v0 surface, which a key session
+// never has: those two go without the management API. Upload and generate ride
+// /rest and stay. Remove needs the image source to tell aether's image from a
+// folder's, so a key session offers it only for an upload staged in this edit.
+const { isAdmin, managementApi } = useAuth()
 
 const { data: artist, isLoading, error } = useArtist(props.id)
 
@@ -59,7 +62,7 @@ const dirty = computed(
 // is not mistaken for one that can. Only fetched once the user opens the editor.
 const { data: imageSource, refetch: refetchImageSource } = useArtistImageSource(
     props.id,
-    () => editing.value
+    () => editing.value && managementApi.value
 )
 // Whether the persisted image is a file from the music folder. Independent of
 // staging: what is on record does not change until Save.
@@ -79,7 +82,8 @@ const folderImagePath = computed(() =>
 // to hover to understand is worse than no button. A staged pick keeps it visible
 // so the choice stays cancellable.
 const canRemoveImage = computed(() => {
-    // Any staged change stays cancellable via Remove, whatever is persisted.
+    // A staged upload or pick stays cancellable via Remove, whatever is persisted
+    // (a staged generated cover does not).
     if (selectedFile.value || imagePick.value) return true
     const source = imageSource.value?.source
     return source === 'upload' || source === 'fetched'
@@ -180,7 +184,8 @@ const onRemoveCover = (): void => {
 }
 
 // Shared by both save paths: the persisted image changed, so bust the (unchanged)
-// cover URL and re-read where the image now comes from.
+// cover URL and, where the management API is there, re-read where the image now
+// comes from.
 function afterCoverSaved(): void {
     resetCoverStaging()
     // Bump the shared version, not a local ref: the browser's in-memory image
@@ -190,7 +195,8 @@ function afterCoverSaved(): void {
     editing.value = false
     // An upload moves the image into aether's store, a clear can uncover the
     // folder image again — either way the note is stale.
-    void refetchImageSource()
+    // The note rides /api/v0, which a key session never asks.
+    if (managementApi.value) void refetchImageSource()
 }
 
 const saveEdit = (): void => {
@@ -347,7 +353,7 @@ const onQueue = async (): Promise<void> => {
 
         <div v-else-if="error" class="error">
             <i class="ms-warning" style="font-size: 2rem"></i>
-            <p>{{ error.message }}</p>
+            <p>{{ apiErrorMessage(error) }}</p>
         </div>
 
         <ContentScaffold v-else-if="artist" title="" show-back @back="router.back()">
@@ -379,6 +385,7 @@ const onQueue = async (): Promise<void> => {
 
                     <template #cover-actions>
                         <Button
+                            v-if="managementApi"
                             data-test="open-image-search"
                             outlined
                             severity="secondary"
@@ -446,6 +453,7 @@ const onQueue = async (): Promise<void> => {
                 </div>
             </div>
             <ArtistImageSearchDialog
+                v-if="managementApi"
                 v-model:visible="imageSearchOpen"
                 :artist-name="artist.name"
                 @select="onImageSearchSelect"

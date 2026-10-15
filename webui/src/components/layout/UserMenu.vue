@@ -3,21 +3,25 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import Popover from 'primevue/popover'
 import { useAuth } from '@/composables/useAuth'
+import { useChangeServer } from '@/composables/useChangeServer'
+import { isDesktopApp } from '@/lib/host'
 
 // The identity chip is the sidebar's single bottom control: it opens a popup
 // with everything personal (user settings, log out) plus the Admin entry to
-// the server administration area (/settings).
+// the server administration area (/settings). In the desktop app it also
+// offers Change server, to pick another server than the one it is connected to.
 defineProps<{ collapsed?: boolean }>()
 
 const router = useRouter()
 
-// Identity from the /me bootstrap. With auth method "none" there is no
-// session: the chip falls back to "Guest" and the popup has nothing to log
-// out of, so the Log out entry is dropped (same gate as SettingsLayout).
-// The Admin and Metadata editor entries only exist for admins — the routes
-// they open both use the admin-only settings layout, so a non-admin is
-// redirected away and the /api/v0 data behind them answers 403.
-const { authRequired, currentUser, isAdmin, logout } = useAuth()
+// Identity from the gate. With auth method "none" there is no session: the
+// chip falls back to "Guest" and the popup has nothing to log out of, so the
+// Log out entry is dropped; a native session and a key session both have one.
+// The Admin and Metadata editor entries only exist for admins WITH the
+// management API — the areas they open ride /api/v0, which a key session never
+// has (its server may keep it behind a portal), so an admin's key gets neither.
+const { canSignOut, currentUser, isAdmin, managementApi, logout } = useAuth()
+const { confirmChangeServer } = useChangeServer()
 
 const popoverRef = ref<InstanceType<typeof Popover> | null>(null)
 const isOpen = ref(false)
@@ -50,6 +54,14 @@ const onLogout = () => {
     popoverRef.value?.hide()
     logout.mutate()
 }
+
+// The entry only exists in the desktop app. Leaving a server signs the user out,
+// so useChangeServer asks first; the dialog that shows the question is the one
+// PlayerLayout mounts.
+const onChangeServer = () => {
+    popoverRef.value?.hide()
+    confirmChangeServer()
+}
 </script>
 
 <template>
@@ -79,7 +91,7 @@ const onLogout = () => {
                     <span>User settings</span>
                 </button>
                 <button
-                    v-if="isAdmin"
+                    v-if="isAdmin && managementApi"
                     class="menu-item"
                     role="menuitem"
                     type="button"
@@ -89,7 +101,7 @@ const onLogout = () => {
                     <span>Admin</span>
                 </button>
                 <button
-                    v-if="isAdmin"
+                    v-if="isAdmin && managementApi"
                     class="menu-item"
                     role="menuitem"
                     type="button"
@@ -102,9 +114,20 @@ const onLogout = () => {
                     <i class="ms-info"></i>
                     <span>About</span>
                 </button>
-                <template v-if="authRequired">
+                <template v-if="canSignOut || isDesktopApp()">
                     <div class="menu-sep"></div>
                     <button
+                        v-if="isDesktopApp()"
+                        class="menu-item"
+                        role="menuitem"
+                        type="button"
+                        @click="onChangeServer"
+                    >
+                        <i class="ms-dns"></i>
+                        <span>Change server</span>
+                    </button>
+                    <button
+                        v-if="canSignOut"
                         class="menu-item danger"
                         role="menuitem"
                         type="button"

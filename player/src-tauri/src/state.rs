@@ -1,10 +1,13 @@
+use crate::session::Session;
 use aether_core::error::CoreError;
 use aether_core::player::{Player, StreamUrlResolver};
 use aether_core::subsonic::SubsonicClient;
 use std::sync::{Arc, RwLock};
 
 pub struct AppState {
-    pub connection: Arc<RwLock<Option<SubsonicClient>>>,
+    /// The saved server, the stored key and the connected client (see
+    /// `session.rs` for the lock order).
+    pub session: Session,
     pub player: Arc<Player>,
 }
 
@@ -23,20 +26,17 @@ impl StreamUrlResolver for ConnectionResolver {
 }
 
 impl AppState {
-    pub fn new() -> Result<Self, CoreError> {
-        let connection = Arc::new(RwLock::new(None));
+    /// The app's state around the session loaded at startup; the player
+    /// resolves its stream URLs through that session's client.
+    pub fn new(session: Session) -> Result<Self, CoreError> {
         let engine = crate::engine::create_engine()?;
-        let resolver = Arc::new(ConnectionResolver(connection.clone()));
+        let resolver = Arc::new(ConnectionResolver(session.connection()));
         let player = Arc::new(Player::new(engine, resolver));
-        Ok(Self { connection, player })
+        Ok(Self { session, player })
     }
 
     /// Cloned client or NotConnected — commands call this.
-    pub fn client(&self) -> Result<SubsonicClient, aether_core::error::CoreError> {
-        self.connection
-            .read()
-            .unwrap()
-            .clone()
-            .ok_or(aether_core::error::CoreError::NotConnected)
+    pub fn client(&self) -> Result<SubsonicClient, CoreError> {
+        self.session.client()
     }
 }

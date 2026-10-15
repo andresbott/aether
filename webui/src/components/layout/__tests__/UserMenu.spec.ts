@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ref, type Ref } from 'vue'
+import { nextTick, ref, type Ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
+import type { ConfirmationOptions } from 'primevue/confirmationoptions'
 import type { MeUser } from '@/types/users'
 
 const push = vi.fn()
@@ -9,20 +10,42 @@ vi.mock('vue-router', () => ({
     useRouter: () => ({ push })
 }))
 
-const authRequired = ref(false)
+const canSignOut = ref(false)
 const currentUser: Ref<MeUser | null> = ref(null)
 const isAdmin = ref(true)
+const managementApi = ref(true)
 const logoutMutate = vi.fn()
+const switchServer = vi.fn()
 vi.mock('@/composables/useAuth', () => ({
     useAuth: () => ({
-        authRequired,
+        canSignOut,
         currentUser,
         isAdmin,
-        logout: { mutate: logoutMutate }
+        managementApi,
+        logout: { mutate: logoutMutate },
+        switchServer
     })
 }))
 
+// A browser tab unless a case says otherwise.
+const host = vi.hoisted(() => ({ desktopApp: false }))
+vi.mock('@/lib/host', async () => {
+    const { ref } = await import('vue')
+    return {
+        isDesktopApp: () => host.desktopApp,
+        serverHost: (await import('@/lib/host/serverUrl')).serverHost,
+        serverUrl: ref<string | null>(null)
+    }
+})
+
+// Change server asks through PrimeVue's confirmation service; the dialog showing
+// the question is PlayerLayout's, so here only the question itself is observed.
+const confirmRequire = vi.fn<(options: ConfirmationOptions) => void>()
+vi.mock('primevue/useconfirm', () => ({ useConfirm: () => ({ require: confirmRequire }) }))
+
 import UserMenu from '@/components/layout/UserMenu.vue'
+import { CHANGE_SERVER_GROUP } from '@/composables/useChangeServer'
+import { serverUrl } from '@/lib/host'
 
 const mountMenu = (props: { collapsed?: boolean } = {}) =>
     mount(UserMenu, {
@@ -43,11 +66,16 @@ const menuItem = (menu: HTMLElement, label: string) =>
     )
 
 beforeEach(() => {
-    authRequired.value = false
+    canSignOut.value = false
     currentUser.value = null
     isAdmin.value = true
+    managementApi.value = true
+    host.desktopApp = false
+    serverUrl.value = null
     push.mockClear()
     logoutMutate.mockClear()
+    switchServer.mockClear()
+    confirmRequire.mockClear()
     document.body.innerHTML = ''
 })
 
@@ -86,6 +114,17 @@ describe('UserMenu account popup', () => {
     // for them.
     it('hides the Admin and Metadata editor entries from non-admins', async () => {
         isAdmin.value = false
+        const menu = await openMenu(mountMenu())
+        expect(menuItem(menu, 'Admin')).toBeUndefined()
+        expect(menuItem(menu, 'Metadata editor')).toBeUndefined()
+        expect(menuItem(menu, 'User settings')).toBeDefined()
+        expect(menuItem(menu, 'About')).toBeDefined()
+    })
+
+    // A key session has the role but no /api/v0: the admin entries open an
+    // area that cannot load, so they go even for an admin.
+    it('hides the Admin and Metadata editor entries without the management API', async () => {
+        managementApi.value = false
         const menu = await openMenu(mountMenu())
         expect(menuItem(menu, 'Admin')).toBeUndefined()
         expect(menuItem(menu, 'Metadata editor')).toBeUndefined()
@@ -134,11 +173,127 @@ describe('UserMenu account popup', () => {
     })
 
     it('logs out through useAuth when sessions exist', async () => {
-        authRequired.value = true
+        canSignOut.value = true
         currentUser.value = { login: 'alice', role: 'admin' }
         const menu = await openMenu(mountMenu())
 
         menuItem(menu, 'Log out')!.click()
         expect(logoutMutate).toHaveBeenCalledOnce()
+    })
+})
+
+// The popup as the user reads it: entry labels in order, '---' where the separator is.
+const outline = (menu: HTMLElement) =>
+    Array.from(menu.children).map((el) =>
+        el.classList.contains('menu-sep') ? '---' : el.textContent!.trim()
+    )
+
+describe('UserMenu in a browser tab', () => {
+    // The page's own origin is the server there, so there is none to change: even
+    // with an address known, the popup lists what it always did.
+    beforeEach(() => {
+        serverUrl.value = 'http://localhost:8075'
+    })
+
+    it('lists no server entry', async () => {
+        const menu = await openMenu(mountMenu())
+        expect(outline(menu)).toEqual(['User settings', 'Admin', 'Metadata editor', 'About'])
+    })
+
+    it('still separates Log out, and only Log out, when sessions exist', async () => {
+        canSignOut.value = true
+        const menu = await openMenu(mountMenu())
+        expect(outline(menu)).toEqual([
+            'User settings',
+            'Admin',
+            'Metadata editor',
+            'About',
+            '---',
+            'Log out'
+        ])
+    })
+
+    // What an admin's key session sees of the popup: the role is there but /api/v0
+    // is not, so neither Admin nor Metadata editor; the key can be forgotten, so
+    // Log out stays. (The desktop app, where key sessions live, also lists Change
+    // server above it, as in the cases below.)
+    it('keeps an admin key session to User settings, About and Log out', async () => {
+        canSignOut.value = true
+        managementApi.value = false
+        isAdmin.value = true
+        const menu = await openMenu(mountMenu())
+        expect(outline(menu)).toEqual(['User settings', 'About', '---', 'Log out'])
+    })
+})
+
+// What the question says, how it looks and how it is answered is useChangeServer's
+// own spec; the menu has to put the entry in place and raise the question.
+describe('UserMenu Change server in the desktop app', () => {
+    beforeEach(() => {
+        host.desktopApp = true
+        serverUrl.value = 'http://nas.local:8075'
+    })
+
+    it('is the only entry below the separator when there is no login to leave', async () => {
+        const menu = await openMenu(mountMenu())
+        expect(outline(menu)).toEqual([
+            'User settings',
+            'Admin',
+            'Metadata editor',
+            'About',
+            '---',
+            'Change server'
+        ])
+    })
+
+    it('sits between the separator and Log out when sessions exist', async () => {
+        canSignOut.value = true
+        currentUser.value = { login: 'alice', role: 'admin' }
+        const menu = await openMenu(mountMenu())
+        expect(outline(menu)).toEqual([
+            'User settings',
+            'Admin',
+            'Metadata editor',
+            'About',
+            '---',
+            'Change server',
+            'Log out'
+        ])
+    })
+
+    it('asks before leaving, and closes the popup behind the question', async () => {
+        const menu = await openMenu(mountMenu())
+
+        menuItem(menu, 'Change server')!.click()
+        await nextTick()
+
+        expect(confirmRequire).toHaveBeenCalledOnce()
+        expect(confirmRequire).toHaveBeenCalledWith(
+            expect.objectContaining({
+                group: CHANGE_SERVER_GROUP,
+                header: 'Change server',
+                // the wording is useChangeServer.spec's to pin
+                message: expect.stringMatching(/^Disconnect from nas\.local:8075\? /),
+                acceptLabel: 'Change server',
+                rejectLabel: 'Cancel'
+            })
+        )
+        // Nothing happens before the answer.
+        expect(switchServer).not.toHaveBeenCalled()
+        expect(document.body.querySelector('.account-menu')).toBeNull()
+    })
+
+    it('switches server once the question is accepted, without logging out twice', async () => {
+        canSignOut.value = true
+        currentUser.value = { login: 'alice', role: 'admin' }
+        const menu = await openMenu(mountMenu())
+        menuItem(menu, 'Change server')!.click()
+
+        confirmRequire.mock.calls[0][0].accept!()
+
+        expect(switchServer).toHaveBeenCalledOnce()
+        expect(switchServer).toHaveBeenCalledWith()
+        // switchServer signs out by itself; the Log out mutation would repeat it.
+        expect(logoutMutate).not.toHaveBeenCalled()
     })
 })

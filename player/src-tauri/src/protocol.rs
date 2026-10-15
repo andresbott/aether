@@ -60,6 +60,8 @@ pub fn handle<R: tauri::Runtime>(
             }
         };
         let url = client.cover_art_url(id, size);
+        // The error texts below become the 502 body. reqwest would print the
+        // request URL in them, and that URL carries the API key.
         match reqwest::get(&url).await.and_then(|r| r.error_for_status()) {
             Ok(resp) => {
                 let content_type = resp
@@ -74,10 +76,18 @@ pub fn handle<R: tauri::Runtime>(
                             build_response(StatusCode::OK, Some(&content_type), bytes.to_vec());
                         responder.respond(http_resp);
                     }
-                    Err(e) => respond_err(responder, StatusCode::BAD_GATEWAY, &e.to_string()),
+                    Err(e) => respond_err(
+                        responder,
+                        StatusCode::BAD_GATEWAY,
+                        &e.without_url().to_string(),
+                    ),
                 }
             }
-            Err(e) => respond_err(responder, StatusCode::BAD_GATEWAY, &e.to_string()),
+            Err(e) => respond_err(
+                responder,
+                StatusCode::BAD_GATEWAY,
+                &e.without_url().to_string(),
+            ),
         }
     });
 }

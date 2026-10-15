@@ -51,9 +51,11 @@ bundle set is what it is:
 
 ## Cautions
 
-- **Never change the bundle identifier `dev.andresbott.aether.player`.** It is
-  the OS keyring service name — changing it orphans every user's stored
-  password — and a different identifier is a different app to the OS.
+- **Never change the bundle identifier `dev.andresbott.aether.player`.** Tauri
+  derives the app's config and cache directories from it — changing it
+  forgets every user's saved server (`settings.json`) and session (the HTTP
+  plugin's cookie jar) — and a different identifier is a different app to the
+  OS.
 - **The macOS bundles are ad-hoc signed, not notarized.** `tauri.conf.json`
   sets `bundle.macOS.signingIdentity: "-"`, Tauri's pseudo-identity for
   ad-hoc signing: the bundler runs `codesign -s -` (hardened runtime on, no

@@ -18,6 +18,7 @@ import { useRowSelection } from '@/composables/useRowSelection'
 import { useAuth } from '@/composables/useAuth'
 import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { apiErrorMessage } from '@/lib/apiError'
 import { formatReleaseTypes } from '@/lib/releaseTypes'
 import type { Song } from '@/types/subsonic'
 
@@ -293,7 +294,7 @@ watch(editing, (isEditing) => {
 
         <div v-else-if="error" class="error">
             <i class="ms-warning" style="font-size: 2rem"></i>
-            <p>{{ error.message }}</p>
+            <p>{{ apiErrorMessage(error) }}</p>
         </div>
 
         <ContentScaffold v-else-if="album" title="" show-back @back="router.back()">

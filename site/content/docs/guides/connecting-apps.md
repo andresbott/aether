@@ -30,6 +30,8 @@ Both are shown **once** — copy them into the app right away. The same page lis
 
 If a proxy such as Authelia protects Aether, it must let `/rest` through without its own sign-in: apps cannot fill in a login page. See [Authentication](/docs/guides/authentication.md#behind-an-authenticating-proxy).
 
+The Aether desktop player can use such a server too: when its server step finds a sign-in portal in front of Aether, it asks for an API key instead of a password. Create one under **User settings → Connected apps** in the web player, paste it into the app, and it connects through `/rest` alone. The app remembers the key until you log out, revoke it under **Connected apps**, or it expires; administration stays in the web player.
+
 ## What apps cannot do yet
 
 Apps offer a few features Aether does not serve yet. Most of them come up empty, or with an error:

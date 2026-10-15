@@ -18,6 +18,7 @@ import { usePlayer } from '@/composables/usePlayer'
 import { useSongsDrag } from '@/composables/useSongsDrag'
 import { useRowSelection } from '@/composables/useRowSelection'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { apiErrorMessage } from '@/lib/apiError'
 import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
 import { useAuth } from '@/composables/useAuth'
 import type { Song } from '@/types/subsonic'
@@ -294,7 +295,7 @@ watch(editing, (isEditing) => {
 
         <div v-else-if="error" class="error">
             <i class="ms-warning" style="font-size: 2rem"></i>
-            <p>{{ error.message }}</p>
+            <p>{{ apiErrorMessage(error) }}</p>
         </div>
 
         <div v-else-if="!genre" class="error">

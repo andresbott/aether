@@ -1,13 +1,17 @@
 mod commands;
+mod cookie_jar;
 mod credentials;
 mod engine;
 mod error;
 mod events;
 mod protocol;
+mod session;
+mod settings;
 mod state;
 #[cfg(desktop)]
 mod tray;
 
+use session::Session;
 use state::AppState;
 use tauri::Manager;
 
@@ -22,23 +26,25 @@ fn app_version(app: tauri::AppHandle) -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_http::init())
         .register_asynchronous_uri_scheme_protocol("aether", protocol::handle)
         .setup(|app| {
-            let state = AppState::new()?;
+            // Without a config directory nothing loads and every save fails, but
+            // the app still starts: the login view asks for a server.
+            let config_dir = match app.path().app_config_dir() {
+                Ok(dir) => Some(dir),
+                Err(e) => {
+                    eprintln!("session: no config directory, nothing will be saved: {e}");
+                    None
+                }
+            };
+            let state = AppState::new(Session::load(config_dir))?;
             app.manage(state);
-            if let Some((stored, password)) = credentials::load(&app.handle().clone()) {
-                match aether_core::subsonic::SubsonicClient::new(
-                    &stored.server_url,
-                    &stored.username,
-                    &password,
-                ) {
-                    Ok(client) => {
-                        let st = app.state::<AppState>();
-                        *st.connection.write().unwrap() = Some(client);
-                    }
-                    Err(e) => {
-                        eprintln!("failed to restore connection: {e}");
-                    }
+            // The plugin's setup ran in build(): its cookie jar exists by now, and
+            // no response has saved the session cookie in it yet.
+            if let Ok(cache_dir) = app.path().app_cache_dir() {
+                if let Err(e) = cookie_jar::restrict_to_owner(&cache_dir) {
+                    eprintln!("cookie jar: cannot make it owner-only: {e}");
                 }
             }
             events::spawn_state_emitter(app.handle().clone());
@@ -47,8 +53,8 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Close-to-tray: hide the window instead of exiting so playback
-            // keeps running in the backend. Quit via the tray menu.
+            // Close-to-tray: hide the window instead of exiting. The webview is
+            // not destroyed, so playback keeps running in it. Quit via the tray menu.
             #[cfg(desktop)]
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
@@ -59,9 +65,16 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             app_version,
-            commands::connection::connect,
+            commands::connection::clear_session,
             commands::connection::connection_status,
-            commands::connection::disconnect,
+            commands::connection::set_session,
+            commands::credentials::clear_api_key,
+            commands::credentials::get_api_key,
+            commands::credentials::set_api_key,
+            commands::settings::clear_server_url,
+            commands::settings::get_settings,
+            commands::settings::set_server_url,
+            commands::settings::set_session_kind,
             commands::library::get_artists,
             commands::library::get_albums,
             commands::library::get_album,

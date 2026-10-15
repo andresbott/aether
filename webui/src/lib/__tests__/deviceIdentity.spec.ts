@@ -110,4 +110,44 @@ describe('deviceIdentity', () => {
             expect(getDeviceName()).toBe('Aether')
         })
     })
+
+    // Inside the desktop player the user agent is the system webview's, which
+    // would list the app as "Safari on macOS"; the session is named after the
+    // app instead.
+    describe('getDeviceName in the desktop app', () => {
+        beforeEach(async () => {
+            const { vi } = await import('vitest')
+            vi.doMock('@/lib/host', () => ({ isDesktopApp: () => true }))
+        })
+
+        afterEach(async () => {
+            const { vi } = await import('vitest')
+            vi.doUnmock('@/lib/host')
+        })
+
+        it.each([
+            [
+                'Mozilla/5.0 (X11; Ubuntu; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko)',
+                'Aether Player on Linux'
+            ],
+            [
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)',
+                'Aether Player on macOS'
+            ],
+            [
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0',
+                'Aether Player on Windows'
+            ]
+        ])('labels the webview %s as %s', async (ua, want) => {
+            stubUserAgent(ua)
+            const { getDeviceName } = await freshModule()
+            expect(getDeviceName()).toBe(want)
+        })
+
+        it('names the app even when the platform is unrecognised', async () => {
+            stubUserAgent('some-unknown-agent/1.0')
+            const { getDeviceName } = await freshModule()
+            expect(getDeviceName()).toBe('Aether Player on desktop')
+        })
+    })
 })

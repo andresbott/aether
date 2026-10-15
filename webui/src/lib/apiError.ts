@@ -82,6 +82,12 @@ function unwrapNested(msg: string): string {
  * API layer, falling back to `fallback` when the error carries nothing useful.
  */
 export function apiErrorMessage(err: unknown, fallback: string = GENERIC_MESSAGE): string {
+    // In the desktop app the HTTP plugin rejects a request that got no answer
+    // with a bare string naming the request URL, apiKey included (an abort
+    // reaches axios callers as its own CanceledError). Nothing else throws a
+    // string, so it reads as a connectivity failure, and its text is never shown.
+    if (typeof err === 'string') return NETWORK_MESSAGE
+
     const data = responseData(err)
 
     if (typeof data === 'string' && data.trim() !== '') {

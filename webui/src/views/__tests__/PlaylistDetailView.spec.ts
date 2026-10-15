@@ -8,10 +8,11 @@ const { toastAdd } = vi.hoisted(() => ({ toastAdd: vi.fn() }))
 vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: toastAdd }) }))
 
 const playlist = ref<any>(null)
+const playlistError = ref<unknown>(null)
 const replaceIsPending = ref(false)
 const coverIsPending = ref(false)
 vi.mock('@/composables/useSubsonicQueries', () => ({
-    usePlaylist: () => ({ data: playlist, isLoading: ref(false), error: ref(null) }),
+    usePlaylist: () => ({ data: playlist, isLoading: ref(false), error: playlistError }),
     useUpdatePlaylist: () => ({ mutate: updateMutate, mutateAsync: updateAsync, isPending: ref(false) }),
     useUpdatePlaylistCover: () => ({
         mutate: coverMutate,
@@ -78,6 +79,7 @@ vi.mock('vue-router', () => ({
 }))
 
 import PlaylistDetailView from '@/views/PlaylistDetailView.vue'
+import { NETWORK_MESSAGE } from '@/lib/apiError'
 
 const song = (id: string) => ({ id, title: `Song ${id}`, artist: 'A', album: 'Al', duration: 60 })
 
@@ -121,6 +123,7 @@ beforeEach(() => {
         songCount: 3,
         entry: [song('1'), song('2'), song('3')]
     }
+    playlistError.value = null
     currentUser.value = null
     updateMutate.mockReset()
     replaceMutate.mockClear()
@@ -141,6 +144,21 @@ beforeEach(() => {
     global.URL.revokeObjectURL = vi.fn()
     mockGetGeneratedCoverPreviewUrl.mockClear()
     mockGetGeneratedCoverPreviewUrl.mockReturnValue('generated:preview')
+})
+
+// In the desktop app a request that got no answer rejects with the HTTP plugin's
+// bare string, which names the request URL, apiKey included. The page must say
+// what happened, and nothing of that string.
+describe('PlaylistDetailView when the playlist cannot be loaded', () => {
+    it('says the server could not be reached, without the transport text', () => {
+        playlist.value = undefined
+        playlistError.value =
+            'error sending request for url (http://h:8075/rest/getPlaylist.view?apiKey=aether_s3cret)'
+
+        const w = mountView()
+
+        expect(w.find('.error').text()).toBe(NETWORK_MESSAGE)
+    })
 })
 
 describe('PlaylistDetailView', () => {
