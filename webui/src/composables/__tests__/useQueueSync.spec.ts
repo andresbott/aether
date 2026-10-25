@@ -483,7 +483,7 @@ describe('useQueueSync restoring', () => {
 
     // THE REGRESSION: PlayerLayout remounts on every trip through /settings and
     // its onMounted calls restore() again. Re-adopting the server snapshot into a
-    // session that is already playing re-points the active element's src, which
+    // session that is already playing re-points the audio element's src, which
     // stops playback dead. restore() is a page-load concern: once per load.
     it('restores only once per page load', async () => {
         getPlayQueueMock.mockResolvedValue(savedQueue)

@@ -32,22 +32,19 @@ const repeat = ref<'none' | 'all'>(loadFromLocalStorage<'none' | 'all'>(STORAGE_
 const shuffle = ref<boolean>(loadFromLocalStorage<boolean>(STORAGE_KEY_SHUFFLE, false))
 const currentTime = ref<number>(0)
 const duration = ref<number>(0)
-// The track buffered ahead on the standby element, so the next track can start
-// without a network/decode gap. null when nothing is queued to play next.
-const preloadedTrack = ref<Song | null>(null)
 // A random play order over the queue, held as track ids alongside the queue's
 // own order. With shuffle on, next/previous walk this permutation instead of the
 // queue, so the random sequence is stable and can be stepped backwards. Rebuilt
 // when shuffle is switched on or the queue is replaced.
 const shuffleOrder = ref<string[]>(loadFromLocalStorage<string[]>(STORAGE_KEY_SHUFFLE_ORDER, []))
 
-// Two audio elements are kept alive at once: `activeEl` plays the current track
-// while `standbyEl` pre-buffers the next one. On track end we swap their roles
-// instead of re-pointing a single element's src, which removes the gap that a
-// fresh network request + decode would otherwise introduce.
-let activeEl: HTMLAudioElement | null = null
-let standbyEl: HTMLAudioElement | null = null
-let preloadedUrl: string | null = null
+// One audio element plays every track: a track change re-points its src. On a
+// phone that is what keeps an album going — mobile Safari lets an element start
+// sound on its own only once a tap has started it, so every later track has to
+// play on the element the user's tap unlocked: from the `ended` handler, with
+// nobody tapping and maybe the screen locked. (A second element pre-buffering
+// the next track was tried and removed; see docs/agents/frontend.md.)
+let audio: HTMLAudioElement | null = null
 let playNextFn: (() => void) | null = null
 
 // Scrobble bookkeeping. Last.fm's rule: a play counts once it passes half the
@@ -119,43 +116,35 @@ const recoverStream = async (el: HTMLAudioElement): Promise<void> => {
     el.load()
 }
 
-const attachListeners = (el: HTMLAudioElement): void => {
+const initAudio = (): void => {
+    if (audio) return
+    const el = new Audio()
     el.addEventListener('timeupdate', () => {
-        if (el !== activeEl) return
         currentTime.value = el.currentTime || 0
         maybeScrobble(el)
     })
     el.addEventListener('durationchange', () => {
-        if (el !== activeEl) return
         duration.value = el.duration || 0
     })
+    // The next track starts within this handler, in the same task. A phone can
+    // suspend a background page soon after its audio stops, so anything awaited
+    // in between would wait for the user to come back to it.
     el.addEventListener('ended', () => {
-        if (el !== activeEl) return
         if (playNextFn) playNextFn()
     })
     el.addEventListener('play', () => {
-        if (el !== activeEl) return
         isPlaying.value = true
     })
     el.addEventListener('pause', () => {
-        if (el !== activeEl) return
         isPlaying.value = false
     })
     el.addEventListener('error', () => {
-        if (el !== activeEl) return
         // An error on a sourceless element is a deliberate stop (clearQueue
         // empties the src), not a stream failure — never alarm the user for it.
         if (!el.src) return
         void recoverStream(el)
     })
-}
-
-const initAudioElements = (): void => {
-    if (activeEl) return
-    activeEl = new Audio()
-    standbyEl = new Audio()
-    attachListeners(activeEl)
-    attachListeners(standbyEl)
+    audio = el
 }
 
 const getTrackUrl = (track: Song | null): string | null => {
@@ -217,55 +206,8 @@ const resolveStep = (delta: 1 | -1): number | null => {
     return index === -1 ? null : index
 }
 
-// Point the standby element at whatever track should play next so the browser
-// can buffer it ahead of time.
-const updatePreload = (): void => {
-    if (!standbyEl) return
-    const nextIndex = resolveStep(1)
-    const nextTrack = nextIndex === null ? null : (queue.value[nextIndex] ?? null)
-    preloadedTrack.value = nextTrack
-
-    const url = getTrackUrl(nextTrack)
-    if (url === preloadedUrl) return
-    preloadedUrl = url
-    if (url) {
-        standbyEl.src = url
-        standbyEl.preload = 'auto'
-        standbyEl.volume = volume.value
-        standbyEl.load()
-    } else {
-        standbyEl.src = ''
-    }
-}
-
-const swapToStandby = (): void => {
-    const previousActive = activeEl
-    activeEl = standbyEl
-    standbyEl = previousActive
-    // Silence the outgoing element. On the `ended` path it has already stopped,
-    // but a SKIP hands over mid-playback and would otherwise leave it sounding
-    // underneath the new track. That went unnoticed anywhere but the end of the
-    // queue: the following updatePreload() re-points this element's src, which
-    // stops it as a side effect — except when there is nothing left to preload,
-    // where updatePreload() bails early on `url === preloadedUrl` (both null) and
-    // never touches it.
-    //
-    // Deliberately AFTER the swap: `previousActive` is now `standbyEl`, so the
-    // 'pause' listener's `el !== activeEl` guard drops the event. Pausing before
-    // the swap would set isPlaying=false, and since browsers fire 'pause'
-    // asynchronously it could land after the incoming play() and leave the UI
-    // showing a play icon over a playing track.
-    previousActive?.pause()
-    // Back to the start, so re-selecting this track later plays it from the top
-    // rather than resuming where the skip cut it off.
-    if (previousActive) previousActive.currentTime = 0
-    // The element that is now standby no longer holds the upcoming track, so
-    // force the next updatePreload() to re-point it.
-    preloadedUrl = null
-}
-
 export function usePlayer() {
-    initAudioElements()
+    initAudio()
 
     const playerState = computed<PlayerState>(() => ({
         currentTrack: currentTrack.value,
@@ -283,11 +225,11 @@ export function usePlayer() {
         currentTrack.value = queue.value[currentIndex.value] || null
     }
 
-    if (activeEl && !activeEl.src) {
+    if (audio && !audio.src) {
         const url = getTrackUrl(currentTrack.value)
         if (url) {
-            activeEl.src = url
-            activeEl.volume = volume.value
+            audio.src = url
+            audio.volume = volume.value
         }
     }
     // A restored session may have shuffle on with an order that predates the
@@ -296,7 +238,6 @@ export function usePlayer() {
         if (shuffleOrder.value.length === 0) rebuildShuffleOrder()
         else syncShuffleOrder()
     }
-    updatePreload()
 
     watch(
         queue,
@@ -312,7 +253,6 @@ export function usePlayer() {
 
     watch(repeat, (newRepeat) => {
         saveToLocalStorage(STORAGE_KEY_REPEAT, newRepeat)
-        updatePreload()
     })
 
     watch(shuffle, (newShuffle) => {
@@ -349,8 +289,7 @@ export function usePlayer() {
     watch(
         volume,
         (newVolume) => {
-            if (activeEl) activeEl.volume = newVolume
-            if (standbyEl) standbyEl.volume = newVolume
+            if (audio) audio.volume = newVolume
             saveToLocalStorage(STORAGE_KEY_VOLUME, newVolume)
             if (newVolume > 0) {
                 unmutedVolume.value = newVolume
@@ -364,8 +303,8 @@ export function usePlayer() {
         if (!currentTrack.value && queue.value.length > 0) {
             loadTrack(0)
         }
-        if (!activeEl || !activeEl.src) return
-        activeEl.play().catch((err) => {
+        if (!audio || !audio.src) return
+        audio.play().catch((err) => {
             if (err.name !== 'AbortError') {
                 console.error('Failed to play:', err)
             }
@@ -373,7 +312,7 @@ export function usePlayer() {
     }
 
     const pause = (): void => {
-        activeEl?.pause()
+        audio?.pause()
         isPlaying.value = false
     }
 
@@ -390,14 +329,16 @@ export function usePlayer() {
         currentIndex.value = index
         currentTrack.value = queue.value[index] || null
         currentTime.value = 0
+        // The catalog's length until the element reports the stream's own, so
+        // the timeline — and a phone's lock screen — reads right while it loads.
+        duration.value = currentTrack.value?.duration ?? 0
         scrobbledTrackId = null
         streamRetriedTrackId = null
         const url = getTrackUrl(currentTrack.value)
-        if (url && activeEl) {
-            activeEl.src = url
-            activeEl.volume = volume.value
+        if (url && audio) {
+            audio.src = url
+            audio.volume = volume.value
         }
-        updatePreload()
     }
 
     const playNext = (): void => {
@@ -406,38 +347,19 @@ export function usePlayer() {
             pause()
             return
         }
-
-        // Fast path: the standby element already buffered this exact track, so
-        // swap to it instead of issuing a fresh request.
-        if (standbyEl && preloadedTrack.value && preloadedTrack.value === queue.value[nextIndex]) {
-            swapToStandby()
-            currentIndex.value = nextIndex
-            currentTrack.value = queue.value[nextIndex] || null
-            scrobbledTrackId = null
-            streamRetriedTrackId = null
-            // The swapped-in element already buffered its metadata while on
-            // standby (its durationchange fired before it was active), so pull
-            // the timeline straight off it instead of waiting for a new event.
-            currentTime.value = activeEl?.currentTime || 0
-            duration.value = activeEl?.duration || 0
-            play()
-            updatePreload()
-            return
-        }
-
         loadTrack(nextIndex)
         play()
     }
 
     const playPrevious = (): void => {
         if (currentTime.value > 3) {
-            if (activeEl) activeEl.currentTime = 0
+            if (audio) audio.currentTime = 0
             return
         }
 
         const prevIndex = resolveStep(-1)
         if (prevIndex === null) {
-            if (activeEl) activeEl.currentTime = 0
+            if (audio) audio.currentTime = 0
             return
         }
 
@@ -446,7 +368,7 @@ export function usePlayer() {
     }
 
     const seek = (time: number): void => {
-        if (activeEl) activeEl.currentTime = time
+        if (audio) audio.currentTime = time
         currentTime.value = time
     }
 
@@ -470,19 +392,16 @@ export function usePlayer() {
         // turning it off drops it so the next enable is not a stale sequence.
         if (shuffle.value) rebuildShuffleOrder()
         else shuffleOrder.value = []
-        updatePreload()
     }
 
     const addToQueue = (song: Song): void => {
         queue.value.push(song)
         syncShuffleOrder()
-        updatePreload()
     }
 
     const addMultipleToQueue = (songs: Song[]): void => {
         queue.value.push(...songs)
         syncShuffleOrder()
-        updatePreload()
     }
 
     // The track-list double-click gesture: the songs land at the END of the queue
@@ -503,7 +422,6 @@ export function usePlayer() {
             return
         }
         syncShuffleOrder()
-        updatePreload()
     }
 
     const playNow = (song: Song): void => {
@@ -531,7 +449,6 @@ export function usePlayer() {
         }
         queue.value.splice(index, 1)
         syncShuffleOrder()
-        updatePreload()
     }
 
     const removeManyFromQueue = (indices: number[]): void => {
@@ -564,7 +481,6 @@ export function usePlayer() {
             const idx = next.indexOf(current)
             if (idx !== -1) currentIndex.value = idx
             syncShuffleOrder()
-            updatePreload()
         }
     }
 
@@ -577,7 +493,6 @@ export function usePlayer() {
             const idx = next.indexOf(current)
             if (idx !== -1) currentIndex.value = idx
         }
-        updatePreload()
     }
 
     const insertIntoQueue = (songs: Song[], targetIndex: number): void => {
@@ -590,7 +505,6 @@ export function usePlayer() {
             if (idx !== -1) currentIndex.value = idx
         }
         syncShuffleOrder()
-        updatePreload()
     }
 
     const clearQueue = (): void => {
@@ -598,16 +512,13 @@ export function usePlayer() {
         shuffleOrder.value = []
         currentIndex.value = 0
         currentTrack.value = null
-        preloadedTrack.value = null
-        preloadedUrl = null
         // Per-track bookkeeping belongs to a track that no longer exists; a
         // logout purge clears the queue, and the next session's first track must
         // start with a fresh scrobble and stream-recovery budget.
         scrobbledTrackId = null
         streamRetriedTrackId = null
         pause()
-        if (activeEl) activeEl.src = ''
-        if (standbyEl) standbyEl.src = ''
+        if (audio) audio.src = ''
     }
 
     // Picking a track by hand jumps to its slot in the random order rather than
@@ -636,8 +547,8 @@ export function usePlayer() {
             // The element may not have metadata yet, so the assignment can be
             // dropped by the browser; the timeline still reads correct and the
             // pending seek is re-applied once the track is loadable.
-            if (activeEl) {
-                const el = activeEl
+            if (audio) {
+                const el = audio
                 const applySeek = (): void => {
                     el.currentTime = seconds
                 }
@@ -661,7 +572,6 @@ export function usePlayer() {
         shuffle,
         currentTime,
         duration,
-        preloadedTrack,
         shuffleOrder,
         hasNext,
         hasPrevious,

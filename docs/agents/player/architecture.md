@@ -4,7 +4,7 @@
 3 webui) that streams from an OpenSubsonic server — Aether first. Nothing in
 the Rust side is Aether-specific, but the SPA, and so the app as shipped,
 needs Aether: its server step accepts no other server. The webui is the whole
-UI and, for now, also the player (its own `<audio>` elements); the Rust
+UI and, for now, also the player (its own `<audio>` element); the Rust
 backend stores the server the user picked, carries the SPA's HTTP requests,
 runs the tray, and holds a playback engine that stays idle until the playback
 retrofit moves the music into it. Bootstrapped 2026-07-22 in its own

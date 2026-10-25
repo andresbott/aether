@@ -3,7 +3,7 @@ import type { Song } from '@/types/subsonic'
 
 const song = (id: string): Song => ({ id, title: `Song ${id}`, streamUrl: `/stream/${id}` })
 
-/** jsdom has no media playback; stand in a minimal recorder (see usePlayer.preload.spec). */
+/** jsdom has no media playback; stand in a minimal recorder (see usePlayer.trackChange.spec). */
 class FakeAudio {
     static instances: FakeAudio[] = []
     src = ''

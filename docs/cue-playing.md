@@ -58,9 +58,9 @@ integrates automatically once the rows exist.
    exists (ffprobe is already shelled out to in `internal/tags/ffprobe.go`, so
    an ffmpeg dependency is not a new class of dependency, but nothing streams
    through it yet).
-5. **`webui/src/composables/usePlayer.ts`** — the dual-`<audio>`
-   preload/standby-swap design assumes each track is its own URL; no concept of
-   "next track is the same file, keep playing."
+5. **`webui/src/composables/usePlayer.ts`** — its single `<audio>` element is
+   re-pointed at each track's own URL; no concept of "next track is the same
+   file, keep playing."
 
 ## Work breakdown
 
@@ -138,11 +138,11 @@ through one `<audio>` element and treat track boundaries as bookkeeping.
   seek bar looks like a normal song. Seeking within the track =
   `el.currentTime = startMs + t`.
 - **Seamless is a detected special case, not a mode:** at the boundary, if the
-  *next queue item* is the same file with `startMs === current endMs`, skip
-  the standby-swap and let the element keep playing — just swap the displayed
+  *next queue item* is the same file with `startMs === current endMs`, leave
+  the element's `src` alone and let it keep playing — just swap the displayed
   track metadata. That is bit-perfect gapless, better than any server-side
-  splitting. Otherwise behave exactly like today (point at the next track's
-  URL / swap to the preloaded standby).
+  splitting. Otherwise behave exactly like today (point the element at the
+  next track's URL).
 - Queue composition stays unrestricted: single cue tracks, mixed with regular
   songs, any order. Contiguity is an optimization the player detects, not
   something the queue must know about.

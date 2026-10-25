@@ -4,7 +4,7 @@ import type { Song } from '@/types/subsonic'
 
 const song = (id: string): Song => ({ id, title: `Song ${id}`, streamUrl: `/stream/${id}` })
 
-/** jsdom has no media playback; stand in a minimal recorder (see usePlayer.preload.spec). */
+/** jsdom has no media playback; stand in a minimal recorder (see usePlayer.trackChange.spec). */
 class FakeAudio {
     static instances: FakeAudio[] = []
     _src = ''
@@ -198,18 +198,6 @@ describe('usePlayer shuffle order', () => {
 
         player.playNext() // from the tail, forwards
         expect(player.currentTrack.value?.id).toBe(order[0])
-    })
-
-    it('preloads the next entry of the random order', () => {
-        const player = usePlayer()
-        player.playAlbum(album, 0)
-        player.toggleShuffle()
-
-        expect(player.preloadedTrack.value?.id).toBe(player.shuffleOrder.value[1])
-
-        player.playNext()
-
-        expect(player.preloadedTrack.value?.id).toBe(player.shuffleOrder.value[2])
     })
 
     it('jumps to the random next track when the current one ends on its own', () => {

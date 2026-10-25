@@ -43,7 +43,7 @@ let syncedSignature: string | null = null
 // Whether this page load has already adopted the server's queue. restore() is a
 // page-LOAD concern, but it is called from PlayerLayout's onMounted, and that
 // layout remounts on every trip through /settings — re-adopting the snapshot
-// there would clobber the live session (restoreSession re-points the active
+// there would clobber the live session (restoreSession re-points the audio
 // element's src, which stops a playing track dead). Never reset by stop().
 let restoredThisLoad = false
 

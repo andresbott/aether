@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
-/** jsdom has no media playback; stand in a minimal recorder (see usePlayer.preload.spec). */
+/** jsdom has no media playback; stand in a minimal recorder (see usePlayer.trackChange.spec). */
 class FakeAudio {
     static instances: FakeAudio[] = []
     src = ''
