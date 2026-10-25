@@ -139,12 +139,11 @@ const buildTime = computed(() => serverVersion.value?.build_time || '')
 
 <style scoped>
 /* Recipe B (main-content-view-layout.md §4): self-scrolling body on the
-   shared content column, uniform rail clearance on the right. */
+   shared content column. */
 .about-body {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
     padding-top: 1rem;
     padding-bottom: 2rem;
     color: var(--app-text-primary);

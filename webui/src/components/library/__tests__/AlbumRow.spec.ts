@@ -39,26 +39,62 @@ beforeEach(() => {
     starMutate.mockReset()
 })
 
+const metaParts = (w: ReturnType<typeof mountRow>) =>
+    w.findAll('.card-meta .meta-part').map((p) => p.text())
+const detailParts = (w: ReturnType<typeof mountRow>) =>
+    w.findAll('.card-details .meta-part').map((p) => p.text())
+
 describe('AlbumRow', () => {
-    it('renders title, artist, song count and formatted duration', () => {
+    it('renders the title, the artist and a meta line of song count and running time', () => {
         const w = mountRow(album)
-        expect(w.text()).toContain('Album One')
-        expect(w.text()).toContain('The Artist')
-        expect(w.find('.col-songs').text()).toBe('9')
-        expect(w.text()).toContain('2:05')
+        expect(w.find('.card-title').text()).toBe('Album One')
+        expect(w.find('.card-subtitle').text()).toBe('The Artist')
+        expect(metaParts(w)).toEqual(['9 songs', '2 min'])
     })
 
-    it('links to the album detail route and starts the drag', async () => {
+    it('counts a single song in the singular', () => {
+        expect(metaParts(mountRow({ ...album, songCount: 1 }))).toEqual(['1 song', '2 min'])
+    })
+
+    it('leaves out what the album does not report', () => {
+        const w = mountRow({ id: 'al2', name: 'Bare' })
+        expect(w.find('.card-subtitle').exists()).toBe(false)
+        expect(w.find('.card-facts').exists()).toBe(false)
+    })
+
+    const full: Album = { ...album, year: 2004, genre: 'Latin Pop', releaseTypes: ['EP'] }
+
+    it('puts the year before the size, and the type and the genre on a second line', () => {
+        const w = mountRow(full)
+        expect(metaParts(w)).toEqual(['2004', '9 songs', '2 min'])
+        expect(detailParts(w)).toEqual(['EP', 'Latin Pop'])
+    })
+
+    it('names no type for a plain album, and a compilation by its flag', () => {
+        expect(detailParts(mountRow({ ...full, releaseTypes: ['Album'] }))).toEqual(['Latin Pop'])
+        const flagged = { ...full, releaseTypes: undefined, isCompilation: true }
+        expect(detailParts(mountRow(flagged))).toEqual(['Compilation', 'Latin Pop'])
+    })
+
+    // The server sends year 0 for an album without one.
+    it('leaves out a zero year, and the second line with nothing on it', () => {
+        const w = mountRow({ ...album, year: 0 })
+        expect(metaParts(w)).toEqual(['9 songs', '2 min'])
+        expect(w.find('.card-details').exists()).toBe(false)
+    })
+
+    // The grid card's size, so switching layouts reuses the one cached image.
+    it('links to the album detail route and starts the drag with the cover', async () => {
         const w = mountRow(album)
         const link = w.findComponent(RouterLinkStub)
         expect(link.props('to')).toEqual({ name: 'album', params: { id: 'al1' } })
         await link.trigger('dragstart')
         expect(start).toHaveBeenCalledTimes(1)
         expect(start.mock.calls[0][1].id).toBe('al1')
-        expect(start.mock.calls[0][2]).toBe('cover:ca1:80')
+        expect(start.mock.calls[0][2]).toBe('cover:ca1:200')
     })
 
-    it('renders a placeholder row while the album is not loaded', () => {
+    it('renders a placeholder card while the album is not loaded', () => {
         const w = mountRow(undefined)
         expect(w.findComponent(RouterLinkStub).exists()).toBe(false)
         expect(w.find('.album-row.placeholder').exists()).toBe(true)
@@ -70,10 +106,8 @@ describe('AlbumRow', () => {
 })
 
 describe('AlbumRow favorite toggle', () => {
-    // In its own column, mirrored by PlaylistRow and both list headers, so a
-    // Discovery feed interleaving albums and playlists lines its columns up.
-    it('renders the heart in its own column', () => {
-        expect(mountRow(album).find('.col-star .row-star').exists()).toBe(true)
+    it('renders the heart on the card', () => {
+        expect(mountRow(album).find('.list-card .row-star').exists()).toBe(true)
     })
 
     it('shows an outline heart when unstarred and a filled one when starred', () => {

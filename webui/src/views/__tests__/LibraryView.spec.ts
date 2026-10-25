@@ -131,6 +131,7 @@ const DiscoveryFeedStub = {
     template: '<div class="discovery-feed-stub" :data-layout="layout" />'
 }
 import LibraryView from '@/views/LibraryView.vue'
+import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import SelectButton from 'primevue/selectbutton'
 
 const mountView = () =>
@@ -286,6 +287,26 @@ describe('LibraryView', () => {
         expect(w.findComponent(ArtistGridStub).exists()).toBe(false)
         // Falls back to Albums: release-type tabs + layout toggle.
         expect(filterSelects(w).length).toBe(2)
+    })
+})
+
+// Albums and Artists draw the alphabet rail, in a list and a grid alike; Discover
+// draws none, so it gets the whole width.
+describe('LibraryView alphabet rail', () => {
+    it.each([
+        ['albums', 'grid'],
+        ['albums', 'list'],
+        ['artists', 'grid'],
+        ['artists', 'list']
+    ] as const)("keeps the rail's slot clear on %s (%s)", (mode, layout) => {
+        route.params = { folderId: '1', mode }
+        useUiStore().setLibraryViewMode(mode, layout)
+        expect(mountView().findComponent(ContentScaffold).props('rail')).toBe(true)
+    })
+
+    it('reserves none on Discover', () => {
+        route.params = {}
+        expect(mountView().findComponent(ContentScaffold).props('rail')).toBe(false)
     })
 })
 

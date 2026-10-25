@@ -44,7 +44,7 @@ the plugin. That holds for `make player-run` too: its window loads the vite
 dev server but is still the app, so vite's `/api` and `/rest` proxy is not in
 the path — with `make run` serving, give the server step
 `http://localhost:8075`. Its player (`webui/src/composables/usePlayer.ts`)
-uses two HTML `<audio>` elements with preload/swap; it is the app's player
+uses one HTML `<audio>` element; it is the app's player
 for now, and the playback retrofit *replaces* it rather than extending it.
 Changes to `webui/` belong to webui-scoped plans, not backend plans.
 

@@ -290,14 +290,12 @@ const toggleAccountMenu = (event: Event): void => accountMenu.value?.toggle(even
 }
 
 /* Recipe B (docs/architecture/main-content-view-layout.md): the body scrolls
-   itself and reserves the uniform rail clearance on the right, so the shelves sit
-   on the same column as the scaffold header's title. --sb-w comes from
-   PlayerLayout; never re-measure it here. */
+   itself, and the shelves sit on the same column as the scaffold header's
+   title. */
 .browse-body {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
     /* With an empty queue there is no mini player below this page, so it is the
        bottom-most surface and reserves the home-indicator inset itself. */
     padding-bottom: calc(1rem + env(safe-area-inset-bottom));

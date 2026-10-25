@@ -70,3 +70,17 @@ export function formatReleaseTypes(list: readonly string[] | undefined): string 
     const { primary, secondary } = splitReleaseTypes(list ?? [])
     return mergeReleaseTypes(primary, secondary).join(' · ')
 }
+
+/**
+ * releaseTypeTag labels an album that is not a plain album, for views listing
+ * many at once (the list cards), where "Album" on every one would be noise:
+ * formatReleaseTypes' label without an "Album" primary, plus "Compilation" when
+ * the album is flagged as one (`isCompilation`, which also covers the iTunes
+ * flag) without carrying the type. '' for a plain album.
+ */
+export function releaseTypeTag(list: readonly string[] | undefined, compilation = false): string {
+    const { primary, secondary } = splitReleaseTypes(list ?? [])
+    const types = mergeReleaseTypes(primary === 'Album' ? '' : primary, secondary)
+    if (compilation && !types.includes('Compilation')) types.push('Compilation')
+    return types.join(' · ')
+}

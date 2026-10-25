@@ -6,6 +6,7 @@ import AlphabetRail from '@/components/library/AlphabetRail.vue'
 import AlbumRow from '@/components/library/AlbumRow.vue'
 import { ALBUM_PAGE_SIZE } from '@/composables/useAlbumTable'
 import { useAlbumSource } from '@/composables/useLibrarySource'
+import { useListCardMetrics } from '@/composables/useListCardMetrics'
 
 const props = defineProps<{ folderId?: number; favoritesOnly?: boolean; releaseType?: string }>()
 
@@ -14,6 +15,7 @@ const { total, letters, items, isLoading, error, ensureRange } = useAlbumSource(
     computed(() => props.favoritesOnly === true),
     computed(() => props.releaseType)
 )
+const { itemSize } = useListCardMetrics()
 const scroller = ref<InstanceType<typeof VirtualScroller> | null>(null)
 
 function onLazyLoad(event: VirtualScrollerLazyEvent): void {
@@ -41,19 +43,6 @@ function onSelectLetter(offset: number): void {
             <p v-else>No albums found</p>
         </div>
         <div v-else class="list-body">
-            <div class="list-header">
-                <div class="header-row">
-                    <div class="col-cover"></div>
-                    <div class="col-title">Album</div>
-                    <div class="col-artist">Artist</div>
-                    <!-- The favorite column is hover-revealed per row, so its header
-                         stays blank rather than labelling a usually-invisible
-                         control. -->
-                    <div class="col-star"></div>
-                    <div class="col-songs">Songs</div>
-                    <div class="col-duration">Duration</div>
-                </div>
-            </div>
             <!-- Keyed on folder + source + release type: each is a different
                  dataset, and a retained scroll offset from the previous one
                  lands nowhere. -->
@@ -61,7 +50,7 @@ function onSelectLetter(offset: number): void {
                 ref="scroller"
                 :key="`${folderId ?? 'all'}-${favoritesOnly ? 'fav' : 'all'}-${releaseType ?? 'all'}`"
                 :items="items"
-                :itemSize="56"
+                :itemSize="itemSize"
                 lazy
                 :numToleratedItems="10"
                 class="list-scroller"
@@ -85,46 +74,10 @@ function onSelectLetter(offset: number): void {
 .list-body {
     position: relative;
     height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-
-/* The top padding is the shared list-header gap — see --app-list-header-top. */
-.list-header {
-    flex-shrink: 0;
-    box-sizing: border-box;
-    padding-top: var(--app-list-header-top);
-    padding-left: var(--app-content-gutter);
-    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
-}
-
-/* Mirrors AlbumRow's grid template, favorite column included. */
-.header-row {
-    display: grid;
-    grid-template-columns: 48px 2fr 1.5fr 2rem 4rem 5rem;
-    align-items: center;
-    gap: 1rem;
-    height: 36px;
-    padding: 0 0.5rem;
-    max-width: var(--app-content-max-width);
-    margin-left: auto;
-    margin-right: auto;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--app-text-secondary);
-    border-bottom: 1px solid var(--p-content-border-color);
-}
-
-.header-row .col-songs,
-.header-row .col-duration {
-    text-align: right;
 }
 
 .list-scroller {
-    flex: 1;
-    min-height: 0;
+    height: 100%;
     width: 100%;
     scrollbar-gutter: stable;
 }
@@ -139,20 +92,16 @@ function onSelectLetter(offset: number): void {
     background: var(--app-bg, transparent);
 }
 
-/* Recipe C: rail clearance + shared gutter on the scroll content so centered
-   rows never slide under the rail and keep a gutter at narrow widths. */
+/* Recipe C: rail clearance + shared gutter on the scroll content so the cards
+   (which center themselves on the content column) never slide under the rail
+   and keep a gutter at narrow widths. The top padding is the gap under the
+   header: it moves every card down by the same 1rem and lengthens the scroll
+   by as much, so the slots VirtualScroller computes stay a card apart. */
 .list-body :deep(.p-virtualscroller-content) {
     box-sizing: border-box;
+    padding-top: 1rem;
     padding-left: var(--app-content-gutter);
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter));
-}
-
-/* Center the rows in the shared content column to match the album/artist grid;
-   the scroller stays full width so its scroll bar + the rail stay flush right. */
-.list-body :deep(.album-row) {
-    max-width: var(--app-content-max-width);
-    margin-left: auto;
-    margin-right: auto;
+    padding-right: calc(var(--app-rail-clearance) + var(--app-content-gutter));
 }
 
 .loading {

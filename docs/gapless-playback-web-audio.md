@@ -1,6 +1,9 @@
 # Gapless Playback — Web Audio API alternative (deferred)
 
-**Status:** Not implemented. Recorded as the alternative to the approach currently shipping.
+**Status:** Not implemented. Recorded as the alternative to Approach A below,
+which shipped and was removed on 2026-10-25 — live recordings never came out
+seamless, and it was not worth its complexity. The player is back to the single
+element described under Context, gap included.
 **Date:** 2026-06-30
 **Related code:** `webui/src/composables/usePlayer.ts`, `webui/src/utils/playbackOrder.ts`
 
@@ -16,11 +19,12 @@ the gap is entirely browser-side fetch + buffer time.
 
 Two solutions were compared:
 
-- **Approach A — dual `<audio>` preloading (SHIPPED).** Keep two audio elements,
-  active + standby. While the current track plays, point the standby at the next
-  track's URL with `preload="auto"` so the browser buffers it ahead. On `ended`,
-  swap roles instead of re-pointing one element's `src`. Removes the
-  fetch/buffer latency; the gap becomes imperceptible for normal tracks.
+- **Approach A — dual `<audio>` preloading (shipped, removed 2026-10-25).**
+  Keep two audio elements, active + standby. While the current track plays,
+  point the standby at the next track's URL with `preload="auto"` so the
+  browser buffers it ahead. On `ended`, swap roles instead of re-pointing one
+  element's `src`. Removes the fetch/buffer latency; the gap becomes
+  imperceptible for normal tracks.
 - **Approach B — Web Audio API true gapless (THIS DOC).** Decode tracks into PCM
   buffers and schedule them back-to-back on an `AudioContext` clock for
   sample-accurate, truly seamless playback.
@@ -115,8 +119,8 @@ encoded file is downloaded up front before playback can begin.
 
 ## Effort & risk
 
-- **Approach A (shipped):** ~½–1 day, localized to `usePlayer.ts` + tests, low
-  risk.
+- **Approach A (shipped, since removed):** ~½–1 day, localized to
+  `usePlayer.ts` + tests, low risk.
 - **Approach B:** multi-day to weeks. It's effectively writing a small media
   engine (download, decode, schedule, seek, pause, progress, memory management).
   High risk and ongoing maintenance.
@@ -125,18 +129,18 @@ encoded file is downloaded up front before playback can begin.
 
 Pick Approach B only if one of these becomes a hard requirement:
 
-1. **Sample-accurate gapless** for continuous albums — Approach A's tiny seam is
-   unacceptable.
+1. **Sample-accurate gapless** for continuous albums — the gap between
+   `<audio>` tracks is unacceptable.
 2. **Crossfading** between tracks — Web Audio `GainNode` is the clean way to do
    it; the `<audio>` approach can't do it well.
 
-Otherwise Approach A is sufficient and far cheaper.
+Otherwise the single `<audio>` element is sufficient and far cheaper.
 
 ## Possible hybrid
 
-Keep Approach A as the default engine and only switch to a Web Audio engine for a
-"gapless / crossfade" mode the user opts into. This avoids paying the memory and
-complexity cost for the common case while still offering true gapless when asked.
-The shared `nextQueueIndex` helper and the `usePlayer` public API (`play`,
-`pause`, `seek`, `currentTime`, `duration`, `preloadedTrack`, …) make a
+Keep the `<audio>` element as the default engine and only switch to a Web Audio
+engine for a "gapless / crossfade" mode the user opts into. This avoids paying
+the memory and complexity cost for the common case while still offering true
+gapless when asked. The shared `nextQueueIndex` helper and the `usePlayer`
+public API (`play`, `pause`, `seek`, `currentTime`, `duration`, …) make a
 pluggable engine behind the same surface feasible.

@@ -155,6 +155,25 @@ while the **star state (`starred`) is the viewer's own** — decorated via
 `starredSongList(h.store, requestOwner(r), tracks)` so each user sees their own
 favorites, not the playing user's.
 
+## Artists (`getArtists` / `getArtist`)
+
+- **The artist index lists album artists only** (`Store.GetArtists` joins
+  `album_artists`): an artist with nothing but track credits — a guest, a
+  compilation contributor — gets no entry, so no index row shows zero albums.
+  They stay reachable through search and song credits.
+- **`getArtist` returns the albums the artist owns *and* the ones they only
+  appear on** (`Store.GetArtist`: `album_artists` plus `track_artists` → tracks →
+  albums), so a guest reached from a song credit does not land on an empty page.
+  Navidrome answers album-artist albums only unless `Subsonic.ArtistParticipations`
+  is set; ours is the inclusive answer. `albumCount` (`GetArtistAlbumCounts`)
+  counts the same union.
+- **Every `AlbumID3` carries `artists`** (`albumToMap`): every album artist as
+  `{id, name}`, where `artist`/`artistId` name only the first. That is how a client
+  tells the two kinds apart — an album whose `artists` leaves the artist out is an
+  appearance, while one they share the credit on is still theirs. The web UI's
+  "Appears on" section (`ArtistView`, `splitAppearances`) rests on it:
+  `TestGetArtistAlbumsListEveryAlbumArtist`.
+
 ## Album lists (`getAlbumList2` / `getAlbumList2Index`, the `releaseTypeFilter` extension)
 
 **`releaseTypeFilter` (v1).** `getAlbumList2` and `getAlbumList2Index` accept an

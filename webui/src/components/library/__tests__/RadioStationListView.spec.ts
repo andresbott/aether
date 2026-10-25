@@ -20,6 +20,7 @@ const VirtualScrollerStub = {
 }
 
 import RadioStationListView from '@/components/library/RadioStationListView.vue'
+import { LIST_CARD_METRICS } from '@/composables/useListCardMetrics'
 
 const mountView = () =>
     mount(RadioStationListView, {
@@ -27,11 +28,13 @@ const mountView = () =>
     })
 
 describe('RadioStationListView', () => {
-    it('renders a Station/Homepage header and the virtual scroller with all items', () => {
+    it('renders the virtual scroller with all items, one list card per slot', () => {
         const w = mountView()
-        expect(w.text()).toContain('Station')
-        expect(w.text()).toContain('Homepage')
-        expect(w.findComponent(VirtualScrollerStub).props('items')).toHaveLength(2)
+        const vs = w.findComponent(VirtualScrollerStub)
+        expect(vs.props('items')).toHaveLength(2)
+        // jsdom has no matchMedia, so the viewport reads as the desktop tier.
+        const { cover, pad, gap } = LIST_CARD_METRICS.wide
+        expect(vs.props('itemSize')).toBe(cover + 2 * pad + gap)
     })
 
     it('shows an empty state when there are no stations', () => {

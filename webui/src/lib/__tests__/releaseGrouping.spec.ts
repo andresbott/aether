@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Album } from '@/types/subsonic'
-import { groupAlbumsByReleaseType } from '@/lib/releaseGrouping'
+import { groupAlbumsByReleaseType, splitAppearances } from '@/lib/releaseGrouping'
 
 const album = (id: string, releaseTypes?: string[], year?: number): Album => ({
     id,
@@ -92,5 +92,39 @@ describe('groupAlbumsByReleaseType', () => {
 
     it('returns no groups for an empty discography', () => {
         expect(groupAlbumsByReleaseType([])).toEqual([])
+    })
+})
+
+describe('splitAppearances', () => {
+    // An album credited to the given album artists (OpenSubsonic AlbumID3.artists).
+    const credited = (id: string, ...artistIds: string[]): Album => ({
+        id,
+        name: id,
+        artists: artistIds.map((a) => ({ id: a, name: a }))
+    })
+    const ids = (albums: Album[]) => albums.map((a) => a.id)
+
+    it('moves an album whose album artists leave the artist out to appearances', () => {
+        const { own, appearances } = splitAppearances(
+            [credited('debut', 'ar-1'), credited('soundtrack', 'ar-9')],
+            'ar-1'
+        )
+        expect(ids(own)).toEqual(['debut'])
+        expect(ids(appearances)).toEqual(['soundtrack'])
+    })
+
+    it('keeps an album the artist shares the credit on', () => {
+        const { own, appearances } = splitAppearances([credited('collab', 'ar-2', 'ar-1')], 'ar-1')
+        expect(ids(own)).toEqual(['collab'])
+        expect(appearances).toEqual([])
+    })
+
+    it('keeps an album that lists no album artists', () => {
+        const { own, appearances } = splitAppearances(
+            [{ id: 'bare', name: 'bare' }, credited('empty')],
+            'ar-1'
+        )
+        expect(ids(own)).toEqual(['bare', 'empty'])
+        expect(appearances).toEqual([])
     })
 })

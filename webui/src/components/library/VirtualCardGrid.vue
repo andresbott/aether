@@ -181,7 +181,8 @@ watch(
 }
 
 /* Hidden probe whose inner width equals a row's inner width (max-width capped, centered,
-   with the same right clearance the scroller content reserves for rail + scrollbar). */
+   with the scroller content's right clearance plus the scrollbar, which this probe
+   spans and the scroller's content box leaves out). */
 .grid-sizer {
     position: absolute;
     top: 0;
@@ -192,7 +193,7 @@ watch(
     pointer-events: none;
     box-sizing: border-box;
     padding-left: var(--app-content-gutter);
-    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
 .grid-sizer-inner {
@@ -208,11 +209,12 @@ watch(
 
 /* Recipe C: rail clearance + shared gutter on the scroll content so centered
    rows never slide under the rail; border-box keeps the min-width:100% content
-   wrapper from overflowing. */
+   wrapper from overflowing. The clearance is the scaffold's, 0 for a grid that
+   shows no rail. */
 .card-grid :deep(.p-virtualscroller-content) {
     box-sizing: border-box;
     padding-left: var(--app-content-gutter);
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter));
+    padding-right: calc(var(--app-rail-clearance) + var(--app-content-gutter));
 }
 
 /* Center each row in the shared content column; the scroller stays full width so its

@@ -230,7 +230,7 @@ describe('usePlayer stream recovery', () => {
         await vi.waitFor(() => expect(remintApiKey).toHaveBeenCalledTimes(2))
     })
 
-    // Regression: clearQueue empties the active element's src, and the browser
+    // Regression: clearQueue empties the audio element's src, and the browser
     // fires an 'error' for the now-sourceless element. That is a deliberate stop,
     // not a connectivity failure — it must not raise the server-unreachable banner.
     it('does not report a network error when the queue is cleared', async () => {
@@ -240,7 +240,7 @@ describe('usePlayer stream recovery', () => {
         el.seedPosition(5)
         reportNetworkError.mockClear()
 
-        player.clearQueue() // sets currentTrack = null and activeEl.src = ''
+        player.clearQueue() // sets currentTrack = null and audio.src = ''
         el.fire('error') // the empty-src error a real <audio> element fires here
 
         // Flush a full macrotask so the internal dynamic import()/report path,

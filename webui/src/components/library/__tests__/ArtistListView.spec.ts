@@ -30,6 +30,7 @@ const VirtualScrollerStub = {
 
 import ArtistListView from '@/components/library/ArtistListView.vue'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
+import { LIST_CARD_METRICS } from '@/composables/useListCardMetrics'
 
 const mountView = (props: { folderId?: number; favoritesOnly?: boolean } = { folderId: 1 }) =>
     mount(ArtistListView, {
@@ -60,6 +61,14 @@ describe('ArtistListView', () => {
         const vs = w.findComponent(VirtualScrollerStub)
         expect(vs.props('lazy')).toBeFalsy()
         expect(vs.props('items')).toHaveLength(2)
+    })
+
+    // One slot per card plus the gap below it, or the cards drift off their slots.
+    // jsdom has no matchMedia, so the viewport reads as desktop.
+    it('sizes each slot to a list card', () => {
+        const { cover, pad, gap } = LIST_CARD_METRICS.wide
+        const vs = mountView().findComponent(VirtualScrollerStub)
+        expect(vs.props('itemSize')).toBe(cover + 2 * pad + gap)
     })
 
     it('shows an empty state when there are no artists', () => {

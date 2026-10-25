@@ -15,9 +15,9 @@ defineProps<{ entry: DiscoveryFeedEntry; layout: 'grid' | 'list' }>()
 
 <template>
     <div class="discovery-feed-item" :class="layout">
-        <!-- Both types honour the layout: cards in grid, rows in list. A playlist
-             rendered as a card inside a list would tower over the album rows beside
-             it, which is why PlaylistRow exists. -->
+        <!-- Both types honour the layout: grid cards in grid, list cards (the
+             rows) in list. A playlist rendered as a grid card inside a list would
+             tower over the album cards beside it, which is why PlaylistRow exists. -->
         <template v-if="entry.type === 'album'">
             <AlbumCard v-if="layout === 'grid'" :album="entry.album" />
             <AlbumRow v-else :album="entry.album" />
@@ -52,7 +52,7 @@ defineProps<{ entry: DiscoveryFeedEntry; layout: 'grid' | 'list' }>()
     max-width: 100%;
 }
 
-/* In list layout the row fills the feed's width. */
+/* In list layout the card fills the feed's width. */
 .discovery-feed-item.list > * {
     min-width: 0;
 }

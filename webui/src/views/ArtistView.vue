@@ -17,7 +17,7 @@ import { usePlayer } from '@/composables/usePlayer'
 import { useAuth } from '@/composables/useAuth'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { apiErrorMessage } from '@/lib/apiError'
-import { groupAlbumsByReleaseType } from '@/lib/releaseGrouping'
+import { groupAlbumsByReleaseType, splitAppearances } from '@/lib/releaseGrouping'
 import type { Song } from '@/types/subsonic'
 import type { ArtistImagePick } from '@/types/artists'
 
@@ -308,9 +308,14 @@ const sortedAlbums = computed(() => {
         .sort((a, b) => (b.year || 0) - (a.year || 0))
 })
 
+// getArtist also returns the albums the artist only appears on — a track on a
+// soundtrack or on someone else's compilation. Those get a trailing "Appears on"
+// section; the release-type sections and Play/Queue cover the artist's own.
+const artistAlbums = computed(() => splitAppearances(sortedAlbums.value, props.id))
+
 // Group the discography by MusicBrainz release type for display (Albums, EPs,
 // Singles, …). Derived from sortedAlbums so each card keeps the artist fallback.
-const releaseGroups = computed(() => groupAlbumsByReleaseType(sortedAlbums.value))
+const releaseGroups = computed(() => groupAlbumsByReleaseType(artistAlbums.value.own))
 
 const player = usePlayer()
 const gathering = ref(false)
@@ -318,7 +323,9 @@ const gathering = ref(false)
 // getArtist returns albums without their songs, so gather each album's songs on
 // demand before playing/queuing the whole discography.
 async function gatherSongs(): Promise<Song[]> {
-    const results = await Promise.all(sortedAlbums.value.map((a) => subsonicClient.getAlbum(a.id)))
+    const results = await Promise.all(
+        artistAlbums.value.own.map((a) => subsonicClient.getAlbum(a.id))
+    )
     return results.flatMap((al) => al?.song ?? [])
 }
 
@@ -422,6 +429,7 @@ const onQueue = async (): Promise<void> => {
                     </template>
                     <template #actions>
                         <HeroActions
+                            :play-disabled="artistAlbums.own.length === 0"
                             can-queue
                             can-star
                             :starred="!!artist.starred"
@@ -444,6 +452,19 @@ const onQueue = async (): Promise<void> => {
                             <div class="album-grid">
                                 <AlbumCard
                                     v-for="album in group.albums"
+                                    :key="album.id"
+                                    :album="album"
+                                />
+                            </div>
+                        </section>
+                        <section
+                            v-if="artistAlbums.appearances.length"
+                            class="discography appears-on"
+                        >
+                            <h2>Appears on</h2>
+                            <div class="album-grid">
+                                <AlbumCard
+                                    v-for="album in artistAlbums.appearances"
                                     :key="album.id"
                                     :album="album"
                                 />
@@ -491,18 +512,13 @@ const onQueue = async (): Promise<void> => {
 }
 
 /* Recipe B with the hero pulled out of the column so the duotone band bleeds
-   edge to edge; .artist-below reserves the rail clearance the scroll container
-   used to, so the discography lines up with the hero content. */
+   edge to edge; the discography below centers on the same column as the hero
+   content. */
 .artist-scroll {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
     box-sizing: border-box;
-}
-
-.artist-below {
-    box-sizing: border-box;
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
 }
 
 .artist-body {

@@ -131,6 +131,11 @@ const layout = computed<Layout>({
     set: (v) => uiStore.setLibraryViewMode(viewMode.value, v)
 })
 
+// Albums and Artists draw the alphabet rail, in a list and a grid alike, so the
+// scaffold keeps its slot clear for them; Discover has none and gets the whole
+// width.
+const drawsRail = computed(() => viewMode.value !== 'discover')
+
 // Favorites filter, in the URL so it survives a reload and is linkable. It applies
 // to the Albums and Artists views only: Discover is a ranked feed in which
 // favorites are already a scoring term, not a filterable list.
@@ -242,7 +247,7 @@ const summary = computed(() => {
 </script>
 
 <template>
-    <ContentScaffold :title="folderName" :summary="summary">
+    <ContentScaffold :title="folderName" :summary="summary" :rail="drawsRail">
         <template #actions>
             <!-- The view switcher comes first: it decides what the filters
                  after it narrow. Same button-group look as the filters. -->

@@ -43,6 +43,28 @@ function primaryType(album: Album): PrimaryReleaseType {
     return 'Album'
 }
 
+export interface ArtistAlbums {
+    own: Album[]
+    appearances: Album[]
+}
+
+/**
+ * Split the albums getArtist returns into the artist's own and the ones they
+ * only appear on — a track credit on someone else's album, like a soundtrack.
+ * An album is an appearance when its album artists leave the artist out; one
+ * that lists no album artists stays theirs, since nothing says otherwise.
+ */
+export function splitAppearances(albums: Album[], artistId: string): ArtistAlbums {
+    const own: Album[] = []
+    const appearances: Album[] = []
+    for (const album of albums) {
+        const credits = album.artists ?? []
+        if (credits.length > 0 && !credits.some((a) => a.id === artistId)) appearances.push(album)
+        else own.push(album)
+    }
+    return { own, appearances }
+}
+
 /**
  * Group an artist's discography by MusicBrainz release type for display: one
  * ordered group per surviving type (Albums, EPs, Singles, Broadcast, Other),

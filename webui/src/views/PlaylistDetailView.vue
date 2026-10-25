@@ -603,18 +603,13 @@ onUnmounted(() => {
     color: #ef4444;
 }
 /* Recipe B with the hero pulled out of the column so the duotone band bleeds
-   edge to edge: the scroll container no longer reserves the rail clearance
-   itself; the hero (internally) and .playlist-below each reserve it, so the two
-   columns still line up. */
+   edge to edge; the hero content and the track list below center on the same
+   column, so the two still line up. */
 .playlist-scroll {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
     box-sizing: border-box;
-}
-.playlist-below {
-    box-sizing: border-box;
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
 }
 .playlist-body {
     padding-top: 1rem;

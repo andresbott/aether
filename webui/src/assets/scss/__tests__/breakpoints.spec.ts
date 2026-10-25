@@ -43,8 +43,9 @@ describe('phone token overrides', () => {
         expect(block).toContain('--app-content-gutter: 0.75rem')
     })
 
-    it('collapses the rail clearance on phones', () => {
-        expect(block).toContain('--app-rail-clearance: 0px')
+    // The rail is display:none on phones (AlphabetRail.vue), so its slot goes too.
+    it("collapses the rail's slot on phones", () => {
+        expect(block).toContain('--app-rail-slot: 0px')
     })
 })
 

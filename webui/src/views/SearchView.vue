@@ -426,8 +426,9 @@ watch(query, () => clearSelection())
     width: 100%;
     box-sizing: border-box;
     padding: 2rem var(--app-content-gutter) 1.25rem;
-    /* Recipe A: center the search box on the same axis as the content column. */
-    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
+    /* Recipe A: center the search box on the same axis as the content column,
+       which sits left of the results' scrollbar. */
+    padding-right: calc(var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
 .search-input-wrapper {
@@ -525,7 +526,6 @@ watch(query, () => clearSelection())
     min-height: 0;
     overflow-y: auto;
     scrollbar-gutter: stable;
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
     box-sizing: border-box;
 }
 

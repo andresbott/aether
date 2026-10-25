@@ -51,7 +51,14 @@ When a view diverges from these registries, the registry wins.
   ContentScaffold, EditActionBar, HeroHeader/HeroActions).
 - `components/library/` — domain cards/grids/rows. **All card grids render
   through the shared `VirtualCardGrid`** (AlbumGrid, ArtistGrid,
-  RadioStationGrid…) — don't fork a new grid. **`TrackActionSheet`** is the
+  RadioStationGrid…) — don't fork a new grid. **Every entity list renders
+  through the shared `ListCard`** — `AlbumRow`, `ArtistRow`, `PlaylistRow`,
+  `GenreRow` and `RadioStationRow` are thin wrappers that hand it a title,
+  subtitle, two lines of facts (`meta`, `details`) and a cover; it owns the
+  layout (the hero's hierarchy at list scale: big cover, no column headers, no
+  chrome until hovered — like the grid cards), the placeholder and the heart,
+  and `useListCardMetrics` sizes it and the virtual lists' slots alike (see
+  `main-content-view-layout.md` §4) — don't fork a new row. **`TrackActionSheet`** is the
   touch counterpart of row hover affordances (add to queue, favorite, add to
   playlist, go to album/artist), opened via the per-row ⋮ on
   `useViewport().isTouch`.
@@ -807,27 +814,34 @@ the note that it blocks saving (above).
 
 ## Player (`composables/usePlayer.ts`)
 
-Dual `<audio>` elements: active plays, standby pre-buffers the next track
-(`preload="auto"`); on `ended` the roles swap. This removes the audible
-inter-track gap without Web Audio.
+**One `<audio>` element** (`new Audio()`, created once, never in the DOM) plays
+every track: a track change — `ended`, a skip, a pick — re-points its `src` and
+calls `play()`. Nothing is fetched ahead, so each change costs the next track's
+fetch and decode before it sounds; there is no gapless playback.
 
-**`swapToStandby` must pause the outgoing element**, and does so *after* the swap.
-On the `ended` path it has already stopped, but a **skip** hands over
-mid-playback and would otherwise leave the old track sounding under the new one.
-That was a real bug and it only showed at the END of the queue: mid-queue the
-following `updatePreload()` re-points the outgoing element's `src`, which stops it
-as a side effect, but with nothing left to preload `updatePreload()` bails early
-on `url === preloadedUrl` (both null) and never touches it — so skipping from the
-second-to-last to the last track played both at once. Do not "simplify" that
-`pause()` away, and keep it after the swap: the 'pause' listener is guarded by
-`el !== activeEl`, so pausing before the swap sets `isPlaying = false`, and since
-browsers fire 'pause' asynchronously it can land after the incoming `play()` and
-leave a play icon over a playing track. Covered by `usePlayer.skipToLast.spec.ts`,
-whose fake element models the real abort-on-`src`-assignment so the masking
-effect is reproduced rather than assumed. **Sample-accurate gapless was assessed and
-deferred** — `docs/gapless-playback-web-audio.md` records the Web-Audio
-design; don't re-derive it. Queue/volume/shuffle/repeat persist to
-localStorage.
+Two elements swapping roles — one playing while the other pre-buffered the next
+track — were tried for seamless transitions and removed (2026-10-25). Live
+recordings never came out seamless (the `ended` event and a fresh `play()` are
+not sample-accurate), and the swap cost a standby to re-point on every queue
+edit and an outgoing element to silence by hand on every skip — skipping onto
+the last track once left both sounding. Don't bring a second element back: true
+gapless needs Web Audio, assessed and deferred —
+`docs/gapless-playback-web-audio.md` records the design; don't re-derive it.
+
+**On a phone the single element is load-bearing.** Mobile Safari lets an element
+start sound on its own only once a tap has started it, so an album keeps going
+only if every later track plays on the element the user's tap unlocked — from the
+`ended` handler, with nobody tapping and perhaps the screen locked. Keep that
+path synchronous too: `ended` → `playNext()` → `loadTrack()` sets `src` →
+`play()`, all in one task, since a phone can suspend a background page soon
+after its audio stops and anything awaited in between would wait for the user
+to come back. `usePlayer.trackChange.spec.ts` pins both: its fake element
+refuses `play()` until a tap has started it, and the assertions run straight
+after the event, with no await.
+
+`loadTrack` seeds `duration` from the catalog's length until the element reports
+the stream's own, so the timeline and the lock screen read right while the next
+track loads. Queue/volume/shuffle/repeat persist to localStorage.
 
 Mute is derived, not a flag: `isMuted` is `volume === 0`, so silence reached by
 dragging the rail down and silence reached by clicking the speaker are the same

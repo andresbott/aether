@@ -281,13 +281,9 @@ onMounted(() => scrollCurrentIntoView('center'))
     scrollbar-gutter: stable;
 }
 
-/* Recipe B: the full (Now Playing) scroll area reserves the uniform rail
-   clearance on the right; blocks center on the shared content column. The
-   sidebar variant is side-panel chrome and stays untouched. */
-.queue-body--full {
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
-}
-
+/* Recipe B: in the full (Now Playing) scroll area, blocks center on the shared
+   content column. The sidebar variant is side-panel chrome and stays
+   untouched. */
 .queue-body--full .queue-history,
 .queue-body--full .current-block,
 .queue-body--full .queue-upcoming,

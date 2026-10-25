@@ -253,6 +253,14 @@ func albumToMap(al *model.Album) map[string]any {
 	if len(al.Artists) > 0 {
 		m["artist"] = al.Artists[0].Name
 		m["artistId"] = encodeArtistID(al.Artists[0].ID)
+		// OpenSubsonic AlbumID3.artists: every album artist, with only the
+		// required ArtistID3 fields. An album missing the artist being browsed
+		// is one they only appear on (getArtist returns both kinds).
+		artists := make([]map[string]any, 0, len(al.Artists))
+		for _, ar := range al.Artists {
+			artists = append(artists, map[string]any{"id": encodeArtistID(ar.ID), "name": ar.Name})
+		}
+		m["artists"] = artists
 	}
 	if len(al.Genres) > 0 {
 		m["genre"] = al.Genres[0].Name

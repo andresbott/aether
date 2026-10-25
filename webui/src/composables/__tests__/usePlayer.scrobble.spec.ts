@@ -56,7 +56,7 @@ beforeEach(async () => {
     usePlayer = (await import('@/composables/usePlayer')).usePlayer
 })
 
-// The active element is the first one constructed by initAudioElements().
+// The player's one audio element, constructed by initAudio().
 const activeAudio = () => created[0]
 
 describe('usePlayer scrobbling', () => {

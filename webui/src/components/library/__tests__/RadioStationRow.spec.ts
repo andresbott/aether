@@ -30,11 +30,17 @@ const mountRow = (s?: InternetRadioStation) =>
     })
 
 describe('RadioStationRow', () => {
-    it('renders avatar (size 80), name and homepage', () => {
+    it('renders a round avatar (size 200), the name and the homepage, on the lighter line', () => {
         const w = mountRow(station)
-        expect(w.find('img').attributes('src')).toBe('cover:ca1:80')
-        expect(w.find('.col-name').text()).toBe('Jazz FM')
-        expect(w.find('.col-homepage').text()).toBe('http://jazzfm.example')
+        expect(w.find('.card-cover img').attributes('src')).toBe('cover:ca1:200')
+        expect(w.find('.list-card').classes()).toContain('round')
+        expect(w.find('.card-title').text()).toBe('Jazz FM')
+        expect(w.find('.card-meta').exists()).toBe(false)
+        expect(w.find('.card-details').text()).toBe('http://jazzfm.example')
+    })
+
+    it('renders no favorite toggle: stations are not starred', () => {
+        expect(mountRow(station).find('.row-star').exists()).toBe(false)
     })
 
     it('links to the station detail route', () => {

@@ -68,7 +68,16 @@ describe('PlaylistListView', () => {
             global: { stubs }
         })
         const rows = w.findAll('.playlist-row')
-        expect(rows[0].find('.col-songs .not-mine-icon').exists()).toBe(false)
-        expect(rows[1].find('.col-songs .not-mine-icon').exists()).toBe(true)
+        expect(rows[0].find('.card-details .ms-lock').exists()).toBe(false)
+        const lock = rows[1].find('.card-details .ms-lock')
+        expect(lock.exists()).toBe(true)
+        // Named for screen readers, not only through the hover tooltip.
+        expect(lock.attributes('aria-label')).toBe('Shared by bob — view only')
+    })
+
+    it('shows the song count and running time on each card', () => {
+        const w = mount(PlaylistListView, { props: { playlists }, global: { stubs } })
+        const parts = w.findAll('.playlist-row')[0].findAll('.card-meta .meta-part')
+        expect(parts.map((p) => p.text())).toEqual(['3 songs', '10 min'])
     })
 })

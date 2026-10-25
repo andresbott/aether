@@ -12,6 +12,9 @@ const props = defineProps<{
     // Set by the view the hamburger LEADS to (MobileBrowseView), which must not
     // offer a button back to itself.
     navRoot?: boolean
+    // Set by a view whose body draws the alphabet rail (Library's Albums and
+    // Artists): the header and the body then keep the rail's slot clear.
+    rail?: boolean
 }>()
 defineEmits<{ (e: 'back'): void }>()
 
@@ -46,7 +49,7 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
 </script>
 
 <template>
-    <div class="content-scaffold">
+    <div class="content-scaffold" :class="{ 'content-scaffold--rail': rail }">
         <header class="content-scaffold-header" :class="{ 'nav-only': isNavOnly }">
             <div class="scaffold-header-inner content-col">
                 <Button
@@ -109,14 +112,20 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
     min-height: 0;
 }
 
+/* Set on the frame both the header and the body sit in, so the two keep the
+   same width clear for the rail and stay on one column. Every other view keeps
+   none (_variables.scss). */
+.content-scaffold--rail {
+    --app-rail-clearance: var(--app-rail-slot);
+}
+
 .content-scaffold-header {
     flex-shrink: 0;
     box-sizing: border-box;
-    /* Recipe A: reserve the same right-side clearance as the bodies' scroll
-       areas (rail slot + 2×scrollbar: once for the scrollbar the header itself
-       doesn't have, once for the clearance the scroller's content adds) so the
-       header column sits exactly over the body column. */
-    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px));
+    /* Recipe A: the header has no scrollbar of its own, so it reserves the body
+       scroller's (and the rail's slot, in a view that draws the rail) to sit
+       exactly over the body column. */
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
     border-bottom: 1px solid var(--app-border);
 }
 

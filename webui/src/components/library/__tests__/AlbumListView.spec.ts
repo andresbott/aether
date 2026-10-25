@@ -34,6 +34,7 @@ const VirtualScrollerStub = {
 
 import AlbumListView from '@/components/library/AlbumListView.vue'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
+import { LIST_CARD_METRICS } from '@/composables/useListCardMetrics'
 
 const mountView = (props: { folderId?: number; favoritesOnly?: boolean } = { folderId: 1 }) =>
     mount(AlbumListView, {
@@ -78,6 +79,14 @@ describe('AlbumListView', () => {
     it('runs the virtual scroller in lazy mode', () => {
         const w = mountView()
         expect(w.findComponent(VirtualScrollerStub).props('lazy')).toBe(true)
+    })
+
+    // One slot per card plus the gap below it, or the cards drift off their slots
+    // and a rail jump lands on the wrong album. jsdom reads as the desktop tier.
+    it('sizes each slot to a list card', () => {
+        const { cover, pad, gap } = LIST_CARD_METRICS.wide
+        const w = mountView()
+        expect(w.findComponent(VirtualScrollerStub).props('itemSize')).toBe(cover + 2 * pad + gap)
     })
 
     it('names the favorites filter in the empty state rather than claiming no albums exist', () => {

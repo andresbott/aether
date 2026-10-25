@@ -26,11 +26,17 @@ beforeEach(() => {
 })
 
 describe('ArtistRow', () => {
-    it('renders avatar (size 80), name and album count', () => {
+    it('renders a round avatar (size 200), the name and the album count', () => {
         const w = mountRow(artist)
-        expect(w.find('img').attributes('src')).toBe('cover:ca1:80')
-        expect(w.text()).toContain('Radiohead')
-        expect(w.find('.col-count').text()).toBe('9 albums')
+        expect(w.find('.card-cover img').attributes('src')).toBe('cover:ca1:200')
+        expect(w.find('.list-card').classes()).toContain('round')
+        expect(w.find('.card-title').text()).toBe('Radiohead')
+        expect(w.find('.card-meta').text()).toBe('9 albums')
+    })
+
+    it('counts a single album in the singular', () => {
+        const w = mountRow({ ...artist, albumCount: 1 })
+        expect(w.find('.card-meta').text()).toBe('1 album')
     })
 
     it('links to the artist detail route', () => {
@@ -38,25 +44,21 @@ describe('ArtistRow', () => {
         expect(w.findComponent(RouterLinkStub).props('to')).toEqual({ name: 'artist', params: { id: 'ar1' } })
     })
 
-    it('renders a placeholder row when the artist is not loaded', () => {
+    it('renders a round placeholder card when the artist is not loaded', () => {
         const w = mountRow(undefined)
         expect(w.findComponent(RouterLinkStub).exists()).toBe(false)
-        expect(w.find('.artist-row.placeholder').exists()).toBe(true)
+        expect(w.find('.artist-row.placeholder').classes()).toContain('round')
     })
 
-    // The cell stays (it holds the grid slot, or the heart would slide into the
-    // count column) but carries no text.
-    it('omits the count text when albumCount is undefined', () => {
+    it('renders no meta line when albumCount is undefined', () => {
         const w = mountRow({ id: 'ar2', name: 'Air' })
-        expect(w.find('.col-count').text()).toBe('')
+        expect(w.find('.card-meta').exists()).toBe(false)
     })
 })
 
 describe('ArtistRow favorite toggle', () => {
-    // In its own column, mirrored by ArtistListView's header, so the heart sits at
-    // the same size as on the album rows.
-    it('renders the heart in its own column', () => {
-        expect(mountRow(artist).find('.col-star .row-star').exists()).toBe(true)
+    it('renders the heart on the card', () => {
+        expect(mountRow(artist).find('.list-card .row-star').exists()).toBe(true)
     })
 
     it('shows an outline heart when unstarred and a filled one when starred', () => {

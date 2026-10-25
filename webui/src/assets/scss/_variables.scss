@@ -25,6 +25,15 @@ $bp-desktop-min: 1024px;
        remains visible. Tracks --app-surface-2 (the panel colour it replaces) with
        alpha, so the panel still reads as a panel rather than as a photo. */
     --app-cover-scrim: rgba(255, 255, 255, 0.82);
+    /* List-layout cards (ListCard): the subtitle ink (the hero's cyan artist
+       line) and the meta ink, mixed toward the text colour to keep AA contrast
+       on the canvas and on the hover tint. */
+    --app-list-card-subtitle: color-mix(in srgb, var(--app-accent) 55%, var(--app-text-primary));
+    --app-list-card-meta: color-mix(
+        in srgb,
+        var(--app-text-secondary) 60%,
+        var(--app-text-primary)
+    );
     --app-text-primary: #1b2430;
     --app-text-secondary: #67727f;
     --app-accent: #0e9bb5;
@@ -82,18 +91,14 @@ $bp-desktop-min: 1024px;
        INNER edge (max-width box + this gutter) is the shared alignment line:
        header titles, row boxes, cards and heroes all start there. */
     --app-content-gutter: 1rem;
-    /* Right-side clearance every main content view reserves for the alphabet
-       rail (1.75rem) + its 1rem gap — also on views without a rail, so the
-       content column sits at the same x on every view. */
-    --app-rail-clearance: 2.75rem;
-    /* Breathing room above a list view's column header (Library → Albums /
-       Artists, Discover in list layout). It is applied INSIDE the header block,
-       not as padding on the scroll container above it: Discover's header is
-       `position: sticky`, and container padding would scroll away and collapse
-       the gap the moment the list moved. Keeping it on the header means the gap
-       is identical scrolled and unscrolled, and identical across all three
-       views. */
-    --app-list-header-top: 1rem;
+    /* The alphabet rail's slot at the right edge: the rail's own width and no
+       more. The content's gutter spaces it from the rail, as from the left
+       edge. */
+    --app-rail-slot: 1.75rem;
+    /* What a main content view keeps clear on the right for the rail: nothing,
+       unless its body draws one. ContentScaffold's `rail` prop then sets it to
+       the slot, for the header and the body alike. */
+    --app-rail-clearance: 0px;
 }
 
 /* Dark mode overrides. Only the colour tokens change; dimensions are inherited
@@ -107,6 +112,12 @@ $bp-desktop-min: 1024px;
     /* Dark counterpart: a dark veil, not a white one — a white scrim over a cover
        in dark mode would glare and invert the panel's contrast. */
     --app-cover-scrim: rgba(20, 27, 36, 0.8);
+    --app-list-card-subtitle: color-mix(in srgb, var(--app-accent) 80%, var(--app-text-primary));
+    --app-list-card-meta: color-mix(
+        in srgb,
+        var(--app-text-secondary) 45%,
+        var(--app-text-primary)
+    );
     --app-text-primary: #d7dee6;
     --app-text-secondary: #7b8794;
     --app-accent: #2fd3ef;
@@ -130,12 +141,12 @@ $bp-desktop-min: 1024px;
 /* Phone-width re-tokening. The recipes in
    docs/architecture/main-content-view-layout.md all resolve through these
    tokens, so every conforming view adapts from here with no per-view change.
-   The rail clearance collapses because the alphabet rail is display:none on
-   phones (AlphabetRail.vue) — the two must move together or content would sit
-   under a rail that is still visible. */
+   The rail's slot collapses because the alphabet rail is display:none on
+   phones (AlphabetRail.vue). The two must move together: a slot without its
+   rail is dead space, and a rail without its slot covers the content. */
 @media (max-width: ($bp-phone-max - 0.02px)) {
     :root {
         --app-content-gutter: 0.75rem;
-        --app-rail-clearance: 0px;
+        --app-rail-slot: 0px;
     }
 }
