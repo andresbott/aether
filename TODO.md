@@ -28,6 +28,14 @@ and `todo list --json` cover the common actions — run `todo --help`.
 
 ## Features
 
+- [ ] group BSO collections
+  usea new metadata field like collection series, to gropup collections tiggether
+  in the ui show instead of artist for collections 
+- [ ] better list view
+  impreove the list view
+- [ ] artists with collections songs have the album in the list
+  if an artist has a song in a collection it shows under albums but it shoud not
+
 ## Backend
 
 ### Backend — API Surface

@@ -49,7 +49,9 @@ vi.mock('@/lib/api/subsonic', () => ({
                 (
                     {
                         a1: { id: 'a1', song: [{ id: 's1' }, { id: 's2' }] },
-                        a2: { id: 'a2', song: [{ id: 's3' }] }
+                        a2: { id: 'a2', song: [{ id: 's3' }] },
+                        // An album the artist only appears on (see "appearances").
+                        a3: { id: 'a3', song: [{ id: 's4' }] }
                     } as Record<string, unknown>
                 )[id] ?? null
             ),
@@ -942,6 +944,77 @@ describe('ArtistView discography grouping', () => {
         const w = mountView()
         expect(sectionHeadings(w)).toEqual(['Albums'])
         expect(w.findAll('.discography')[0].findAll('.album-card-stub').length).toBe(2)
+    })
+})
+
+// getArtist also returns the albums the artist only appears on (a track on a
+// soundtrack, say): their album artists leave this artist out. Those get their own
+// trailing section and stay out of the release-type sections and of Play/Queue.
+describe('ArtistView appearances', () => {
+    const OWN = [{ id: 'ar-1', name: 'Linkin Park' }]
+    const VARIOUS = [{ id: 'ar-9', name: 'Various Artists' }]
+
+    const cardIds = (w: ReturnType<typeof mountView>, selector: string) =>
+        w.findAll(`${selector} .album-card-stub`).map((c) => c.attributes('data-id'))
+
+    it('lists them in an Appears on section after the release-type sections', () => {
+        artist.value = {
+            id: 'ar-1',
+            name: 'Linkin Park',
+            album: [
+                { id: 'al', name: 'al', releaseTypes: ['Album'], artists: OWN },
+                { id: 'ep', name: 'ep', releaseTypes: ['EP'], artists: OWN },
+                { id: 'st', name: 'st', releaseTypes: ['Album', 'Soundtrack'], artists: VARIOUS }
+            ]
+        }
+        const w = mountView()
+        expect(w.findAll('.discography').map((s) => s.find('h2').text())).toEqual([
+            'Albums',
+            'EPs',
+            'Appears on'
+        ])
+        expect(cardIds(w, '.discography:first-child')).toEqual(['al'])
+        expect(cardIds(w, '.appears-on')).toEqual(['st'])
+    })
+
+    it('Play skips them', async () => {
+        artist.value = {
+            id: 'ar-1',
+            name: 'Linkin Park',
+            album: [
+                { id: 'a1', name: 'A1', artists: OWN },
+                { id: 'a3', name: 'A3', artists: VARIOUS }
+            ]
+        }
+        const w = mountView()
+        await w.find('.hero-action-play').trigger('click')
+        await flushPromises()
+        expect(playAlbum).toHaveBeenCalledWith([{ id: 's1' }, { id: 's2' }])
+    })
+
+    it('Add to queue skips them', async () => {
+        artist.value = {
+            id: 'ar-1',
+            name: 'Linkin Park',
+            album: [
+                { id: 'a1', name: 'A1', artists: OWN },
+                { id: 'a3', name: 'A3', artists: VARIOUS }
+            ]
+        }
+        const w = mountView()
+        await w.find('.hero-action-queue').trigger('click')
+        await flushPromises()
+        expect(addMultipleToQueue).toHaveBeenCalledWith([{ id: 's1' }, { id: 's2' }])
+    })
+
+    it('disables Play when the artist only appears on other albums', () => {
+        artist.value = {
+            id: 'ar-1',
+            name: 'Guest',
+            album: [{ id: 'a3', name: 'A3', artists: VARIOUS }]
+        }
+        const w = mountView()
+        expect(w.find('.hero-action-play').attributes('disabled')).toBeDefined()
     })
 })
 

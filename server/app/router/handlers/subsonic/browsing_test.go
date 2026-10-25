@@ -2,6 +2,7 @@ package subsonic
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -281,6 +282,67 @@ func TestGetArtistAlbumsIncludeSongCountAndDuration(t *testing.T) {
 	}
 	if albums[0].Duration != 500 {
 		t.Errorf("duration = %d, want 500", albums[0].Duration)
+	}
+}
+
+// getArtist lists the albums an artist owns and the ones they only appear on — a
+// track credit on someone else's album, like a soundtrack. Each album carries
+// every album artist, so a client can tell the two apart even when the artist
+// shares the credit; the web UI's "Appears on" section rests on it.
+func TestGetArtistAlbumsListEveryAlbumArtist(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	// Created in this order, so they are ar-1, ar-2 and ar-3.
+	lp := &model.Artist{Name: "Linkin Park", NameNorm: "linkin park"}
+	jayz := &model.Artist{Name: "Jay-Z", NameNorm: "jay-z"}
+	va := &model.Artist{Name: "Various Artists", NameNorm: "various artists"}
+	for _, a := range []*model.Artist{lp, jayz, va} {
+		db.Create(a)
+	}
+	collab := &model.Album{Name: "Collision Course", NameNorm: "collision course", AlbumArtistNorm: "jay-z, linkin park"}
+	soundtrack := &model.Album{Name: "Transformers", NameNorm: "transformers", AlbumArtistNorm: "various artists"}
+	db.Create(collab)
+	db.Create(soundtrack)
+	_ = db.Model(collab).Association("Artists").Replace([]*model.Artist{jayz, lp})
+	_ = db.Model(soundtrack).Association("Artists").Replace([]*model.Artist{va})
+	// Linkin Park is only a track artist on the soundtrack.
+	track := &model.Track{AlbumID: soundtrack.ID, Filename: "1.flac", FilePath: "/l/1.flac", TrackNumber: 1}
+	db.Create(track)
+	_ = db.Model(track).Association("Artists").Replace([]*model.Artist{lp})
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	var body struct {
+		SubsonicResponse struct {
+			Artist struct {
+				Album []struct {
+					Name    string `json:"name"`
+					Artists []struct {
+						ID   string `json:"id"`
+						Name string `json:"name"`
+					} `json:"artists"`
+				} `json:"album"`
+			} `json:"artist"`
+		} `json:"subsonic-response"`
+	}
+	decodeJSON(t, srv.URL+"/rest/getArtist.view?id="+encodeArtistID(lp.ID), &body)
+
+	got := map[string][]string{}
+	for _, al := range body.SubsonicResponse.Artist.Album {
+		credits := []string{}
+		for _, ar := range al.Artists {
+			credits = append(credits, ar.ID+" "+ar.Name)
+		}
+		slices.Sort(credits)
+		got[al.Name] = credits
+	}
+	want := map[string][]string{
+		"Collision Course": {"ar-1 Linkin Park", "ar-2 Jay-Z"},
+		"Transformers":     {"ar-3 Various Artists"},
+	}
+	if !maps.EqualFunc(got, want, slices.Equal[[]string]) {
+		t.Errorf("album artists = %v, want %v", got, want)
 	}
 }
 

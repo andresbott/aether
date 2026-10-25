@@ -78,8 +78,8 @@ onBeforeUnmount(stopObserving)
             <!-- Grid uses the app's shared CardGrid layout — the same component
                  /library's VirtualCardGrid builds its rows from — so the column
                  math and the min-width:0 constraint that keeps every cell the
-                 same width live in one place. List is a plain column, matching
-                 the other *ListView components. -->
+                 same width live in one place. List is a plain column of the same
+                 AlbumRow/PlaylistRow cards the other *ListView components show. -->
             <CardGrid
                 v-if="props.layout === 'grid'"
                 class="discovery-feed content-col"
@@ -91,22 +91,6 @@ onBeforeUnmount(stopObserving)
             </CardGrid>
 
             <div v-else class="discovery-feed discovery-feed-list content-col">
-                <!-- Same column header the Albums tab shows, since the rows are the
-                     same AlbumRow/PlaylistRow. Sticky, because the whole feed
-                     scrolls here (the Albums tab's header is a fixed frame above a
-                     VirtualScroller, so it needs no stickiness). Mirrors
-                     AlbumRow's grid template — change one, change both. -->
-                <div class="list-header">
-                    <div class="header-row">
-                        <span class="col-cover"></span>
-                        <span class="col-title">Title</span>
-                        <span class="col-artist">Artist</span>
-                        <!-- Blank: the favorite column is hover-revealed per row. -->
-                        <span class="col-star"></span>
-                        <span class="col-songs">Songs</span>
-                        <span class="col-duration">Duration</span>
-                    </div>
-                </div>
                 <!-- Key on entity id, not rank — rank is a position, so a rank shift would
                      destroy and recreate rather than move. Id is what flattenDiscoveryPages
                      dedupes on and is prefixed per type, so cannot collide. -->
@@ -148,53 +132,10 @@ onBeforeUnmount(stopObserving)
     padding-top: 1rem;
 }
 
-/* The list layout's top gap comes from the sticky header's own padding, not from
-   the container — so it does not scroll away. Zeroing the container's share here
-   avoids stacking the two into a doubled gap; the grid layout, which has no
-   header, keeps the container padding above. */
+/* The cards space themselves (each carries the gap below it). */
 .discovery-feed-list {
     display: flex;
     flex-direction: column;
-    padding-top: 0;
-}
-
-/* Sticky to the top of the scrolling feed, with an opaque background so rows pass
-   behind it rather than through it.
-   The gap above the labels is `padding-top` on the sticky element ITSELF, not on
-   the container — container padding scrolls away, which would collapse the gap the
-   moment the list moved. That padding is part of the opaque box, so it also masks
-   the rows sliding underneath. Same reason the border sits on the inner
-   `.header-row` rather than here: the underline has to hug the labels, not the
-   bottom of the padded box. */
-.discovery-feed-list .list-header {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    padding-top: var(--app-list-header-top);
-    background: var(--app-background);
-}
-
-/* Mirrors AlbumRow's / PlaylistRow's grid template, favorite column included, so
-   the header lines up with rows of either type. */
-.discovery-feed-list .header-row {
-    display: grid;
-    grid-template-columns: 48px 2fr 1.5fr 2rem 4rem 5rem;
-    align-items: center;
-    gap: 1rem;
-    height: 36px;
-    padding: 0 0.5rem;
-    box-sizing: border-box;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--app-text-secondary);
-    border-bottom: 1px solid var(--p-content-border-color);
-}
-
-.discovery-feed-list .header-row .col-songs,
-.discovery-feed-list .header-row .col-duration {
-    text-align: right;
 }
 
 .discovery-state {

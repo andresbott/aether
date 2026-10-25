@@ -14,6 +14,7 @@ content views — including Now Playing itself — now use the scaffold. New vie
 - `webui/src/views/LibraryView.vue` — scaffold + body switch + count summary.
 - `webui/src/components/library/AlbumGrid.vue` — the self-scrolling grid body.
 - `webui/src/components/library/AlbumListView.vue` — the list body + alphabet rail.
+- `webui/src/components/library/ListCard.vue` — one item of a list body (see §4, "List layout").
 - `webui/src/views/RadioView.vue` — the minimal case (scaffold + one action + a grid).
 - `webui/src/components/layout/QueueView.vue` — Now Playing; scaffold for the full
   variant, compact side-panel header for the sidebar variant, body in `QueueBody.vue`.
@@ -137,23 +138,9 @@ handle scrollbar compensation at different depths.
 | `--app-content-max-width` | `1320px` | Inner content-box width of the column |
 | `--app-content-gutter` | `1rem` (→ `0.75rem` on phones) | Horizontal padding inside the column |
 | `--app-rail-clearance` | `2.75rem` (→ `0px` on phones) | Alphabet-rail slot: rail 1.75rem + 1rem gap |
-| `--app-list-header-top` | `1rem` | Gap above a list view's column header |
 | `--sb-w` | measured px | Native scrollbar width |
 
 Phone overrides: below `$bp-phone-max` (768px), `--app-content-gutter` tightens to `0.75rem` and `--app-rail-clearance` collapses to `0px` (the rail is `display:none`, so the clearance must collapse with it). Recipes resolve through these tokens, so every conforming view adapts with no per-view change.
-
-**`--app-list-header-top` goes on the header element, never on the scroll container
-above it.** Library → Albums and Artists have fixed headers where either would look
-the same, but Discover's list header is `position: sticky`: container padding
-scrolls away, so the gap would collapse the moment the list moved. Keeping it on the
-header makes the gap identical scrolled and unscrolled, and identical across all
-three views. On the sticky one that padding is also part of the header's opaque box,
-which is what masks rows sliding underneath — so the column underline sits on the
-inner `.header-row`, hugging the labels rather than the bottom of the padded box,
-and the container's own `padding-top` is zeroed so the two don't stack. Guarded off
-disk by `components/library/__tests__/list-header-padding.spec.ts` (scoped styles
-never apply under vue-test-utils, so no mounted test can catch it — and this
-particular regression looks correct on load and only breaks on scroll).
 
 **Global utility** (defined in `_main.scss`):
 
@@ -206,6 +193,34 @@ resolve to the same inner content box:
 - Keep per-body loading / empty / error states inside the body. An empty state must not
   double as the error state: if the query can fail, render a distinct error branch (some
   current bodies still conflate the two — don't copy that).
+
+**List layout.** Every entity list (Library → Albums / Artists / Discover, Playlists,
+Genres, Radio, Search's artist/album/genre hits) renders one **`ListCard`** per item —
+the cover large on the left, the identity stacked beside it: the detail hero's
+hierarchy at list scale. Like the grid cards it shows no chrome at rest; hover brings
+up their accent outline, tint and lift (the outline drawn as an inset shadow, so it
+takes nothing from the slot). There are no column headers; a card labels its own
+facts on up to two lines under the subtitle: `meta` in bold, the item's key facts (an
+album's year and size, "2004 • 12 songs • 43 min" — the hero's meta row), and
+`details` in regular weight, what it is and its history (an album's release type and
+genre; a playlist's owner and dates; a station's homepage). Each runs most important
+first, since a line too long for the card is cut at its end. A part may carry an icon
+after its text (the lock on someone else's playlist), named for screen readers. Title,
+subtitle and both lines fit within the cover's height, which is what sets the phone
+cover at 80px.
+The card centers itself on the content column (Recipe C's row rule) and
+carries the gap below it, so a list body only supplies the gutters and a `1rem` top
+gap — on `.p-virtualscroller-content` for the virtual lists (PrimeVue counts that
+padding in `scrollToIndex`, so a rail jump still lands the card flush at the top), on
+the column for the plain ones. Its size comes from `useListCardMetrics` (a 96px cover,
+80px on phones): `ListCard` binds the numbers as CSS variables and the virtual lists
+pass `itemSize` (card + gap) to `VirtualScroller`, so a card and its slot cannot drift
+apart. Its per-theme inks (the subtitle and meta colours, mixed toward the text
+colour: the plain secondary ink falls below AA on the hover tint) are
+`--app-list-card-*` tokens in `_variables.scss`: a scoped `:global(.dark-mode) .x`
+override does not work — Vue compiles it to a bare `.dark-mode` rule. Guarded by
+`ListCard.styles.spec.ts` off disk (scoped styles never apply under vue-test-utils)
+and by the list views' `itemSize` assertions.
 
 ---
 

@@ -100,8 +100,7 @@ const onClick = (event: MouseEvent): void => {
     align-items: center;
     column-gap: 0.75rem;
     width: 100%;
-    /* Match the Library list view's row height (AlbumListView VirtualScroller
-       itemSize) so album tracks and library rows line up at the same height. */
+    /* The app's dense row height, shared with the other track rows. */
     min-height: 56px;
     padding: 0 0.5rem;
     box-sizing: border-box;

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { formatReleaseTypes, splitReleaseTypes, mergeReleaseTypes } from '@/lib/releaseTypes'
+import {
+    formatReleaseTypes,
+    splitReleaseTypes,
+    mergeReleaseTypes,
+    releaseTypeTag
+} from '@/lib/releaseTypes'
 
 describe('splitReleaseTypes', () => {
     it('classifies the first primary value and the rest as secondary, canonicalizing case', () => {
@@ -51,5 +56,24 @@ describe('formatReleaseTypes', () => {
         expect(formatReleaseTypes(undefined)).toBe('')
         expect(formatReleaseTypes([])).toBe('')
         expect(formatReleaseTypes([' '])).toBe('')
+    })
+})
+
+describe('releaseTypeTag', () => {
+    it('is empty for a plain album, typed or not', () => {
+        expect(releaseTypeTag(['album'])).toBe('')
+        expect(releaseTypeTag(undefined)).toBe('')
+    })
+
+    it('drops the Album primary and keeps every other type', () => {
+        expect(releaseTypeTag(['Album', 'soundtrack'])).toBe('Soundtrack')
+        expect(releaseTypeTag(['ep', 'remix'])).toBe('EP · Remix')
+        expect(releaseTypeTag(['Single'])).toBe('Single')
+    })
+
+    it('adds Compilation for a flagged album, once', () => {
+        expect(releaseTypeTag(undefined, true)).toBe('Compilation')
+        expect(releaseTypeTag(['Album', 'compilation'], true)).toBe('Compilation')
+        expect(releaseTypeTag(['EP'], true)).toBe('EP · Compilation')
     })
 })

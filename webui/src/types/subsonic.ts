@@ -49,6 +49,9 @@ export interface Album {
     name: string
     artist?: string
     artistId?: string
+    // OpenSubsonic AlbumID3: every album artist (`artist`/`artistId` name only the
+    // first). An artist page uses it to tell their own albums from appearances.
+    artists?: Artist[]
     coverArt?: string
     songCount?: number
     duration?: number
@@ -60,6 +63,8 @@ export interface Album {
     // OpenSubsonic AlbumID3: the flat MusicBrainz release-type list (primary first,
     // then secondary types). Absent when the release carries no type tags.
     releaseTypes?: string[]
+    // OpenSubsonic AlbumID3: a "Compilation" release type or the iTunes flag.
+    isCompilation?: boolean
 }
 
 export interface AlbumWithSongs extends Album {

@@ -4,6 +4,7 @@ import VirtualScroller from 'primevue/virtualscroller'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
 import ArtistRow from '@/components/library/ArtistRow.vue'
 import { useArtistSource } from '@/composables/useLibrarySource'
+import { useListCardMetrics } from '@/composables/useListCardMetrics'
 
 const props = defineProps<{ folderId?: number; favoritesOnly?: boolean }>()
 
@@ -11,6 +12,7 @@ const { total, letters, items, isLoading, error } = useArtistSource(
     toRef(props, 'folderId'),
     computed(() => props.favoritesOnly === true)
 )
+const { itemSize } = useListCardMetrics()
 const scroller = ref<InstanceType<typeof VirtualScroller> | null>(null)
 
 function onSelectLetter(offset: number): void {
@@ -33,24 +35,13 @@ function onSelectLetter(offset: number): void {
             <p v-else>No artists found</p>
         </div>
         <div v-else class="list-body">
-            <div class="list-header">
-                <div class="header-row">
-                    <div class="col-avatar"></div>
-                    <div class="col-name">Artist</div>
-                    <!-- The favorite column is hover-revealed per row, so its header
-                         stays blank rather than labelling a usually-invisible
-                         control. -->
-                    <div class="col-star"></div>
-                    <div class="col-count">Albums</div>
-                </div>
-            </div>
             <!-- Keyed on folder + source: each is a different dataset, and a
                  retained scroll offset from the previous one lands nowhere. -->
             <VirtualScroller
                 ref="scroller"
                 :key="`${folderId ?? 'all'}-${favoritesOnly ? 'fav' : 'all'}`"
                 :items="items"
-                :itemSize="56"
+                :itemSize="itemSize"
                 class="list-scroller"
             >
                 <template #item="{ item }">
@@ -71,45 +62,10 @@ function onSelectLetter(offset: number): void {
 .list-body {
     position: relative;
     height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-
-/* The top padding is the shared list-header gap — see --app-list-header-top. */
-.list-header {
-    flex-shrink: 0;
-    box-sizing: border-box;
-    padding-top: var(--app-list-header-top);
-    padding-left: var(--app-content-gutter);
-    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
-}
-
-/* Mirrors ArtistRow's grid template, favorite column included. */
-.header-row {
-    display: grid;
-    grid-template-columns: 48px 1fr 2rem 7rem;
-    align-items: center;
-    gap: 1rem;
-    height: 36px;
-    padding: 0 0.5rem;
-    max-width: var(--app-content-max-width);
-    margin-left: auto;
-    margin-right: auto;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--app-text-secondary);
-    border-bottom: 1px solid var(--p-content-border-color);
-}
-
-.header-row .col-count {
-    text-align: right;
 }
 
 .list-scroller {
-    flex: 1;
-    min-height: 0;
+    height: 100%;
     width: 100%;
     scrollbar-gutter: stable;
 }
@@ -124,20 +80,12 @@ function onSelectLetter(offset: number): void {
     background: var(--app-bg, transparent);
 }
 
-/* Recipe C: rail clearance + shared gutter on the scroll content so centered
-   rows never slide under the rail and keep a gutter at narrow widths. */
+/* Recipe C, plus the gap under the header — see AlbumListView. */
 .list-body :deep(.p-virtualscroller-content) {
     box-sizing: border-box;
+    padding-top: 1rem;
     padding-left: var(--app-content-gutter);
     padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter));
-}
-
-/* Center the rows in the shared content column to match the album/artist grid;
-   the scroller stays full width so its scroll bar + the rail stay flush right. */
-.list-body :deep(.artist-row) {
-    max-width: var(--app-content-max-width);
-    margin-left: auto;
-    margin-right: auto;
 }
 
 .loading {

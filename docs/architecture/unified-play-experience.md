@@ -77,25 +77,23 @@ to [`unified-edit-experience.md`](unified-edit-experience.md): edit chrome lives
   `AlbumTrackRow`, `GenreTrackRow` (genre detail, search, playlist detail) and
   `QueueRow` in view mode. Edit mode gets no heart — that mode is for reordering
   and removal.
-- **Entity rows** (`AlbumRow`, `ArtistRow`, `PlaylistRow`) each own an inline
-  `.row-star` button rather than `TrackFavoriteButton`: they take an album/artist/
-  playlist, not a `Song`, and they need no optimistic flip — all three are
-  query-backed, so `useToggleStar`'s invalidation refreshes the heart. Same look and
-  wording, and the same swallow-the-click requirement (they are `router-link`s).
-  Playlists use `useTogglePlaylistStar` (the `playlistStar` extension), the other
-  two `useToggleStar`.
-- **The favorite column is a `2rem` grid track** in every list, and the row's
-  template must be mirrored by its list header or the columns drift apart. Four
-  pairs to keep in step: `AlbumRow` + `PlaylistRow` (identical
-  `48px 2fr 1.5fr 2rem 4rem 5rem`, so a Discovery feed interleaving them aligns)
-  against `AlbumListView`'s and `PlaylistListView`'s headers plus `DiscoveryFeed`'s
-  list header; and `ArtistRow` (`48px 1fr 2rem 7rem`) against `ArtistListView`'s.
-  A header cell for the star column stays **blank** — labelling a hover-revealed
-  control teaches nothing. Cells that a row might otherwise omit have to render
-  empty rather than `v-if` away (see `ArtistRow`'s album count), or the heart slides
-  into the next column.
+- **Entity rows** (`AlbumRow`, `ArtistRow`, `PlaylistRow`) render through
+  `ListCard`, which owns their `.row-star` button rather than using
+  `TrackFavoriteButton`: they take an album/artist/playlist, not a `Song`, and they
+  need no optimistic flip — all three are query-backed, so `useToggleStar`'s
+  invalidation refreshes the heart. A row passes `starrable` and `:starred` and
+  handles `@star`; `ListCard` supplies the icon pair, the wording and the
+  swallow-the-click requirement (the card is a `router-link`). Playlists use
+  `useTogglePlaylistStar` (the `playlistStar` extension), the other two
+  `useToggleStar`. `GenreRow` and `RadioStationRow` render through `ListCard` too,
+  without a heart.
+- **The card's heart sits at its right edge**, vertically centered — there are no
+  columns to keep in step any more (the list layout is one column of cards; see
+  `main-content-view-layout.md` §4). Same reveal rules as every other heart:
+  hover-revealed, pinned visible while favorited, also shown while the card holds
+  keyboard focus, and always shown under `(pointer: coarse)`.
 - **Entity rows carry no play button.** `PlaylistRow` had one and it was removed:
-  `AlbumRow` and `ArtistRow` have none, the row itself opens the entity, and play
+  `AlbumRow` and `ArtistRow` have none, the card itself opens the entity, and play
   lives on the grid cards and the detail hero.
 - **`useSongFavorite(song)`** — the one place a song's `starred` is read and
   written, behind every heart above plus `SongDetail` and (via
@@ -133,7 +131,7 @@ to [`unified-edit-experience.md`](unified-edit-experience.md): edit chrome lives
 | View | Play | Add to queue | Favorite | Notes |
 |------|------|--------------|----------|-------|
 | `AlbumView` | ✅ | ✅ | ✅ | Songs already loaded; drag handle stays in the scaffold bar |
-| `ArtistView` | ✅ | ✅ | ✅ | `getArtist` has no songs — Play/Queue gather via `getAlbum` per album (`busy` while gathering) |
+| `ArtistView` | ✅ | ✅ | ✅ | `getArtist` has no songs — Play/Queue gather via `getAlbum` per album (`busy` while gathering), the artist's own albums only: "Appears on" albums are skipped, and Play is disabled when there is no own album |
 | `PlaylistDetailView` | ✅ | ✅ | ✅ | Uses the live `working` track list; playlist favorites come from the `playlistStar` extension |
 | `RadioStationDetailView` | ✅ | — | — | Single live stream: queue/favorite not applicable |
 

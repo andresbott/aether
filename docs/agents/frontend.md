@@ -51,7 +51,14 @@ When a view diverges from these registries, the registry wins.
   ContentScaffold, EditActionBar, HeroHeader/HeroActions).
 - `components/library/` — domain cards/grids/rows. **All card grids render
   through the shared `VirtualCardGrid`** (AlbumGrid, ArtistGrid,
-  RadioStationGrid…) — don't fork a new grid. **`TrackActionSheet`** is the
+  RadioStationGrid…) — don't fork a new grid. **Every entity list renders
+  through the shared `ListCard`** — `AlbumRow`, `ArtistRow`, `PlaylistRow`,
+  `GenreRow` and `RadioStationRow` are thin wrappers that hand it a title,
+  subtitle, two lines of facts (`meta`, `details`) and a cover; it owns the
+  layout (the hero's hierarchy at list scale: big cover, no column headers, no
+  chrome until hovered — like the grid cards), the placeholder and the heart,
+  and `useListCardMetrics` sizes it and the virtual lists' slots alike (see
+  `main-content-view-layout.md` §4) — don't fork a new row. **`TrackActionSheet`** is the
   touch counterpart of row hover affordances (add to queue, favorite, add to
   playlist, go to album/artist), opened via the per-row ⋮ on
   `useViewport().isTouch`.

@@ -1,5 +1,6 @@
 import { computed, type ComputedRef } from 'vue'
 import { usePlayer } from '@/composables/usePlayer'
+import { formatTotalDuration } from '@/utils/formatDuration'
 
 /**
  * The queue's header summary ("3 tracks • 12 min"), shared by the desktop
@@ -16,13 +17,9 @@ export function useQueueSummary(): {
 
     const trackCount = computed(() => player.queue.value.length)
 
-    const totalDuration = computed(() => {
-        const total = player.queue.value.reduce((sum, s) => sum + (s.duration || 0), 0)
-        if (!total) return ''
-        const hours = Math.floor(total / 3600)
-        const mins = Math.floor((total % 3600) / 60)
-        return hours > 0 ? `${hours} hr ${mins} min` : `${mins} min`
-    })
+    const totalDuration = computed(() =>
+        formatTotalDuration(player.queue.value.reduce((sum, s) => sum + (s.duration || 0), 0))
+    )
 
     const summary = computed(() => {
         if (trackCount.value === 0) return ''
