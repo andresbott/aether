@@ -512,18 +512,13 @@ const onQueue = async (): Promise<void> => {
 }
 
 /* Recipe B with the hero pulled out of the column so the duotone band bleeds
-   edge to edge; .artist-below reserves the rail clearance the scroll container
-   used to, so the discography lines up with the hero content. */
+   edge to edge; the discography below centers on the same column as the hero
+   content. */
 .artist-scroll {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
     box-sizing: border-box;
-}
-
-.artist-below {
-    box-sizing: border-box;
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
 }
 
 .artist-body {

@@ -1,6 +1,6 @@
 // @vitest-environment node
-// The rail is hidden on phones and --app-rail-clearance collapses to 0 in the
-// same breath (_variables.scss). This spec pins the rail half of that pact.
+// The rail is hidden on phones and its slot (--app-rail-slot) collapses to 0 in
+// the same breath (_variables.scss). This spec pins the rail half of that pact.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

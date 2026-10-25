@@ -48,14 +48,12 @@ const { itemSize } = useListCardMetrics()
     scrollbar-gutter: stable;
 }
 
-/* Uniform rail clearance + gutter, matching the album/artist lists, so the
-   column doesn't shift when navigating between views; the top padding is the
-   gap under the header (see AlbumListView). */
+/* Recipe C without a rail: the shared gutter on both sides; the top padding is
+   the gap under the header (see AlbumListView). */
 .list-body :deep(.p-virtualscroller-content) {
     box-sizing: border-box;
     padding-top: 1rem;
-    padding-left: var(--app-content-gutter);
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter));
+    padding-inline: var(--app-content-gutter);
 }
 
 .loading {

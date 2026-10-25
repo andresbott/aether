@@ -449,20 +449,14 @@ watch(editing, (isEditing) => {
 }
 
 /* Recipe B, but with the hero pulled OUT of the centered column so the duotone
-   band bleeds edge to edge: the scroll container no longer reserves the rail
-   clearance itself (the band spans its full content box), and each part reserves
-   it instead — the hero internally (HeroHeader's .hero-pad) and the body via
-   .album-below — so both columns still line up. */
+   band bleeds edge to edge across the scroll container's content box; the hero
+   content and the body below it each center on the shared column, so both
+   still line up. */
 .album-scroll {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
     box-sizing: border-box;
-}
-
-.album-below {
-    box-sizing: border-box;
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
 }
 
 .album-body {

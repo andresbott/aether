@@ -631,14 +631,12 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
 </template>
 
 <style scoped>
-/* Recipe B (main-content-view-layout.md §4): the body scrolls itself and
-   reserves the uniform rail clearance so the content column sits at the same
-   x as every other main view. */
+/* Recipe B (main-content-view-layout.md §4): the body scrolls itself, its
+   content on the shared content column. */
 .profile-body {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
     padding-top: 1rem;
     padding-bottom: 2rem;
     color: var(--app-text-primary);

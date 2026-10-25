@@ -65,7 +65,7 @@ function onSelect(letter: string): void {
     cursor: default;
 }
 
-/* Hidden on phones — --app-rail-clearance collapses to 0 there
+/* Hidden on phones — the rail's slot (--app-rail-slot) collapses to 0 there
    (_variables.scss), so a visible rail would overlap the content column.
    767.98px = $bp-phone-max - 0.02px; scoped styles can't read SCSS vars,
    and breakpoints.spec.ts guards the source token. */

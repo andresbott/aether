@@ -64,6 +64,21 @@ describe('ContentScaffold', () => {
     })
 })
 
+// Only a body that draws the alphabet rail (Library's Albums and Artists) needs
+// the rail's slot kept clear. The scaffold carries the switch, so its header and
+// its body reserve the same width and stay on one column.
+describe('alphabet rail', () => {
+    it("reserves the rail's slot when the body draws the rail", () => {
+        const w = mount(ContentScaffold, { props: { title: 'Library', rail: true } })
+        expect(w.classes()).toContain('content-scaffold--rail')
+    })
+
+    it('reserves nothing for a rail by default', () => {
+        const w = mount(ContentScaffold, { props: { title: 'Playlists' } })
+        expect(w.classes()).not.toContain('content-scaffold--rail')
+    })
+})
+
 describe('secondary actions', () => {
     const mountWithSecondary = () =>
         mount(ContentScaffold, {

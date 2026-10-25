@@ -115,13 +115,12 @@ onBeforeUnmount(stopObserving)
 
 <style scoped>
 /* Recipe B (see docs/architecture/main-content-view-layout.md): plain scrolling
-   body, one scrollbar's worth of rail clearance on the right. --sb-w comes from
-   PlayerLayout; never re-measure it here. */
+   body. Its stable gutter holds the scrollbar and the feed draws no alphabet
+   rail, so nothing else is reserved on the right. */
 .discovery-scroll {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
     padding-bottom: 1rem;
     box-sizing: border-box;
 }

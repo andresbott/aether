@@ -447,11 +447,11 @@ watch(editing, (isEditing) => {
 }
 
 /* Recipe A: the hero is a fixed full-bleed band above the scrolling track list.
-   It compensates for the list's scrollbar twice, handed to HeroHeader's inner
-   column via --hero-rail-clearance so the hero content lines up with the rows. */
+   It reserves the list's scrollbar, handed to HeroHeader's inner column via
+   --hero-clearance, so the hero content lines up with the rows. */
 .genre-hero {
     flex-shrink: 0;
-    --hero-rail-clearance: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px));
+    --hero-clearance: var(--sb-w, 0px);
 }
 
 .track-list {
@@ -467,7 +467,7 @@ watch(editing, (isEditing) => {
 .track-list-header {
     box-sizing: border-box;
     padding-left: var(--app-content-gutter);
-    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
+    padding-right: calc(var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
 .track-list-header-row {
@@ -512,8 +512,7 @@ watch(editing, (isEditing) => {
 
 .track-list :deep(.p-virtualscroller-content) {
     box-sizing: border-box;
-    padding-left: var(--app-content-gutter);
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter));
+    padding-inline: var(--app-content-gutter);
 }
 
 /* Center the rows in the shared content column; the scroller stays full width

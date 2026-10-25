@@ -83,12 +83,13 @@ if a view needs more.
 </ContentScaffold>
 ```
 
-- **Props:** `title: string`, `summary?: string`, `showBack?: boolean`.
+- **Props:** `title: string`, `summary?: string`, `showBack?: boolean`, `navRoot?: boolean`,
+  `rail?: boolean` (the body draws the alphabet rail: header and body keep its slot clear, §5).
 - **Emits:** `@back` (when the back button is clicked).
 - **Slots:** `#actions` (right-aligned header controls, always visible), `#secondary-actions` (collapsible actions — inline on desktop/tablet tier, behind a ⋮ Popover on the phone tier; use for controls a phone header can't fit), `#title-actions` (inline actions beside the title), default (the body).
 - **Structure & exact styling** (match these values if you ever hand-roll the header):
   - Header is `flex-shrink:0`, full-width with
-    `padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px))` (Recipe A: compensates for the body scroller's scrollbar twice) and a bottom border.
+    `padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px))` (Recipe A: the body scroller's scrollbar, plus the rail's slot in a view that draws the rail) and a bottom border.
   - Inner `.scaffold-header-inner.content-col` centers on the shared content column with `0.75rem` block padding (`.content-col` supplies the inline gutter + max-width).
   - Optional back button (`showBack` prop): `Button` with `pi-arrow-left` icon, rendered before the title.
   - Title `<h1>`: `font-size: 1.5rem; font-weight: 700`.
@@ -137,10 +138,11 @@ handle scrollbar compensation at different depths.
 |---|---|---|
 | `--app-content-max-width` | `1320px` | Inner content-box width of the column |
 | `--app-content-gutter` | `1rem` (→ `0.75rem` on phones) | Horizontal padding inside the column |
-| `--app-rail-clearance` | `2.75rem` (→ `0px` on phones) | Alphabet-rail slot: rail 1.75rem + 1rem gap |
+| `--app-rail-slot` | `1.75rem` (→ `0px` on phones) | Alphabet-rail slot: the rail's own width (the content's gutter spaces it from the rail) |
+| `--app-rail-clearance` | `0px`; the slot under `ContentScaffold`'s `rail` | What the view keeps clear on the right for the rail (§5) |
 | `--sb-w` | measured px | Native scrollbar width |
 
-Phone overrides: below `$bp-phone-max` (768px), `--app-content-gutter` tightens to `0.75rem` and `--app-rail-clearance` collapses to `0px` (the rail is `display:none`, so the clearance must collapse with it). Recipes resolve through these tokens, so every conforming view adapts with no per-view change.
+Phone overrides: below `$bp-phone-max` (768px), `--app-content-gutter` tightens to `0.75rem` and `--app-rail-slot` collapses to `0px` (the rail is `display:none`, so its slot must collapse with it). Recipes resolve through these tokens, so every conforming view adapts with no per-view change.
 
 **Global utility** (defined in `_main.scss`):
 
@@ -158,29 +160,33 @@ Phone overrides: below `$bp-phone-max` (768px), `--app-content-gutter` tightens 
 scrollbar compensation (the multipliers differ):
 
 - **Recipe A — fixed (non-scrolling) frame** (scaffold header, fixed list headers, fixed heroes).
-  The element spans the full pane (no scrollbar of its own), so it compensates for the body
-  scroller's scrollbar twice (rail slot + 2×scrollbar: once for the scrollbar the header itself
-  doesn't have, once for the clearance the scroller's content adds):
-  `padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px))` on the frame, then
-  a centered column inside (`.content-col` or manual centering).
+  The element spans the full pane but has no scrollbar of its own, so it reserves the body
+  scroller's, once:
+  `padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px))` on the frame (the
+  clearance is `0` unless the view draws the rail), then a centered column inside
+  (`.content-col` or manual centering).
 
 - **Recipe B — plain scrolling body** (detail pages, playlists, search results, Now Playing).
-  The scroll container's content box already excludes the scrollbar, so:
-  `padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px))` on the scroll
-  container (or its content wrapper), then `.content-col` blocks inside.
+  The scroll container's content box already excludes the scrollbar (`scrollbar-gutter:
+  stable` holds it), so it reserves nothing on the right: `.content-col` blocks inside, no
+  right padding. No Recipe B body draws a rail.
 
 - **Recipe C — VirtualScroller body** (album/artist/genre/radio lists, card grids). Padding
   must go on PrimeVue's content element, and rows carry their own centering:
-  `:deep(.p-virtualscroller-content) { box-sizing: border-box; padding-left: var(--app-content-gutter); padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter)); }`
+  `:deep(.p-virtualscroller-content) { box-sizing: border-box; padding-left: var(--app-content-gutter); padding-right: calc(var(--app-rail-clearance) + var(--app-content-gutter)); }`
+  (a list that never draws the rail: `padding-inline: var(--app-content-gutter)`)
   and each row `max-width: var(--app-content-max-width); margin-inline: auto;`.
   Fixed column-headers above such a scroller use Recipe A **plus** the gutter: frame
-  `padding-left: var(--app-content-gutter); padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter))`,
+  `padding-left: var(--app-content-gutter); padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter))`,
   inner row `max-width: var(--app-content-max-width); margin-inline: auto`.
 
 **Alignment invariant:** the **inner edge** of `.content-col` (= column edge + gutter) is
 where the title `h1`, every row *box*, every card, and every hero starts. Recipes A/B/C all
 resolve to the same inner content box:
-`min(1320px, pane − rail-clearance − 2·sb − 2·gutter)` centered left of the rail slot.
+`min(1320px, pane − rail-clearance − sb − 2·gutter)` centered left of the scrollbar (and of
+the rail's slot, in a view that draws the rail). The scrollbar is reserved once — by its own
+stable gutter in a scroller, by Recipe A's `--sb-w` in a frame outside one — and never twice
+(`railClearance.spec.ts`).
 
 **Rules for any body:**
 - Fill the frame with `height: 100%` and do the scrolling here (`overflow-y: auto`).
@@ -234,10 +240,16 @@ native scrollbar** — the scrollbar remains the outermost element.
   (it's `0` on overlay-scrollbar systems).
 - Set `scrollbar-gutter: stable` on the scroller.
 - Rail: `position:absolute; top:0; bottom:0; right: var(--sb-w, 0px); width:1.75rem`. The
-  `--app-rail-clearance` token (2.75rem) includes this rail width + 1rem gap; recipes
-  reserve that clearance on the right so content never sits under the rail. On phones
-  (below `$bp-phone-max` = 768px), the rail is `display:none` and `--app-rail-clearance`
-  is zeroed — the two must move together (paired, guarded by `AlphabetRail.phoneStyles.spec.ts`).
+  `--app-rail-slot` token (1.75rem) is exactly this rail's width: the content's own gutter keeps
+  it off the rail, the same gap as at the left edge, so the slot adds none of its own (the two
+  widths are pinned together by `railClearance.spec.ts`). A view whose body draws the
+  rail passes `rail` to its `ContentScaffold`, which sets `--app-rail-clearance` to the slot on
+  the frame the header and the body share; the recipes reserve it on the right so content never
+  sits under the rail. Today that is Library's Albums and Artists (list and grid alike). Every
+  other view keeps nothing clear — the clearance defaults to `0`, and only the scaffold and the
+  bodies that draw the rail read it (pinned by `railClearance.spec.ts`). On phones (below
+  `$bp-phone-max` = 768px), the rail is `display:none` and `--app-rail-slot` is zeroed — the
+  two must move together (paired, guarded by `AlphabetRail.phoneStyles.spec.ts`).
 - Rail `@select(offset)` → `scrollToIndex(offset)` (for lazily-windowed lists, `ensureRange`
   before scrolling — see `AlbumListView`).
 
@@ -280,7 +292,7 @@ chrome like the queue sidebar.
 | --- | --- | --- |
 | Now Playing (`QueueView` full — desktop) | `/` | ✅ `ContentScaffold` (origin of the pattern) |
 | Browse (`MobileBrowseView`, mobile only) | `/browse` | ✅ `ContentScaffold` (`navRoot`, Recipe B body of `BrowseShelf` strips) |
-| Library (discover/albums/artist × list/grid) | `/library` | ✅ `ContentScaffold` (Discover view = Recipe B body via `DiscoveryFeed`; views switched from the sidebar at the desktop root, and by a Discover/Artists/Albums `SelectButton` group in `#actions` inside a library offering more than one and at the phone root; Albums carries a release-type `SelectButton` bound to `?releaseType=`) |
+| Library (discover/albums/artist × list/grid) | `/library` | ✅ `ContentScaffold` (Discover view = Recipe B body via `DiscoveryFeed`; Albums/Artists draw the alphabet rail, so the scaffold gets `rail` there; views switched from the sidebar at the desktop root, and by a Discover/Artists/Albums `SelectButton` group in `#actions` inside a library offering more than one and at the phone root; Albums carries a release-type `SelectButton` bound to `?releaseType=`) |
 | Search | `/search` | ✅ `ContentScaffold` |
 | Radio | `/radio` | ✅ `ContentScaffold` |
 | Album detail (`AlbumView`) | `/album/:id` | ✅ `ContentScaffold` (cover in body hero) |
@@ -306,11 +318,13 @@ views conform; keep new ones on `ContentScaffold`.
 2. Put header controls in `#actions`.
 3. Make the body a self-scrolling child: `height:100%; overflow-y:auto;
    scrollbar-gutter:stable`, content centered via `.content-col` / the recipes (§4). Reserve
-   the uniform rail clearance on the right even without a rail, so the content column sits
-   at the same x on every view.
+   nothing on the right for the scrollbar (its stable gutter holds it), and nothing for the
+   rail unless the body draws one (step 5).
 4. Add `meta: { flush: true }` to the route in `router/index.ts`.
-5. Long indexed list? Reuse `AlphabetRail` per §5 (never re-measure `--sb-w`; it's already
-   set by the shells — `DesktopShell` on `.content-area`, `MobileShell` on `.mobile-content`).
+5. Long indexed list? Reuse `AlphabetRail` per §5, pass `rail` to the `ContentScaffold`, and
+   add the body to `railClearance.spec.ts`'s list of the rail's readers (never re-measure
+   `--sb-w`; it's already set by the shells — `DesktopShell` on `.content-area`,
+   `MobileShell` on `.mobile-content`).
 6. Test (Vitest): title renders, summary reflects the count (singular + plural) and is
    absent at zero, actions live in the header, empty/loading states show. See
    `RadioView.spec.ts` / `LibraryView.spec.ts` for the shape.

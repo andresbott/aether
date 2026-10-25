@@ -201,7 +201,6 @@ const handleCreate = () => {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
     box-sizing: border-box;
 }
 .loading { display: flex; justify-content: center; padding: 3rem; color: var(--app-text-secondary); }

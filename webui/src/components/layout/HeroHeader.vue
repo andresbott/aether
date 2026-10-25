@@ -211,11 +211,12 @@ const onSelect = (event: { files: File[] }): void => {
 <style scoped>
 /* --- The full-bleed duotone band --------------------------------------------
    The root spans its container edge to edge; `.hero-media` fills it while the
-   `.hero-pad` frame reserves the alphabet-rail clearance on the right and the
    `.hero-inner.content-col` centers the content on the shared column, so the
-   cover/name/meta line up with the track-list body below. Hosts that mount the
-   hero as a FIXED frame above a separate scroller (GenreDetailView) override
-   `--hero-rail-clearance` to add the second scrollbar-width (Recipe A). */
+   cover/name/meta line up with the track-list body below. Inside the scroller
+   the `.hero-pad` frame reserves nothing on the right, since the scroller's
+   gutter already holds its scrollbar. A host that mounts the hero as a FIXED
+   frame above a separate scroller (GenreDetailView) sets `--hero-clearance` to
+   that scroller's scrollbar width (Recipe A). */
 .hero-header {
     position: relative;
     isolation: isolate;
@@ -262,10 +263,7 @@ const onSelect = (event: { files: File[] }): void => {
 .hero-pad {
     position: relative;
     box-sizing: border-box;
-    padding-right: var(
-        --hero-rail-clearance,
-        calc(var(--app-rail-clearance) + var(--sb-w, 0px))
-    );
+    padding-right: var(--hero-clearance, 0px);
 }
 
 /* .content-col supplies width / max-width / centering / inline gutter. */

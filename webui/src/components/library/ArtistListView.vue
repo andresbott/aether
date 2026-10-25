@@ -85,7 +85,7 @@ function onSelectLetter(offset: number): void {
     box-sizing: border-box;
     padding-top: 1rem;
     padding-left: var(--app-content-gutter);
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter));
+    padding-right: calc(var(--app-rail-clearance) + var(--app-content-gutter));
 }
 
 .loading {
