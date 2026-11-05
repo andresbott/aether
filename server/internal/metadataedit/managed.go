@@ -26,6 +26,7 @@ var managedTagKeys = map[string]bool{
 	"DISCNUMBER":                 true,
 	"DISC":                       true,
 	"DISCSUBTITLE":               true,
+	"GROUPING":                   true,
 	"TSST":                       true,
 	"COMPILATION":                true,
 	"TCMP":                       true,

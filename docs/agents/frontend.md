@@ -672,12 +672,13 @@ libraries, the same picker, saving on pick through `useUpdateCatalogSettings`
 `useMusicFolders`' query (one request, each `select`ing its part); a missing
 descriptor means split. Split, the Library block starts with Discover /
 Artists / Albums; not split, with one **All music** entry (`/library`,
-compass icon, the Library shortcut badge, active on any root view). New libraries default to every view, opening on Discover —
-the server's defaults too. `/views…` errors render on the Views row,
+compass icon, the Library shortcut badge, active on any root view). New libraries default to Discover / Artists / Albums, opening on Discover —
+the server's defaults too (`DEFAULT_LIBRARY_VIEWS`). **Groupings is opt-in:** a fourth checkbox in the views group of the library dialog, unticked for a new library, and a "Show Groupings view" checkbox in `MainLibraryPanel` for the root (`show_groupings` on `PUT /api/v0/libraries/catalog`); the root's `catalog.views` carries it, and the sidebar adds a Groupings entry only when it does. `/views…` errors render on the Views row,
 `/default_view` under Opens on.
 
-**`LibraryView`'s views** follow the library: `offeredViews` is every view at
-the root and `folder.views` inside a library (the `musicFolderViews`
+**`LibraryView`'s views** follow the library: `offeredViews` is the root's
+`catalog.views` at the root (the three base views until a descriptor says
+otherwise) and `folder.views` inside a library (the `musicFolderViews`
 extension); the path's `:mode` shows when offered, else the library's
 default (`openingView`). A mode the library does not offer is rewritten to
 the bare `/library/:folderId` path (query kept) once the folders are loaded —
@@ -694,6 +695,13 @@ otherwise. Choosing a view pushes its canonical path: the landing view is the
 bare path, every other
 view a segment. A library's Discover passes `folderId` to `DiscoveryFeed` /
 `useDiscoveryFeed`, so it is that library's own feed.
+
+**Groupings** — shown to users as **Collections** (labels only; the tag, API, routes and code keep "grouping") — (the `albumGroupings` extension; `GroupingGrid` / `GroupingListView` /
+`GroupingCard` / `GroupingRow`, fed by `useGroupingTable`; detail in `GroupingView` at
+`/grouping/:id`, `useGrouping`). The index reuses the artist index's flattened
+letter shape so `VirtualCardGrid` and `AlphabetRail` work unchanged; the favorites
+heart is hidden on this view (`supportsFavorites` in `LibraryView`) because groupings
+cannot be starred. `AlbumView` links to its grouping under the artist.
 
 **`LibraryFilterBuilder`** (`components/admin/LibraryFilterBuilder.vue`,
 inside `LibraryDialog`) is the one place filters are edited. `LibraryDialog`

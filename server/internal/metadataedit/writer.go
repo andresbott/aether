@@ -23,16 +23,18 @@ type CurrentTags struct {
 // this value". This is how the per-field "apply" toggle in the UI maps onto
 // the wire.
 type Patch struct {
-	Title           *string
-	Album           *string
-	Artists         *[]string
-	AlbumArtists    *[]string
-	Genres          *[]string
-	ReleaseTypes    *[]string
-	Year            *int
-	TrackNumber     *int
-	DiscNumber      *int
-	DiscSubtitle    *string
+	Title        *string
+	Album        *string
+	Artists      *[]string
+	AlbumArtists *[]string
+	Genres       *[]string
+	ReleaseTypes *[]string
+	Year         *int
+	TrackNumber  *int
+	DiscNumber   *int
+	DiscSubtitle *string
+	// Grouping is the GROUPING tag (TagLib maps it to GRP1 on MP3, ©grp on MP4).
+	Grouping        *string
 	Compilation     *bool
 	ArtistMBID      *map[string]string // artist name -> MBID ("" clears)
 	AlbumArtistMBID *map[string]string // album-artist name -> MBID ("" clears)
@@ -58,7 +60,7 @@ func (p Patch) Empty() bool {
 	return p.Title == nil && p.Album == nil && p.Artists == nil &&
 		p.AlbumArtists == nil && p.Genres == nil && p.ReleaseTypes == nil && p.Year == nil &&
 		p.TrackNumber == nil && p.DiscNumber == nil &&
-		p.DiscSubtitle == nil && p.Compilation == nil &&
+		p.DiscSubtitle == nil && p.Grouping == nil && p.Compilation == nil &&
 		p.ArtistMBID == nil && p.AlbumArtistMBID == nil &&
 		p.MBRecordingID == nil && p.MBReleaseID == nil && p.MBReleaseGroupID == nil &&
 		p.Raw == nil && p.RemoveUnsupported == nil
@@ -101,6 +103,7 @@ func BuildTagMap(p Patch, cur CurrentTags) (map[string][]string, error) {
 		{p.Title, taglib.Title},
 		{p.Album, taglib.Album},
 		{p.DiscSubtitle, taglib.DiscSubtitle},
+		{p.Grouping, taglib.Grouping},
 		{p.MBRecordingID, taglib.MusicBrainzTrackID},
 		{p.MBReleaseID, taglib.MusicBrainzAlbumID},
 		{p.MBReleaseGroupID, taglib.MusicBrainzReleaseGroupID},

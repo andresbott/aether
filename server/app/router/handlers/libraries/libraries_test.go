@@ -329,11 +329,12 @@ func decodeViews(t *testing.T, w *httptest.ResponseRecorder, want int) libraryVi
 }
 
 // A library created with just a name browses like the whole catalog: every
-// view, opening on Discover, its artists in the main index.
+// view but the opt-in Groupings, opening on Discover, its artists in the main
+// index.
 func TestCreateLibraryDefaultsToEveryView(t *testing.T) {
 	_, _, r := newTestHandler(t)
 	got := decodeViews(t, send(t, r, "POST", "/libraries", `{"name":"Main"}`), http.StatusCreated)
-	if !slices.Equal(got.Views, model.LibraryViews()) || got.DefaultView != model.ViewDiscover {
+	if !slices.Equal(got.Views, model.DefaultLibraryViews()) || got.DefaultView != model.ViewDiscover {
 		t.Fatalf("got views %v opening on %q, want every view opening on discover", got.Views, got.DefaultView)
 	}
 	if got.HideFromArtistIndex {
@@ -1016,5 +1017,20 @@ func TestCreateLibraryWithoutANameIs400(t *testing.T) {
 		if slug := problemjson.Slug(problem.Type); slug != "validation_error" {
 			t.Fatalf("body=%s: expected slug validation_error, got %q", body, slug)
 		}
+	}
+}
+
+// Groupings is an opt-in view: a library can offer it (stored in view order,
+// and usable as the default), and a plain create does not.
+func TestLibraryGroupingsViewIsOptIn(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	got := decodeViews(t, send(t, r, "POST", "/libraries", `{"name":"Plain"}`), http.StatusCreated)
+	if slices.Contains(got.Views, model.ViewGroupings) {
+		t.Fatalf("a new library must not offer groupings: %v", got.Views)
+	}
+	got = decodeViews(t, send(t, r, "POST", "/libraries",
+		`{"name":"OST","views":["groupings","albums"],"default_view":"groupings"}`), http.StatusCreated)
+	if !slices.Equal(got.Views, []model.LibraryView{model.ViewGroupings, model.ViewAlbums}) || got.DefaultView != model.ViewGroupings {
+		t.Fatalf("got views %v opening on %q", got.Views, got.DefaultView)
 	}
 }

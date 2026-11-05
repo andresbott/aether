@@ -106,6 +106,20 @@ describe('AppSidebar Library block', () => {
         expect(pushSpy).toHaveBeenCalledWith('/library/albums')
     })
 
+    // Groupings is opt-in: the root lists it only when its descriptor offers it.
+    it('lists a Groupings entry at the root only when the catalog offers the view', async () => {
+        expect(navLayout()).not.toContain('Collections')
+
+        catalogRef.value = { views: ['discover', 'artists', 'groupings', 'albums'] }
+        const w = mountSidebar()
+        const labels = w.findAll('.sidebar-nav .nav-item').map((n) => n.text())
+        expect(labels).toContain('Collections')
+        const item = w.findAll('.sidebar-nav .nav-item').find((n) => n.text() === 'Collections')!
+        expect(item.find('i').classes()).toContain('ms-collections-bookmark')
+        await item.trigger('click')
+        expect(pushSpy).toHaveBeenCalledWith('/library/groupings')
+    })
+
     it('routes Artists to the /library/artists path', async () => {
         const item = mountSidebar()
             .findAll('.sidebar-nav .nav-item')

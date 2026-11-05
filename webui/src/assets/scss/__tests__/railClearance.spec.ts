@@ -80,6 +80,7 @@ describe('the rail clearance', () => {
                 'components/layout/ContentScaffold.vue',
                 'components/library/AlbumListView.vue',
                 'components/library/ArtistListView.vue',
+                'components/library/GroupingListView.vue',
                 'components/library/VirtualCardGrid.vue'
             ].sort()
         )

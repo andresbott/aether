@@ -42,10 +42,10 @@ const routes: RouteRecordRaw[] = [
     {
         // The cross-collection root. Bare /library is Discover (the default,
         // cross-collection ranked feed); the other views are real path segments,
-        // /library/albums and /library/artists. The segment only names those
-        // two, so there is deliberately no /library/discover — the root's
+        // /library/albums, /library/artists and /library/groupings. The segment
+        // only names those, so there is deliberately no /library/discover — the root's
         // Discover is only ever the bare path.
-        path: '/library/:mode(albums|artists)?',
+        path: '/library/:mode(albums|artists|groupings)?',
         name: 'library',
         component: () => import('@/views/LibraryView.vue'),
         props: true,
@@ -57,7 +57,7 @@ const routes: RouteRecordRaw[] = [
         // and the optional trailing mode (/library/5/artists) names another of
         // its views. LibraryView rewrites a view the library does not offer back
         // to the bare path.
-        path: '/library/:folderId(\\d+)/:mode(discover|albums|artists)?',
+        path: '/library/:folderId(\\d+)/:mode(discover|albums|artists|groupings)?',
         name: 'library-folder',
         component: () => import('@/views/LibraryView.vue'),
         props: true,
@@ -67,6 +67,13 @@ const routes: RouteRecordRaw[] = [
         path: '/album/:id',
         name: 'album',
         component: () => import('@/views/AlbumView.vue'),
+        props: true,
+        meta: { flush: true }
+    },
+    {
+        path: '/grouping/:id',
+        name: 'grouping',
+        component: () => import('@/views/GroupingView.vue'),
         props: true,
         meta: { flush: true }
     },

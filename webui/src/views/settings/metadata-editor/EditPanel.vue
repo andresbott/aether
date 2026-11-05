@@ -66,6 +66,7 @@ const mbRecordingId = form.text('mb_recording_id')
 const mbReleaseId = form.text('mb_release_id')
 const mbReleaseGroupId = form.text('mb_release_group_id')
 const discSubtitle = form.text('disc_subtitle')
+const grouping = form.text('grouping')
 const year = form.num('year')
 const trackNumber = form.num('track_number')
 const discNumber = form.num('disc_number')
@@ -563,6 +564,20 @@ watch(
                 undo-test-id="undo-disc_subtitle"
                 undo-aria-label="Reset disc subtitle"
                 @undo="form.undo('disc_subtitle')"
+            />
+
+            <FieldRow
+                label="Grouping (collection)"
+                :id="fid('grouping')"
+                v-model="grouping"
+                type="text"
+                input-class="field-grouping"
+                :placeholder="form.placeholder('grouping').value"
+                :dirty="form.isDirty('grouping')"
+                :undo-tooltip="form.undoTooltip('grouping')"
+                undo-test-id="undo-grouping"
+                undo-aria-label="Reset grouping"
+                @undo="form.undo('grouping')"
             />
         </CollapsibleSection>
 

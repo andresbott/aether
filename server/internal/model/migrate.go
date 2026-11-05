@@ -10,6 +10,7 @@ func Migrate(db *gorm.DB) error {
 		&Album{},
 		&Track{},
 		&Genre{},
+		&Grouping{},
 		&AlbumArtist{},
 		&TrackArtist{},
 		&TrackGenre{},

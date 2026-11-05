@@ -168,6 +168,22 @@ describe('AlbumView hero eyebrow', () => {
     })
 })
 
+describe('AlbumView grouping link', () => {
+    const link = (w: ReturnType<typeof mountView>) => w.find('[data-test="album-grouping-link"]')
+
+    it('is absent for an album without a grouping', () => {
+        expect(link(mountView()).exists()).toBe(false)
+    })
+
+    it('names the grouping and links to its page', () => {
+        albumData.value = markRaw({ ...album, grouping: { id: 'gr-4', name: 'Doctor Who' } })
+        const w = mountView()
+        expect(link(w).exists()).toBe(true)
+        // RouterLink is stubbed (no slot content); the link is there and has a target.
+        expect(link(w).attributes('to')).toBeTruthy()
+    })
+})
+
 describe('AlbumView album drag', () => {
     it('makes the hero cover a drag source', () => {
         const w = mountView()

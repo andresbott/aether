@@ -44,7 +44,7 @@ const mkTrack = (path: string, title: string, album: string): Track => ({
     year: 2020,
     track_number: 1,
     disc_number: 1,
-    disc_subtitle: '',
+    disc_subtitle: '', grouping: '',
     compilation: false,
     mb_artist_ids: [],
     mb_album_artist_ids: [],

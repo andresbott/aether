@@ -8,6 +8,9 @@ import type {
     AlbumLetter,
     Artist,
     ArtistIndex,
+    Grouping,
+    GroupingIndex,
+    GroupingWithAlbums,
     Song,
     Playlist,
     MusicFolder,
@@ -366,6 +369,39 @@ class SubsonicClient {
             items.push(...groupArtists)
         }
         return { total: items.length, letters, items }
+    }
+
+    // Aether's `albumGroupings` extension. The index is flattened like the artist
+    // index so the alphabet rail needs no second shape.
+    async getGroupingIndex(musicFolderId?: number): Promise<GroupingIndex> {
+        if (!this.isConfigured()) return { total: 0, letters: [], items: [] }
+        const params: Record<string, string | number | undefined> = {}
+        if (musicFolderId !== undefined) params.musicFolderId = musicFolderId
+        const response = await this.request<{
+            groupings?: { index?: Array<{ name: string; grouping?: Grouping[] }> }
+        }>('getGroupings.view', params)
+
+        const letters: AlbumLetter[] = []
+        const items: Grouping[] = []
+        for (const group of response.groupings?.index ?? []) {
+            const list = group.grouping ?? []
+            if (list.length === 0) continue
+            letters.push({ name: group.name, offset: items.length, count: list.length })
+            items.push(...list)
+        }
+        return { total: items.length, letters, items }
+    }
+
+    // One grouping with its albums, oldest first; scoped to a library when given.
+    async getGrouping(id: string, musicFolderId?: number): Promise<GroupingWithAlbums | null> {
+        if (!this.isConfigured()) return null
+        const params: Record<string, string | number | undefined> = { id }
+        if (musicFolderId !== undefined) params.musicFolderId = musicFolderId
+        const response = await this.request<{ grouping: GroupingWithAlbums }>(
+            'getGrouping.view',
+            params
+        )
+        return response.grouping
     }
 
     async getArtists(musicFolderId?: number): Promise<Artist[]> {

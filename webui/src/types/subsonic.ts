@@ -44,6 +44,24 @@ export interface DiscTitle {
     title: string
 }
 
+// Aether's `albumGroupings` extension: a named container for albums read from the
+// GROUPING tag (a franchise, a series, a box set).
+export interface Grouping {
+    id: string
+    name: string
+    albumCount?: number
+    songCount?: number
+    duration?: number
+    // Earliest album year; absent when no album carries one.
+    year?: number
+    coverArt?: string
+}
+
+// A grouping with its albums, oldest first (getGrouping).
+export interface GroupingWithAlbums extends Grouping {
+    album?: Album[]
+}
+
 export interface Album {
     id: string
     name: string
@@ -65,6 +83,8 @@ export interface Album {
     releaseTypes?: string[]
     // OpenSubsonic AlbumID3: a "Compilation" release type or the iTunes flag.
     isCompilation?: boolean
+    // `albumGroupings` extension: the grouping the album belongs to, on getAlbum.
+    grouping?: { id: string; name: string }
 }
 
 export interface AlbumWithSongs extends Album {
@@ -209,6 +229,14 @@ export interface ArtistIndex {
     total: number
     letters: AlbumLetter[]
     items: Artist[]
+}
+
+// getGroupings, flattened into the same shape as the artist index so the alphabet
+// rail and the virtual grid work unchanged.
+export interface GroupingIndex {
+    total: number
+    letters: AlbumLetter[]
+    items: Grouping[]
 }
 
 // getStarred2. Unpaginated by spec — the whole favorites set arrives in one

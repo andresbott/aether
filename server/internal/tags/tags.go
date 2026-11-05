@@ -62,9 +62,12 @@ type Metadata struct {
 	MBAlbumArtistID  []string
 	Lyrics           string
 	Compilation      bool
-	ReleaseTypes     []string
-	HasCover         bool
-	ReplayGain       ReplayGain
+	// Grouping is the first value of the GROUPING tag (TagLib maps it to GRP1
+	// in ID3v2, ©grp in MP4 and GROUPING in Vorbis comments).
+	Grouping     string
+	ReleaseTypes []string
+	HasCover     bool
+	ReplayGain   ReplayGain
 }
 
 type ReplayGain struct {

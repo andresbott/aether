@@ -53,6 +53,15 @@ const libraryModes: NavItem[] = [
     { label: 'Albums', icon: 'ms-album', route: '/library/albums', routeName: 'library', mode: 'albums' }
 ]
 
+// Groupings is opt-in: the root lists it only when its descriptor offers it.
+const groupingsMode: NavItem = {
+    label: 'Collections',
+    icon: 'ms-collections-bookmark',
+    route: '/library/groupings',
+    routeName: 'library',
+    mode: 'groupings'
+}
+
 // The root as one entry, for a catalog set not to split its views: its page
 // switches them instead. No mode — it covers them all — and it keeps the badge.
 const libraryRoot: NavItem = {
@@ -85,10 +94,16 @@ const folderItems = computed<NavItem[]>(() => {
     }))
 })
 
+const rootModes = computed<NavItem[]>(() =>
+    catalog.value?.views?.includes('groupings')
+        ? [libraryModes[0], libraryModes[1], groupingsMode, libraryModes[2]]
+        : libraryModes
+)
+
 // The Library block: the root (its browse modes, or one entry), then
 // per-library entries.
 const libraryGroup = computed<NavItem[]>(() => [
-    ...(rootSplit.value ? libraryModes : [libraryRoot]),
+    ...(rootSplit.value ? rootModes.value : [libraryRoot]),
     ...folderItems.value
 ])
 
@@ -143,7 +158,7 @@ const bottomItems = computed<NavItem[]>(() => [
 const modeParam = computed<LibraryView | undefined>(() => {
     const raw = route.params.mode
     const m = Array.isArray(raw) ? raw[0] : raw
-    return m === 'discover' || m === 'albums' || m === 'artists' ? m : undefined
+    return m === 'discover' || m === 'albums' || m === 'artists' || m === 'groupings' ? m : undefined
 })
 
 const isActive = (item: NavItem): boolean => {

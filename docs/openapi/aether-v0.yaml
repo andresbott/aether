@@ -2750,6 +2750,7 @@ components:
         track_number: { type: integer }
         disc_number: { type: integer }
         disc_subtitle: { type: string }
+        grouping: { type: string }
         compilation: { type: boolean }
         mb_artist_ids: { type: array, items: { type: string } }
         mb_album_artist_ids: { type: array, items: { type: string } }
@@ -2771,6 +2772,7 @@ components:
         - track_number
         - disc_number
         - disc_subtitle
+        - grouping
         - compilation
         - mb_artist_ids
         - mb_album_artist_ids
@@ -2811,6 +2813,7 @@ components:
         track_number: { type: integer }
         disc_number: { type: integer }
         disc_subtitle: { type: string }
+        grouping: { type: string }
         compilation: { type: boolean }
         artist_mbids:
           type: object
@@ -3778,10 +3781,11 @@ components:
 
     LibraryView:
       type: string
-      enum: [discover, artists, albums]
+      enum: [discover, artists, groupings, albums]
       description: >
         One way of browsing a library: the ranked Discovery feed, the artist
-        index, or the release list. `/rest` advertises the same vocabulary as
+        index, the release list, or the groupings index (the GROUPING tag;
+        off unless a library or the root opts in). `/rest` advertises the same vocabulary as
         the `musicFolderViews` extension on getMusicFolders.
 
     CatalogSettings:
@@ -3793,12 +3797,20 @@ components:
             How the root library appears in the SPA sidebar: true lists each
             of its views (Discover, Artists, Albums) as its own entry, false
             gives it one entry whose page switches between them.
-      required: [split_views]
+        show_groupings:
+          type: boolean
+          description: >
+            Whether the root also offers the Groupings view (the GROUPING
+            tag). Off by default.
+      required: [split_views, show_groupings]
 
     CatalogSettingsWriteRequest:
       type: object
       properties:
         split_views:
+          type: boolean
+          description: Omitted (or explicit null) keeps the stored value.
+        show_groupings:
           type: boolean
           description: Omitted (or explicit null) keeps the stored value.
 
@@ -3817,7 +3829,7 @@ components:
         `views`, `default_view`, `hide_from_artist_index`, `split_views`,
         `icon` and `filters` are always optional. The two operations give an
         omitted `views`, `hide_from_artist_index` or `split_views` different
-        meanings: on create they default to every view and to false (a new
+        meanings: on create they default to every view but groupings and to false (a new
         library browses like the whole catalog, its artists in the main
         index, one sidebar entry); on update they
         keep the library's current stored value instead of resetting it. The

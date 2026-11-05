@@ -8,16 +8,19 @@ import AlbumListView from '@/components/library/AlbumListView.vue'
 import AlbumGrid from '@/components/library/AlbumGrid.vue'
 import ArtistListView from '@/components/library/ArtistListView.vue'
 import ArtistGrid from '@/components/library/ArtistGrid.vue'
+import GroupingListView from '@/components/library/GroupingListView.vue'
+import GroupingGrid from '@/components/library/GroupingGrid.vue'
 import DiscoveryFeed from '@/components/library/DiscoveryFeed.vue'
 import { useCatalogView, useMusicFolders, useReleaseTypes } from '@/composables/useSubsonicQueries'
 import { useAlbumIndex } from '@/composables/useAlbumIndex'
 import { useArtistTable } from '@/composables/useArtistTable'
+import { useGroupingTable } from '@/composables/useGroupingTable'
 import { useStarredAlbums, useStarredArtists } from '@/composables/useStarred'
 import { useDiscoveryFeed } from '@/composables/useDiscovery'
 import { useViewport } from '@/composables/useViewport'
 import { useUiStore } from '@/store/uiStore'
 import { PRIMARY_RELEASE_TYPES } from '@/lib/releaseTypes'
-import { ALL_LIBRARY_VIEWS, LIBRARY_VIEWS, openingView } from '@/lib/libraryViews'
+import { LIBRARY_VIEWS, inDisplayOrder, openingView } from '@/lib/libraryViews'
 import type { LibraryView as ViewMode } from '@/types/libraries'
 
 type Layout = 'grid' | 'list'
@@ -47,11 +50,18 @@ const folderName = computed(() =>
     folderId.value === undefined ? 'Library' : (folder.value?.name ?? 'Library')
 )
 
-// The views this page offers: every view at the root, which is the whole
-// catalog; the configured ones inside a library. Empty while the library is
-// unknown — its folders still loading, or an id that names no library.
+// What the root offers before (or without) a descriptor saying otherwise: the
+// three base views. Groupings is opt-in, so an older server — or one that has
+// not answered yet — never shows it.
+const ROOT_BASE_VIEWS: readonly ViewMode[] = ['discover', 'artists', 'albums']
+
+// The views this page offers: the root's descriptor at the root, which is the
+// whole catalog; the configured ones inside a library. Empty while the library
+// is unknown — its folders still loading, or an id that names no library.
 const offeredViews = computed<readonly ViewMode[]>(() =>
-    folderId.value === undefined ? ALL_LIBRARY_VIEWS : (folder.value?.views ?? [])
+    folderId.value === undefined
+        ? inDisplayOrder(catalog.value?.views ?? ROOT_BASE_VIEWS)
+        : (folder.value?.views ?? [])
 )
 
 // Where the bare path lands: Discover at the root, a library's configured
@@ -67,7 +77,7 @@ const landingView = computed<ViewMode>(() => {
 const modeParam = computed<ViewMode | null>(() => {
     const raw = route.params.mode
     const m = Array.isArray(raw) ? raw[0] : raw
-    return m === 'discover' || m === 'albums' || m === 'artists' ? m : null
+    return m === 'discover' || m === 'albums' || m === 'artists' || m === 'groupings' ? m : null
 })
 
 // The view shown: the path's when this page offers it, else the landing view.
@@ -131,16 +141,20 @@ const layout = computed<Layout>({
     set: (v) => uiStore.setLibraryViewMode(viewMode.value, v)
 })
 
-// Albums and Artists draw the alphabet rail, in a list and a grid alike, so the
-// scaffold keeps its slot clear for them; Discover has none and gets the whole
-// width.
+// Albums, Artists and Groupings draw the alphabet rail, in a list and a grid
+// alike, so the scaffold keeps its slot clear for them; Discover has none and
+// gets the whole width.
 const drawsRail = computed(() => viewMode.value !== 'discover')
 
 // Favorites filter, in the URL so it survives a reload and is linkable. It applies
 // to the Albums and Artists views only: Discover is a ranked feed in which
-// favorites are already a scoring term, not a filterable list.
+// favorites are already a scoring term, not a filterable list, and groupings
+// cannot be starred.
+const supportsFavorites = computed(
+    () => viewMode.value === 'albums' || viewMode.value === 'artists'
+)
 const favoritesOnly = computed<boolean>({
-    get: () => route.query.favorites === '1' && viewMode.value !== 'discover',
+    get: () => route.query.favorites === '1' && supportsFavorites.value,
     set: (v) => {
         const query = { ...route.query }
         if (v) query.favorites = '1'
@@ -180,6 +194,7 @@ const showing = (view: ViewMode) => computed(() => viewKnown.value && viewMode.v
 const showingAlbums = showing('albums')
 const showingArtists = showing('artists')
 const showingDiscover = showing('discover')
+const showingGroupings = showing('groupings')
 
 // A type no album in this library carries would only ever list nothing, so its
 // tab is not offered. Until the carried types arrive, or if they cannot be
@@ -213,6 +228,7 @@ const { total: albumTotal } = useAlbumIndex(
 const { total: artistTotal } = useArtistTable(folderId, {
     enabled: computed(() => showingArtists.value && !favoritesOnly.value)
 })
+const { total: groupingTotal } = useGroupingTable(folderId, { enabled: showingGroupings })
 const { total: starredAlbumTotal } = useStarredAlbums(folderId, {
     enabled: computed(() => showingAlbums.value && favoritesOnly.value)
 })
@@ -238,6 +254,11 @@ const summary = computed(() => {
     if (viewMode.value === 'albums') {
         return albumTotal.value > 0
             ? `${albumTotal.value} ${albumTotal.value === 1 ? 'release' : 'albums'}`
+            : ''
+    }
+    if (viewMode.value === 'groupings') {
+        return groupingTotal.value > 0
+            ? `${groupingTotal.value} ${groupingTotal.value === 1 ? 'collection' : 'collections'}`
             : ''
     }
     return artistTotal.value > 0
@@ -285,7 +306,7 @@ const summary = computed(() => {
             <!-- Favorites filter. Hidden on Discover (ranked feed). Same heart
                  pair and wording as every other favorite affordance. -->
             <ToggleButton
-                v-if="viewKnown && viewMode !== 'discover'"
+                v-if="viewKnown && supportsFavorites"
                 v-model="favoritesOnly"
                 class="library-favorites-filter as-button-group"
                 onIcon="ms-favorite"
@@ -330,6 +351,11 @@ const summary = computed(() => {
                 :favoritesOnly="favoritesOnly"
                 :releaseType="releaseTypeParam"
             />
+            <GroupingListView
+                v-else-if="viewMode === 'groupings' && layout === 'list'"
+                :folderId="folderId"
+            />
+            <GroupingGrid v-else-if="viewMode === 'groupings'" :folderId="folderId" />
             <ArtistListView
                 v-else-if="layout === 'list'"
                 :folderId="folderId"

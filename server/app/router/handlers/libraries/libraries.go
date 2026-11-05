@@ -297,7 +297,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if !validateDTO(w, r, in, h.Problems) {
 		return
 	}
-	views, defaultView, ok := h.resolveViews(w, r, in, model.LibraryViews())
+	views, defaultView, ok := h.resolveViews(w, r, in, model.DefaultLibraryViews())
 	if !ok {
 		return
 	}

@@ -106,6 +106,7 @@ type trackDTO struct {
 	TrackNumber      int      `json:"track_number"`
 	DiscNumber       int      `json:"disc_number"`
 	DiscSubtitle     string   `json:"disc_subtitle"`
+	Grouping         string   `json:"grouping"`
 	Compilation      bool     `json:"compilation"`
 	ReleaseTypes     []string `json:"release_types"`
 	MBArtistIDs      []string `json:"mb_artist_ids"`
@@ -141,6 +142,7 @@ func (h *TagsHandler) tracks(w http.ResponseWriter, r *http.Request) {
 			TrackNumber:      t.TrackNumber,
 			DiscNumber:       t.DiscNumber,
 			DiscSubtitle:     t.DiscSubtitle,
+			Grouping:         t.Grouping,
 			Compilation:      t.Compilation,
 			ReleaseTypes:     t.ReleaseTypes,
 			MBArtistIDs:      t.MBArtistIDs,
@@ -170,6 +172,7 @@ type fields struct {
 	TrackNumber      *int               `json:"track_number,omitempty"`
 	DiscNumber       *int               `json:"disc_number,omitempty"`
 	DiscSubtitle     *string            `json:"disc_subtitle,omitempty"`
+	Grouping         *string            `json:"grouping,omitempty"`
 	Compilation      *bool              `json:"compilation,omitempty"`
 	ReleaseTypes     *[]string          `json:"release_types,omitempty"`
 	ArtistMBIDs      *map[string]string `json:"artist_mbids,omitempty"`
@@ -273,6 +276,7 @@ func (h *TagsHandler) updateTracks(w http.ResponseWriter, r *http.Request) {
 		TrackNumber:     body.Fields.TrackNumber,
 		DiscNumber:      body.Fields.DiscNumber,
 		DiscSubtitle:    body.Fields.DiscSubtitle,
+		Grouping:        body.Fields.Grouping,
 		Compilation:     body.Fields.Compilation,
 		ReleaseTypes:    body.Fields.ReleaseTypes,
 		ArtistMBID:      body.Fields.ArtistMBIDs,

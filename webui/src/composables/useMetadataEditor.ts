@@ -404,6 +404,7 @@ export interface InitialValues {
     track_number: FieldDiff<number>
     disc_number: FieldDiff<number>
     disc_subtitle: FieldDiff<string>
+    grouping: FieldDiff<string>
     compilation: FieldDiff<boolean>
 }
 
@@ -418,6 +419,7 @@ export function diffInitialValues(tracks: Track[]): InitialValues {
             | 'title'
             | 'album'
             | 'disc_subtitle'
+            | 'grouping'
             | 'mb_recording_id'
             | 'mb_release_id'
             | 'mb_release_group_id'
@@ -465,6 +467,7 @@ export function diffInitialValues(tracks: Track[]): InitialValues {
         track_number: num('track_number'),
         disc_number: num('disc_number'),
         disc_subtitle: scalar('disc_subtitle'),
+        grouping: scalar('grouping'),
         compilation: bool('compilation')
     }
 }
@@ -481,6 +484,7 @@ export interface EditValues {
     track_number: number
     disc_number: number
     disc_subtitle: string
+    grouping: string
     compilation: boolean
 }
 

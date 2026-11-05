@@ -173,6 +173,10 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 		if err := s.store.Cleanup(ctx, scanStart); err != nil {
 			return stats, err
 		}
+		// After Cleanup, so albums it removed no longer hold a grouping.
+		if err := s.store.ReconcileGroupings(); err != nil {
+			return stats, fmt.Errorf("reconcile groupings: %w", err)
+		}
 	}
 
 	return stats, nil

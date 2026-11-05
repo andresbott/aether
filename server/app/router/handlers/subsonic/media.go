@@ -151,6 +151,39 @@ func (h *Handler) albumCoverMeta(album *model.Album) coverMeta {
 	return meta
 }
 
+// genreCoverMeta resolves a genre's cover. A manually uploaded cover (see
+// updateGenre) takes precedence; otherwise it falls through to the name-seeded
+// generated cover (same mechanism as artists/radio/playlists).
+func (h *Handler) genreCoverMeta(w http.ResponseWriter, id uint) (coverMeta, bool) {
+	genre, err := h.store.GetGenre(id)
+	if err != nil {
+		writeError(w, 70, "genre not found")
+		return coverMeta{}, false
+	}
+	meta := coverMeta{
+		seed:      genre.Name,
+		title:     genre.Name,
+		cacheKind: assetstore.KindGenre,
+		cacheKey:  assetkey.GenreOf(genre),
+	}
+	if p, ok := h.assets.Get(assetstore.KindGenre, assetkey.GenreOf(genre)); ok {
+		meta.coverPath, meta.coverManaged = p, true
+	}
+	return meta, true
+}
+
+// groupingCoverMeta resolves a grouping's cover. A grouping has no art of its
+// own: it wears the cover of its first album, in the order the grouping lists
+// them.
+func (h *Handler) groupingCoverMeta(w http.ResponseWriter, id uint) (coverMeta, bool) {
+	album, err := h.store.GroupingCoverAlbum(id)
+	if err != nil {
+		writeError(w, 70, "grouping not found")
+		return coverMeta{}, false
+	}
+	return h.albumCoverMeta(album), true
+}
+
 // resolveCoverMeta looks up cover metadata for the given item type and ID.
 // It writes an HTTP error and returns false if the item cannot be found or the
 // type is unsupported.
@@ -220,25 +253,10 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 			}
 		}
 		return meta, true
+	case "grouping":
+		return h.groupingCoverMeta(w, id)
 	case "genre":
-		genre, err := h.store.GetGenre(id)
-		if err != nil {
-			writeError(w, 70, "genre not found")
-			return coverMeta{}, false
-		}
-		// A manually uploaded cover (see updateGenre) takes precedence; otherwise
-		// fall through to the name-seeded generated cover (same mechanism as
-		// artists/radio/playlists).
-		meta := coverMeta{
-			seed:      genre.Name,
-			title:     genre.Name,
-			cacheKind: assetstore.KindGenre,
-			cacheKey:  assetkey.GenreOf(genre),
-		}
-		if p, ok := h.assets.Get(assetstore.KindGenre, assetkey.GenreOf(genre)); ok {
-			meta.coverPath, meta.coverManaged = p, true
-		}
-		return meta, true
+		return h.genreCoverMeta(w, id)
 	default:
 		writeError(w, 0, "unsupported cover art id type")
 		return coverMeta{}, false

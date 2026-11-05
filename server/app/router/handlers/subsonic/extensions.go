@@ -52,6 +52,13 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 				"versions": []int{1},
 			},
 			{
+				// getGroupings / getGrouping, the "grouping" object on albums,
+				// "gr-" cover-art ids and the "groupings" music folder view: the
+				// GROUPING tag as a browsable container for albums.
+				"name":     "albumGroupings",
+				"versions": []int{1},
+			},
+			{
 				"name":     "playlistStar",
 				"versions": []int{1},
 			},

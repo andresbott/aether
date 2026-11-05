@@ -25,7 +25,7 @@ const mkTrack = (over: Partial<Track> = {}): Track => ({
     year: 0,
     track_number: 0,
     disc_number: 0,
-    disc_subtitle: '',
+    disc_subtitle: '', grouping: '',
     compilation: false,
     mb_artist_ids: [],
     mb_album_artist_ids: [],
@@ -64,6 +64,14 @@ describe('diffInitialValues', () => {
         const mixed = diffInitialValues([a, c])
         expect(mixed.disc_number).toEqual({ shared: false, value: 0 })
         expect(mixed.disc_subtitle).toEqual({ shared: false, value: '' })
+    })
+
+    it('prefills grouping when shared, marks it mixed when it differs', () => {
+        const a = mkTrack({ grouping: 'Doctor Who' })
+        const b = mkTrack({ path: 'b.mp3', grouping: 'Doctor Who' })
+        expect(diffInitialValues([a, b]).grouping).toEqual({ shared: true, value: 'Doctor Who' })
+        const c = mkTrack({ path: 'c.mp3', grouping: 'Other' })
+        expect(diffInitialValues([a, c]).grouping).toEqual({ shared: false, value: '' })
     })
 
     it('prefills album MusicBrainz IDs when shared, marks them mixed when they differ', () => {

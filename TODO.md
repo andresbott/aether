@@ -30,7 +30,7 @@ and `todo list --json` cover the common actions — run `todo --help`.
 
 ## Features
 
-- [ ] group BSO collections
+- [x] group BSO collections (groupings, see docs/superpowers/specs/2026-11-05-groupings-design.md)
   usea new metadata field like collection series, to gropup collections tiggether
   in the ui show instead of artist for collections 
 - [ ] better list view

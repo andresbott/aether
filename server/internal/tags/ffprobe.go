@@ -121,6 +121,7 @@ func parseFFProbeJSON(out []byte) (Metadata, error) {
 	m.MBArtistID = allOrSingle(tags, "musicbrainz_artistid", "MUSICBRAINZ_ARTISTID", "MusicBrainz Artist Id")
 	m.MBAlbumArtistID = allOrSingle(tags, "musicbrainz_albumartistid", "MUSICBRAINZ_ALBUMARTISTID", "MusicBrainz Album Artist Id")
 	m.Lyrics = first(tags, "lyrics", "LYRICS")
+	m.Grouping = strings.TrimSpace(first(tags, "grouping", "GROUPING"))
 	m.Compilation = parseBool(first(tags, "compilation", "COMPILATION"))
 	m.ReleaseTypes = allOrSingle(tags, "RELEASETYPE", "releasetype", "MusicBrainz Album Type", "MUSICBRAINZ ALBUM TYPE",
 		"MUSICBRAINZ_ALBUMTYPE", "musicbrainz_albumtype")

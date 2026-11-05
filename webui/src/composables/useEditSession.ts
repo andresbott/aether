@@ -81,6 +81,7 @@ export function applyOverlay(track: Track, overlay: TrackOverlay | undefined): T
     if (overlay.track_number !== undefined) out.track_number = overlay.track_number
     if (overlay.disc_number !== undefined) out.disc_number = overlay.disc_number
     if (overlay.disc_subtitle !== undefined) out.disc_subtitle = overlay.disc_subtitle
+    if (overlay.grouping !== undefined) out.grouping = overlay.grouping
     if (overlay.compilation !== undefined) out.compilation = overlay.compilation
     if (overlay.artists !== undefined) {
         out.artists = overlay.artists.map((c) => c.name)
@@ -152,6 +153,7 @@ export function buildTrackPatch(original: Track, overlay: TrackOverlay): PatchFi
     if (overlay.track_number !== undefined) out.track_number = overlay.track_number
     if (overlay.disc_number !== undefined) out.disc_number = overlay.disc_number
     if (overlay.disc_subtitle !== undefined) out.disc_subtitle = overlay.disc_subtitle
+    if (overlay.grouping !== undefined) out.grouping = overlay.grouping
     if (overlay.compilation !== undefined) out.compilation = overlay.compilation
     if (overlay.artists !== undefined) {
         creditPatch(out, 'artists', overlay.artists, trackCredits(original, 'artists'))

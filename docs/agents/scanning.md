@@ -151,6 +151,19 @@ album identity; `reconcileTrack` sets it from any track carrying the tag (one th
 lacks it never blanks it), so an incremental scan only fills it for files it
 re-reads — a full scan stamps the whole catalog.
 
+**Groupings.** `reconcileTrack` copies the file's `GROUPING` tag (first value,
+trimmed; `tags.Metadata.Grouping`) onto `tracks.grouping`. It does NOT set the
+album's grouping itself: after `Cleanup` (full/incremental scan) and after the
+prune in `RescanPaths`, `store.ReconcileGroupings` derives every album's
+`grouping_id` from its tracks' stored values — the most frequent normalized name
+wins, ties go to the alphabetically first, an album with no tagged track is
+un-grouped — and deletes groupings left with no album. Working from stored
+values (not the scan's changes) is what keeps it correct after an incremental
+scan that skipped unchanged files. TagLib maps the `GROUPING` key per format
+(`GRP1` in ID3v2, `©grp` in MP4, `GROUPING` in Vorbis comments); a `TIT1` in an
+MP3 reads as `WORK`, not grouping, so such files need retagging (the metadata
+editor's Grouping field writes it).
+
 ## Targeted re-index (`internal/scanner/rescan.go`, `app/tasks/reindex.go`)
 
 `Scanner.RescanPaths(ctx, scanFolder, absPaths)` re-indexes an explicit list

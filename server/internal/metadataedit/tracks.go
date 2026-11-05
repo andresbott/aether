@@ -26,6 +26,7 @@ type Track struct {
 	TrackNumber      int
 	DiscNumber       int
 	DiscSubtitle     string
+	Grouping         string
 	Compilation      bool
 	ReleaseTypes     []string
 	MBArtistIDs      []string
@@ -111,6 +112,7 @@ func ListTracks(ctx context.Context, root, absDir string, reader tags.Reader) ([
 		row.Year = meta.Year
 		row.DiscNumber = meta.DiscNumber
 		row.DiscSubtitle = meta.DiscSubtitle
+		row.Grouping = meta.Grouping
 		row.Compilation = meta.Compilation
 		out = append(out, row)
 		return nil

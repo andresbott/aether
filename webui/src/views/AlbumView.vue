@@ -344,6 +344,15 @@ watch(editing, (isEditing) => {
                             {{ album.artist }}
                         </router-link>
                         <p v-else class="artist-name">{{ album.artist }}</p>
+                        <router-link
+                            v-if="album.grouping"
+                            :to="{ name: 'grouping', params: { id: album.grouping.id } }"
+                            class="grouping-link"
+                            data-test="album-grouping-link"
+                        >
+                            <i class="ms-collections-bookmark" aria-hidden="true"></i>
+                            {{ album.grouping.name }}
+                        </router-link>
                         <div class="meta-row">
                             <span v-if="album.year">{{ album.year }}</span>
                             <span v-if="summary" :class="{ dot: !!album.year }">{{ summary }}</span>
@@ -468,6 +477,19 @@ watch(editing, (isEditing) => {
    rather than the app accent (too dark on the band in light mode). */
 .artist-link {
     font-size: 1.25rem;
+    color: #8fecff;
+}
+
+.grouping-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.95rem;
+    color: #cdd7df;
+    text-decoration: none;
+}
+
+.grouping-link:hover {
     color: #8fecff;
 }
 

@@ -172,6 +172,14 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   not a foreign key — see [scanning.md](scanning.md)); `Suffix` is the
   lowercase extension. `Album`/`Artist`/`Genre` link via join tables
   (`AlbumArtist`, `TrackArtist`, `TrackGenre`, `AlbumGenre`).
+- `Grouping` — a named container for albums (franchise, series, box set) read
+  from the `GROUPING` tag: `Name`, `NameNorm` (unique identity). An album belongs
+  to at most one (`albums.grouping_id`, nullable, not part of album identity);
+  `tracks.grouping` keeps each file's raw tag so `store.ReconcileGroupings` can
+  recompute the album's grouping after every scan. Browsed through the
+  `albumGroupings` `/rest` extension and a `groupings` library view (opt-in per
+  library, `Library.Views`, and for the root `CatalogSettings.ShowGroupings`;
+  `model.DefaultLibraryViews()` is what a library created without views gets).
 - `WishlistItem` — a MusicBrainz id (`Kind` artist / album / song, unique
   with `MBID`) plus a snapshot of the search result it was picked from and a
   free-text `Note`. Server-wide, no owner. `MatchID` (+ `MatchAlbumID` for a
