@@ -13,12 +13,15 @@ type catalogDTO struct {
 	// SplitViews lists each root view as its own sidebar entry; false gives the
 	// root a single entry whose page switches views.
 	SplitViews bool `json:"split_views"`
+	// ShowGroupings adds the Groupings view to the root's views.
+	ShowGroupings bool `json:"show_groupings"`
 }
 
 // catalogWriteDTO is the body of an update; an omitted field keeps what is
 // stored.
 type catalogWriteDTO struct {
-	SplitViews *bool `json:"split_views"`
+	SplitViews    *bool `json:"split_views"`
+	ShowGroupings *bool `json:"show_groupings"`
 }
 
 func (h *Handler) getCatalog(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +30,7 @@ func (h *Handler) getCatalog(w http.ResponseWriter, r *http.Request) {
 		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, catalogDTO{SplitViews: cs.SplitViews})
+	writeJSON(w, http.StatusOK, catalogDTO{SplitViews: cs.SplitViews, ShowGroupings: cs.ShowGroupings})
 }
 
 func (h *Handler) updateCatalog(w http.ResponseWriter, r *http.Request) {
@@ -45,9 +48,12 @@ func (h *Handler) updateCatalog(w http.ResponseWriter, r *http.Request) {
 	if in.SplitViews != nil {
 		cs.SplitViews = *in.SplitViews
 	}
-	if err := h.Store.SaveCatalogSettings(model.CatalogSettings{SplitViews: cs.SplitViews}); err != nil {
+	if in.ShowGroupings != nil {
+		cs.ShowGroupings = *in.ShowGroupings
+	}
+	if err := h.Store.SaveCatalogSettings(model.CatalogSettings{SplitViews: cs.SplitViews, ShowGroupings: cs.ShowGroupings}); err != nil {
 		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, catalogDTO{SplitViews: cs.SplitViews})
+	writeJSON(w, http.StatusOK, catalogDTO{SplitViews: cs.SplitViews, ShowGroupings: cs.ShowGroupings})
 }

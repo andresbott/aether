@@ -30,6 +30,8 @@ export interface Track {
     track_number: number
     disc_number: number
     disc_subtitle: string
+    /** The GROUPING tag: the franchise/series the album belongs to ("" when unset). */
+    grouping: string
     compilation: boolean
     mb_artist_ids: string[]
     mb_album_artist_ids: string[]
@@ -57,6 +59,7 @@ export interface PatchFields {
     track_number?: number
     disc_number?: number
     disc_subtitle?: string
+    grouping?: string
     compilation?: boolean
     artist_mbids?: Record<string, string>
     album_artist_mbids?: Record<string, string>
@@ -115,6 +118,7 @@ export interface TrackOverlay {
     track_number?: number
     disc_number?: number
     disc_subtitle?: string
+    grouping?: string
     compilation?: boolean
     artists?: ArtistCredit[]
     album_artists?: ArtistCredit[]

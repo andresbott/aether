@@ -39,7 +39,7 @@ export async function getCatalogSettings(): Promise<CatalogSettings> {
     return data
 }
 
-export async function updateCatalogSettings(input: CatalogSettings): Promise<CatalogSettings> {
+export async function updateCatalogSettings(input: Partial<CatalogSettings>): Promise<CatalogSettings> {
     const { data } = await apiClient.put<CatalogSettings>('/libraries/catalog', input)
     return data
 }

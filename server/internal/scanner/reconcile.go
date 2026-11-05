@@ -246,6 +246,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	if scanStart.After(track.LastSeenAt) {
 		track.LastSeenAt = scanStart
 	}
+	track.Grouping = meta.Grouping
 	track.Title = meta.Title
 	track.TitleNorm = unidecode.Normalize(meta.Title)
 	track.TrackNumber = meta.TrackNumber

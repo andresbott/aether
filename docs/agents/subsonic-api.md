@@ -34,7 +34,7 @@ directly from a handler. Errors use Subsonic numeric codes via `writeError`.
 
 Subsonic IDs are strings; aether encodes the entity type into a prefix
 (`subsonic.go`): `ar-` artist, `al-` album, `tr-` track, `pl-` playlist,
-`rs-` radio station, `ge-` genre — `encode*ID(uint)` / `decodeID(string)`.
+`rs-` radio station, `ge-` genre, `gr-` grouping — `encode*ID(uint)` / `decodeID(string)`.
 Endpoints that accept a generic `id` (e.g. `star`, `getCoverArt`) dispatch on
 the decoded type. **Any new entity exposed over `/rest` needs its own prefix
 here**, and the frontend types (`webui/src/types/subsonic.ts`) consume these
@@ -173,6 +173,28 @@ favorites, not the playing user's.
   appearance, while one they share the credit on is still theirs. The web UI's
   "Appears on" section (`ArtistView`, `splitAppearances`) rests on it:
   `TestGetArtistAlbumsListEveryAlbumArtist`.
+
+## Groupings (`getGroupings` / `getGrouping`, the `albumGroupings` extension)
+
+A grouping is a named container for albums read from the files' `GROUPING` tag —
+a franchise, a series, a box set (the Lord of the Rings scores, Doctor Who
+seasons). Handlers in `subsonic/groupings.go`; model, store and scan rules in
+[architecture.md](architecture.md) and [scanning.md](scanning.md).
+
+- **`getGroupings?musicFolderId=`** answers `groupings.index[].grouping[]` in the
+  letter-index shape of `getArtists` (`id`, `name`, `coverArt`, `albumCount`,
+  `songCount`, `duration`, `year` = earliest album year). **`getGrouping?id=`**
+  answers one with `album[]` oldest first (undated last, then by name). Both honour
+  `musicFolderId`: a grouping seen through a library counts and lists only the
+  albums with a track in it. A bad or non-`gr-` id is error 0, a missing one 70.
+- **`getAlbum` carries `grouping: {id, name}`** when the album has one. Lists do
+  not (the SPA only needs it on the album page).
+- **`getCoverArt` accepts `gr-`**: a grouping has no art of its own and wears its
+  first album's cover (`Store.GroupingCoverAlbum`, `groupingCoverMeta`).
+- **`musicFolderViews`**: `views` may include `groupings`. A library offers it only
+  when its admin ticked it; the root's descriptor adds it only when
+  `CatalogSettings.ShowGroupings` is on (`rootViews`).
+- Advertised as `albumGroupings` v1. Tests: `groupings_test.go`.
 
 ## Album lists (`getAlbumList2` / `getAlbumList2Index`, the `releaseTypeFilter` extension)
 

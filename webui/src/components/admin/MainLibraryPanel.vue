@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import Checkbox from 'primevue/checkbox'
 import SidebarLayoutPicker from '@/components/admin/SidebarLayoutPicker.vue'
 import { useCatalogSettings, useUpdateCatalogSettings } from '@/composables/useLibraries'
 
-// The root library — the whole catalog, browsed without a library — has one
-// setting of its own: how the sidebar lists it. Picking a card saves it.
+// The root library — the whole catalog, browsed without a library — has two
+// settings of its own: how the sidebar lists it, and whether it offers the
+// Groupings view. Either saves straight away.
 const { data: settings, isLoading, isError } = useCatalogSettings()
 const update = useUpdateCatalogSettings()
 
@@ -13,6 +15,14 @@ const splitViews = computed<boolean>({
     set: (split) => {
         if (split === settings.value?.split_views) return
         update.mutate({ split_views: split })
+    }
+})
+
+const showGroupings = computed<boolean>({
+    get: () => settings.value?.show_groupings ?? false,
+    set: (show) => {
+        if (show === (settings.value?.show_groupings ?? false)) return
+        update.mutate({ show_groupings: show })
     }
 })
 </script>
@@ -41,6 +51,20 @@ const splitViews = computed<boolean>({
             ariaLabelledby="main-library-heading"
             :class="{ saving: update.isPending.value }"
         />
+        <div v-if="!isLoading && !isError" class="check-option" :class="{ saving: update.isPending.value }">
+            <Checkbox
+                v-model="showGroupings"
+                binary
+                inputId="main-library-groupings"
+                data-test="main-library-groupings"
+            />
+            <label for="main-library-groupings">
+                Show Collections view
+                <span class="check-hint">
+                    Albums grouped by their Grouping tag, like a franchise or a series.
+                </span>
+            </label>
+        </div>
     </section>
 </template>
 
@@ -74,6 +98,17 @@ const splitViews = computed<boolean>({
     text-align: center;
     padding: 2rem;
     color: var(--app-danger);
+}
+.check-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin-top: 1.25rem;
+}
+.check-hint {
+    display: block;
+    color: var(--app-text-secondary);
+    font-size: 0.85rem;
 }
 .saving {
     opacity: 0.6;

@@ -64,6 +64,45 @@ describe('subsonicClient.getArtistIndex', () => {
     })
 })
 
+describe('subsonicClient groupings', () => {
+    beforeEach(() => subsonicClient.initWithDefaults())
+    afterEach(() => vi.unstubAllGlobals())
+
+    it('getGroupingIndex flattens the letter groups like the artist index', async () => {
+        const fetchMock = mockFetchOnce({
+            groupings: {
+                index: [
+                    { name: 'D', grouping: [{ id: 'gr-1', name: 'Doctor Who' }] },
+                    { name: 'L', grouping: [{ id: 'gr-2', name: 'Lord of the Rings' }, { id: 'gr-3', name: 'Lost' }] },
+                    { name: 'X', grouping: [] }
+                ]
+            }
+        })
+        const res = await subsonicClient.getGroupingIndex(7)
+        expect(res.total).toBe(3)
+        expect(res.letters).toEqual([
+            { name: 'D', offset: 0, count: 1 },
+            { name: 'L', offset: 1, count: 2 }
+        ])
+        expect(res.items.map((g) => g.id)).toEqual(['gr-1', 'gr-2', 'gr-3'])
+        const url = fetchMock.mock.calls[0][0] as string
+        expect(url).toContain('/rest/getGroupings.view')
+        expect(url).toContain('musicFolderId=7')
+    })
+
+    it('getGrouping unwraps the grouping with its albums', async () => {
+        const fetchMock = mockFetchOnce({
+            grouping: { id: 'gr-1', name: 'Doctor Who', album: [{ id: 'al-1', name: 'Season 1' }] }
+        })
+        const res = await subsonicClient.getGrouping('gr-1')
+        expect(res?.album?.map((a) => a.id)).toEqual(['al-1'])
+        const url = fetchMock.mock.calls[0][0] as string
+        expect(url).toContain('/rest/getGrouping.view')
+        expect(url).toContain('id=gr-1')
+        expect(url).not.toContain('musicFolderId')
+    })
+})
+
 describe('subsonicClient genres', () => {
     beforeEach(() => subsonicClient.initWithDefaults())
     afterEach(() => vi.unstubAllGlobals())

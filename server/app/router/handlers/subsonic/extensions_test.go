@@ -60,6 +60,7 @@ func TestGetOpenSubsonicExtensions(t *testing.T) {
 		// v2 adds getReleaseTypes; v1's releaseType parameter is unchanged.
 		"releaseTypeFilter": {1, 2},
 		"generatedCovers":   {1},
+		"albumGroupings":    {1},
 	}
 	if len(exts) != len(expected) {
 		t.Fatalf("expected %d extensions, got %d: %+v", len(expected), len(exts), exts)

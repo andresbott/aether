@@ -42,11 +42,21 @@ const (
 	ViewArtists LibraryView = "artists"
 	// ViewAlbums lists its albums, filterable by release type.
 	ViewAlbums LibraryView = "albums"
+	// ViewGroupings is the index of the groupings (the GROUPING tag) its albums
+	// belong to — franchises, series, box sets.
+	ViewGroupings LibraryView = "groupings"
 )
 
 // LibraryViews returns every view, in the order a library stores and shows
 // them.
 func LibraryViews() []LibraryView {
+	return []LibraryView{ViewDiscover, ViewArtists, ViewGroupings, ViewAlbums}
+}
+
+// DefaultLibraryViews is what a library created without naming its views
+// offers: every view but Groupings, which is opt-in so a library of ordinary
+// albums never grows an empty tab.
+func DefaultLibraryViews() []LibraryView {
 	return []LibraryView{ViewDiscover, ViewArtists, ViewAlbums}
 }
 
@@ -88,6 +98,9 @@ type CatalogSettings struct {
 	// switches views. No gorm default: it would turn a saved false back into
 	// true on insert.
 	SplitViews bool `gorm:"not null"`
+	// ShowGroupings adds the Groupings view to the root's views; off by
+	// default, like a library's.
+	ShowGroupings bool `gorm:"not null"`
 }
 
 // DefaultCatalogSettings is what an install that never saved any gets: every

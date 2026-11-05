@@ -11,7 +11,7 @@ import LibraryFilterBuilder from '@/components/admin/LibraryFilterBuilder.vue'
 import SidebarLayoutPicker from '@/components/admin/SidebarLayoutPicker.vue'
 import { apiFieldErrorMap } from '@/lib/apiError'
 import { DEFAULT_LIBRARY_ICON } from '@/lib/libraryIcons'
-import { ALL_LIBRARY_VIEWS, LIBRARY_VIEWS, inDisplayOrder, openingView } from '@/lib/libraryViews'
+import { DEFAULT_LIBRARY_VIEWS, LIBRARY_VIEWS, inDisplayOrder, openingView } from '@/lib/libraryViews'
 import type { Library, LibraryFilter, LibraryInput, LibraryView } from '@/types/libraries'
 
 const props = defineProps<{
@@ -39,12 +39,12 @@ interface FormState {
     filters: LibraryFilter[]
 }
 
-// A new library browses like the whole catalog: every view, opening on
-// Discover — the server's defaults too.
+// A new library browses like the whole catalog: every view but the opt-in
+// Groupings, opening on Discover — the server's defaults too.
 function emptyForm(): FormState {
     return {
         name: '',
-        views: [...ALL_LIBRARY_VIEWS],
+        views: [...DEFAULT_LIBRARY_VIEWS],
         default_view: 'discover',
         hide_from_artist_index: false,
         split_views: false,

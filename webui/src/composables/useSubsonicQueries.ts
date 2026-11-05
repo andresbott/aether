@@ -42,6 +42,10 @@ export const queryKeys = {
         ['subsonic', 'releaseTypes', musicFolderId] as const,
     album: (id: string) => ['subsonic', 'album', id] as const,
     artist: (id: string) => ['subsonic', 'artist', id] as const,
+    groupingIndex: (musicFolderId?: number) =>
+        ['subsonic', 'groupingIndex', musicFolderId] as const,
+    grouping: (id: string, musicFolderId?: number) =>
+        ['subsonic', 'grouping', id, musicFolderId] as const,
     // The requested per-type counts are part of the key, not just the term: a
     // scoped search asks for a SUBSET (zeroed counts), so keying on the term
     // alone would let a "songs only" response satisfy a later "everything"
@@ -118,6 +122,17 @@ export function useAlbum(
         staleTime: 5 * 60 * 1000,
         enabled: computed(() => albumId.value.length > 0),
         ...options
+    })
+}
+
+export function useGrouping(
+    id: MaybeRefOrGetter<string>,
+    musicFolderId?: MaybeRefOrGetter<number | undefined>
+) {
+    return useQuery({
+        queryKey: computed(() => queryKeys.grouping(toValue(id), toValue(musicFolderId))),
+        queryFn: () => subsonicClient.getGrouping(toValue(id), toValue(musicFolderId)),
+        staleTime: 5 * 60 * 1000
     })
 }
 

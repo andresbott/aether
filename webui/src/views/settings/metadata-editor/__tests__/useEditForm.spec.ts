@@ -18,7 +18,7 @@ vi.mock('@/composables/useMetadataEditor', async (orig) => ({
 
 const mkTrack = (over: Partial<Track> = {}): Track => ({
     path: 'a.mp3', name: 'a.mp3', title: 'Orig', artists: ['X'], album_artists: [],
-    album: '', genres: [], release_types: [], year: 0, track_number: 0, disc_number: 0, disc_subtitle: '',
+    album: '', genres: [], release_types: [], year: 0, track_number: 0, disc_number: 0, disc_subtitle: '', grouping: '',
     compilation: false, mb_artist_ids: [''], mb_album_artist_ids: [], mb_recording_id: '',
     mb_release_id: '', mb_release_group_id: '', ...over
 })

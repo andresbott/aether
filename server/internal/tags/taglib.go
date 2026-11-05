@@ -59,6 +59,7 @@ func (TaglibReader) Read(ctx context.Context, absPath string) (Metadata, error) 
 	m.MBArtistID = allOrSingle(raw, "musicbrainz_artistid", "MUSICBRAINZ_ARTISTID", "MusicBrainz Artist Id")
 	m.MBAlbumArtistID = allOrSingle(raw, "musicbrainz_albumartistid", "MUSICBRAINZ_ALBUMARTISTID", "MusicBrainz Album Artist Id")
 	m.Lyrics = first(raw, "lyrics", "LYRICS", "USLT")
+	m.Grouping = strings.TrimSpace(first(raw, "grouping", "GROUPING"))
 	m.Compilation = parseBool(first(raw, "compilation", "COMPILATION", "TCMP"))
 	m.ReleaseTypes = allOrSingle(raw, "RELEASETYPE", "releasetype", "MUSICBRAINZ_ALBUMTYPE", "musicbrainz_albumtype")
 	m.ReplayGain = ReplayGain{

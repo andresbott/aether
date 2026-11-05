@@ -88,6 +88,15 @@ vi.mock('@/composables/useArtistTable', () => ({
 }))
 const starredAlbumTotal = ref(4)
 const starredArtistTotal = ref(2)
+vi.mock('@/composables/useGroupingTable', () => ({
+    useGroupingTable: () => ({
+        total: ref(12),
+        letters: ref([]),
+        items: ref([]),
+        isLoading: ref(false),
+        error: ref(null)
+    })
+}))
 vi.mock('@/composables/useStarred', () => ({
     useStarredAlbums: () => ({
         total: computed(() => starredAlbumTotal.value),
@@ -125,6 +134,16 @@ const ArtistGridStub = {
     props: ['folderId', 'favoritesOnly'],
     template: '<div class="artist-grid-stub" />'
 }
+const GroupingListStub = {
+    name: 'GroupingListView',
+    props: ['folderId'],
+    template: '<div class="grouping-list-stub" />'
+}
+const GroupingGridStub = {
+    name: 'GroupingGrid',
+    props: ['folderId'],
+    template: '<div class="grouping-grid-stub" />'
+}
 const DiscoveryFeedStub = {
     name: 'DiscoveryFeed',
     props: ['layout', 'folderId'],
@@ -144,6 +163,8 @@ const mountView = () =>
                 AlbumGrid: AlbumGridStub,
                 ArtistListView: ArtistListStub,
                 ArtistGrid: ArtistGridStub,
+                GroupingListView: GroupingListStub,
+                GroupingGrid: GroupingGridStub,
                 DiscoveryFeed: DiscoveryFeedStub,
             }
         }
@@ -239,6 +260,27 @@ describe('LibraryView', () => {
         const w = mountView()
         expect(w.findComponent(ArtistListStub).exists()).toBe(true)
         expect(w.findComponent(ArtistListStub).props('folderId')).toBe(1)
+    })
+
+    it('groupings → GroupingGrid (or the list) with the grouping summary and no favorites filter', () => {
+        route.params = { folderId: '1', mode: 'groupings' }
+        foldersRef.value = [{ ...mainLibrary(), views: ['artists', 'groupings', 'albums'] }]
+        const w = mountView()
+        expect(w.findComponent(GroupingGridStub).exists()).toBe(true)
+        expect(w.findComponent(GroupingGridStub).props('folderId')).toBe(1)
+        expect(w.text()).toContain('12 collections')
+        // Groupings cannot be starred, so the heart toggle is not offered.
+        expect(w.find('.library-favorites-filter').exists()).toBe(false)
+
+        useUiStore().setLibraryViewMode('groupings', 'list')
+        expect(mountView().findComponent(GroupingListStub).exists()).toBe(true)
+    })
+
+    it('does not show Groupings in a library that does not offer it', () => {
+        route.params = { folderId: '1', mode: 'groupings' }
+        mountView()
+        // The default library offers Artists and Albums only: the path is rewritten.
+        expect(replace).toHaveBeenCalledWith(expect.objectContaining({ name: 'library-folder' }))
     })
 
     it('shows the layout toggle on every tab', () => {
@@ -439,6 +481,19 @@ describe('LibraryView view switcher', () => {
         route.params = { mode: 'artists' }
         catalogRef.value = { splitViews: false }
         expect(viewSwitch(mountView())).toEqual({ views: ['discover', 'artists', 'albums'], selected: 'artists' })
+    })
+
+    // Groupings is opt-in at the root: only the descriptor's views are offered.
+    it('offers Groupings at the root only when the catalog descriptor does', () => {
+        route.params = { mode: 'groupings' }
+        catalogRef.value = { splitViews: false }
+        // Not offered: the path falls back to the landing view.
+        expect(viewSwitch(mountView())?.views).toEqual(['discover', 'artists', 'albums'])
+        catalogRef.value = { splitViews: false, views: ['discover', 'artists', 'groupings', 'albums'] }
+        expect(viewSwitch(mountView())).toEqual({
+            views: ['discover', 'artists', 'groupings', 'albums'],
+            selected: 'groupings'
+        })
     })
 
     // A split library has a sidebar entry per view, so it needs no switcher —

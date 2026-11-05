@@ -6,7 +6,7 @@ import type { AlbumMatchPayload, ArtistMatchPayload } from '@/types/artists'
 import { mergeReleaseTypes, splitReleaseTypes } from '@/lib/releaseTypes'
 
 export type TextKey =
-    | 'title' | 'album' | 'mb_recording_id' | 'mb_release_id' | 'mb_release_group_id' | 'disc_subtitle'
+    | 'title' | 'album' | 'mb_recording_id' | 'mb_release_id' | 'mb_release_group_id' | 'disc_subtitle' | 'grouping'
 export type NumKey = 'year' | 'track_number' | 'disc_number'
 type PlaceholderKey = TextKey | NumKey
 

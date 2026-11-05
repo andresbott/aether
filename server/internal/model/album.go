@@ -17,10 +17,16 @@ type Album struct {
 	ReleaseTypes     []string `gorm:"serializer:json"`
 	CoverPath        string
 	HasEmbeddedCover bool
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	// GroupingID is the album's grouping (the GROUPING tag), or nil. Not part of
+	// the album's identity: it is recomputed from the tracks after every scan
+	// (store.ReconcileGroupings), so re-tagging moves the album instead of
+	// creating a second one.
+	GroupingID *uint `gorm:"index"`
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 
-	Artists []*Artist `gorm:"many2many:album_artists"`
-	Genres  []*Genre  `gorm:"many2many:album_genres"`
-	Tracks  []*Track
+	Grouping *Grouping
+	Artists  []*Artist `gorm:"many2many:album_artists"`
+	Genres   []*Genre  `gorm:"many2many:album_genres"`
+	Tracks   []*Track
 }

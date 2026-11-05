@@ -147,6 +147,28 @@ describe('LibraryDialog create mode', () => {
 })
 
 describe('LibraryDialog views', () => {
+    it('offers a Collections checkbox that starts unticked on a new library', async () => {
+        const w = mountDialog(null)
+        await flushPromises()
+
+        const box = w.find<HTMLInputElement>('#library-view-groupings')
+        expect(box.exists()).toBe(true)
+        expect(box.element.checked).toBe(false)
+
+        await toggleView(w, 'groupings')
+        const input = await submitted(w, 'Create')
+        expect(input.views).toEqual(['discover', 'artists', 'groupings', 'albums'])
+    })
+
+    it('can open on Collections once it is ticked', async () => {
+        const w = mountDialog({ ...baseLibrary, views: ['groupings', 'albums'], default_view: 'groupings' })
+        await flushPromises()
+
+        const input = await submitted(w, 'Save')
+        expect(input.views).toEqual(['groupings', 'albums'])
+        expect(input.default_view).toBe('groupings')
+    })
+
     it('opens on the first view left when the one it opened on is unticked', async () => {
         const w = mountDialog(null)
         await flushPromises()

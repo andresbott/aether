@@ -158,3 +158,19 @@ func TestFFProbeReader_ReadMissingFile(t *testing.T) {
 		t.Fatal("expected error on missing file")
 	}
 }
+
+// GROUPING is read from the key TagLib maps per format (GRP1 on MP3, ©grp on
+// MP4, GROUPING on Vorbis); only the first value counts and it is trimmed.
+func TestTaglibReader_Grouping(t *testing.T) {
+	dst := writeTaggedFLAC(t)
+	if err := taglib.WriteTags(dst, map[string][]string{"GROUPING": {"  Doctor Who ", "Second"}}, 0); err != nil {
+		t.Fatalf("WriteTags: %v", err)
+	}
+	m, err := tags.TaglibReader{}.Read(context.Background(), dst)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if m.Grouping != "Doctor Who" {
+		t.Errorf("Grouping = %q, want %q", m.Grouping, "Doctor Who")
+	}
+}

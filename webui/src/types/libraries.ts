@@ -1,5 +1,5 @@
 /** One way of browsing a library; labels, icons and display order live in lib/libraryViews.ts. */
-export type LibraryView = 'discover' | 'artists' | 'albums'
+export type LibraryView = 'discover' | 'artists' | 'albums' | 'groupings'
 export type LibraryFilterField = 'scan_folder' | 'path' | 'format' | 'release_type' | 'compilation' | 'genre'
 
 /** One condition of a library. A library's filters are AND-ed; the values of one filter are OR-ed. */
@@ -48,6 +48,8 @@ export interface LibraryInput {
 export interface CatalogSettings {
     /** Each root view its own sidebar entry, instead of one entry whose page switches them. */
     split_views: boolean
+    /** The root also offers the Groupings view (the GROUPING tag); off by default. */
+    show_groupings: boolean
 }
 
 export interface LibraryPreview {

@@ -72,7 +72,7 @@ const mkTrack = (over: Partial<Track> = {}): Track => ({
     year: 0,
     track_number: 0,
     disc_number: 0,
-    disc_subtitle: '',
+    disc_subtitle: '', grouping: '',
     compilation: false,
     mb_artist_ids: [],
     mb_album_artist_ids: [],
@@ -124,6 +124,13 @@ describe('applyOverlay', () => {
         expect(out.title).toBe('')
         expect(out.year).toBe(0)
         expect(out.compilation).toBe(false)
+    })
+
+    it('overlays grouping, including a staged clear', () => {
+        const t = mkTrack({ grouping: 'Old' })
+        expect(applyOverlay(t, { grouping: 'New' }).grouping).toBe('New')
+        expect(applyOverlay(t, { grouping: '' }).grouping).toBe('')
+        expect(applyOverlay(t, { title: 'x' }).grouping).toBe('Old')
     })
 
     it('overrides genres and track number', () => {
@@ -182,6 +189,11 @@ describe('buildTrackPatch', () => {
             year: 2001
         })
         expect(patch).toEqual({ title: 'T', mb_recording_id: 'rec', year: 2001 })
+    })
+
+    it('sends grouping, including an empty one that clears the tag', () => {
+        expect(buildTrackPatch(mkTrack(), { grouping: 'Saga' })).toEqual({ grouping: 'Saga' })
+        expect(buildTrackPatch(mkTrack({ grouping: 'Saga' }), { grouping: '' })).toEqual({ grouping: '' })
     })
 
     it('sends names plus complete mbid map when names changed', () => {
@@ -1138,7 +1150,7 @@ describe('albumPickToOverlay', () => {
         expect(overlay.title).toBe('Song')
     })
 
-    it('never stages compilation or disc_subtitle', () => {
+    it('never stages compilation, disc_subtitle or grouping', () => {
         // Identification says nothing reliable about either. Genres are NOT in
         // this list: they come from a release-group lookup the dialog performs.
         const pick = mkPick({
@@ -1157,6 +1169,7 @@ describe('albumPickToOverlay', () => {
         const overlay = albumPickToOverlay(pick, pick.genres)
         expect(overlay.compilation).toBeUndefined()
         expect(overlay.disc_subtitle).toBeUndefined()
+        expect(overlay.grouping).toBeUndefined()
         expect(overlay.genres).toEqual(['Grunge'])
     })
 })

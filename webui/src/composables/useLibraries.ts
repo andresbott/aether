@@ -133,7 +133,8 @@ export function useUpdateCatalogSettings() {
     const qc = useQueryClient()
     const toast = useToast()
     return useMutation({
-        mutationFn: (input: CatalogSettings) => LibrariesApi.updateCatalogSettings(input),
+        // A partial body: the API keeps every field the request omits.
+        mutationFn: (input: Partial<CatalogSettings>) => LibrariesApi.updateCatalogSettings(input),
         onSuccess: (settings) => {
             qc.setQueryData(libraryQueryKeys.catalog, settings)
             // The sidebar reads the setting from the Subsonic music folders.

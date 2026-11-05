@@ -37,8 +37,11 @@ type Track struct {
 	// audiohash does not cover and for rows indexed before it existed; the
 	// re-link falls back to its other signals then. Indexed because the
 	// re-link looks rows up by it once per scan batch.
-	AudioHash           string `gorm:"index"`
-	Lyrics              string
+	AudioHash string `gorm:"index"`
+	Lyrics    string
+	// Grouping is the raw GROUPING tag of this file ("" when absent). The
+	// album's grouping is derived from its tracks' values after each scan.
+	Grouping            string
 	ReplayGainTrackGain *float64
 	ReplayGainTrackPeak *float64
 	ReplayGainAlbumGain *float64

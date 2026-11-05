@@ -28,6 +28,22 @@ func TestBuildTagMap_AppliesOnlyProvidedFields(t *testing.T) {
 	}
 }
 
+func TestBuildTagMap_Grouping(t *testing.T) {
+	got, err := metadataedit.BuildTagMap(metadataedit.Patch{Grouping: strPtr("Doctor Who")}, metadataedit.CurrentTags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string][]string{"GROUPING": {"Doctor Who"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	if (metadataedit.Patch{Grouping: strPtr("")}).Empty() {
+		t.Fatal("a grouping patch (even clearing it) is not empty")
+	}
+	if !metadataedit.IsManagedTag("grouping") {
+		t.Fatal("grouping is owned by the structured editor, not the raw one")
+	}
+}
+
 func TestBuildTagMap_MultiValue_WritesArray(t *testing.T) {
 	patch := metadataedit.Patch{Artists: &[]string{"A", "B"}}
 	got, _ := metadataedit.BuildTagMap(patch, metadataedit.CurrentTags{})

@@ -105,6 +105,9 @@ func (s *Scanner) RescanPaths(ctx context.Context, scanFolder string, absPaths [
 	if err := s.store.PruneOrphanedAggregates(ctx, touched); err != nil {
 		return stats, fmt.Errorf("rescan: prune orphans: %w", err)
 	}
+	if err := s.store.ReconcileGroupings(); err != nil {
+		return stats, fmt.Errorf("rescan: reconcile groupings: %w", err)
+	}
 	return stats, nil
 }
 

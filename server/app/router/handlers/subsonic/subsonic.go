@@ -188,6 +188,10 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *i
 	register("getSong", h.getSong)
 	register("getGenres", h.getGenres)
 
+	// Groupings (albumGroupings extension)
+	register("getGroupings", h.getGroupings)
+	register("getGrouping", h.getGrouping)
+
 	// Artists (cover-art extension; no standard updateArtist endpoint exists)
 	register("updateArtist", h.updateArtist)
 
@@ -252,6 +256,7 @@ func encodeTrackID(id uint) string    { return fmt.Sprintf("tr-%d", id) }
 func encodePlaylistID(id uint) string { return fmt.Sprintf("pl-%d", id) }
 func encodeRadioID(id uint) string    { return fmt.Sprintf("rs-%d", id) }
 func encodeGenreID(id uint) string    { return fmt.Sprintf("ge-%d", id) }
+func encodeGroupingID(id uint) string { return fmt.Sprintf("gr-%d", id) }
 
 func decodeID(s string) (string, uint, error) {
 	parts := strings.SplitN(s, "-", 2)
@@ -276,6 +281,8 @@ func decodeID(s string) (string, uint, error) {
 		itemType = "radio"
 	case "ge":
 		itemType = "genre"
+	case "gr":
+		itemType = "grouping"
 	default:
 		return "", 0, fmt.Errorf("unknown id prefix: %s", parts[0])
 	}

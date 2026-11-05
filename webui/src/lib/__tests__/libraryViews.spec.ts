@@ -1,9 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { ALL_LIBRARY_VIEWS, inDisplayOrder, openingView } from '@/lib/libraryViews'
+import { ALL_LIBRARY_VIEWS, DEFAULT_LIBRARY_VIEWS, inDisplayOrder, openingView } from '@/lib/libraryViews'
 
 describe('library views', () => {
     it('lists every view in the sidebar order', () => {
-        expect(ALL_LIBRARY_VIEWS).toEqual(['discover', 'artists', 'albums'])
+        expect(ALL_LIBRARY_VIEWS).toEqual(['discover', 'artists', 'groupings', 'albums'])
+    })
+
+    it('leaves the opt-in Groupings out of a new library', () => {
+        expect(DEFAULT_LIBRARY_VIEWS).toEqual(['discover', 'artists', 'albums'])
+        expect(inDisplayOrder(['groupings', 'discover'])).toEqual(['discover', 'groupings'])
     })
 
     it('puts any set of views in display order, each once', () => {

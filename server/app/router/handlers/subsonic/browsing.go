@@ -49,13 +49,25 @@ func (h *Handler) getMusicFolders(w http.ResponseWriter, r *http.Request) {
 			// described the way each folder is (musicFolderViews v2). Its views
 			// are fixed: every one, opening on Discover.
 			"catalog": map[string]any{
-				"views":       model.LibraryViews(),
+				"views":       rootViews(cs),
 				"defaultView": model.ViewDiscover,
 				"splitViews":  cs.SplitViews,
 			},
 			"musicFolder": folders,
 		},
 	})
+}
+
+// rootViews is what the whole catalog offers: the three base views, plus
+// Groupings when the admin turned it on for the root.
+func rootViews(cs model.CatalogSettings) []model.LibraryView {
+	views := make([]model.LibraryView, 0, 4)
+	for _, v := range model.LibraryViews() {
+		if v != model.ViewGroupings || cs.ShowGroupings {
+			views = append(views, v)
+		}
+	}
+	return views
 }
 
 func (h *Handler) getArtists(w http.ResponseWriter, r *http.Request) {
@@ -150,6 +162,25 @@ func (h *Handler) getArtist(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// groupingRef is the compact reference to a grouping carried on an album.
+func groupingRef(g model.Grouping) map[string]any {
+	return map[string]any{"id": encodeGroupingID(g.ID), "name": g.Name}
+}
+
+// applyGroupings writes the albumGroupings extension's "grouping" object onto
+// each album map from one batched lookup. albums and maps are parallel.
+func (h *Handler) applyGroupings(ids []uint, maps []map[string]any) {
+	groupings, err := h.store.AlbumGroupings(ids)
+	if err != nil {
+		return
+	}
+	for i, id := range ids {
+		if g, ok := groupings[id]; ok {
+			maps[i]["grouping"] = groupingRef(g)
+		}
+	}
+}
+
 func (h *Handler) getAlbum(w http.ResponseWriter, r *http.Request) {
 	idStr := paramStr(r, "id")
 	if idStr == "" {
@@ -173,6 +204,7 @@ func (h *Handler) getAlbum(w http.ResponseWriter, r *http.Request) {
 		songs = append(songs, stars.applyTrack(trackToChild(t, album), t.ID))
 	}
 	result := stars.applyAlbum(albumToMap(album), album.ID)
+	h.applyGroupings([]uint{album.ID}, []map[string]any{result})
 	result["song"] = songs
 	writeResponse(w, map[string]any{
 		"album": result,

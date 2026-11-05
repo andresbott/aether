@@ -165,7 +165,7 @@ const mkTrack = (over: Partial<Track> = {}): Track => ({
     year: 0,
     track_number: 0,
     disc_number: 0,
-    disc_subtitle: '',
+    disc_subtitle: '', grouping: '',
     compilation: false,
     mb_artist_ids: [''],
     mb_album_artist_ids: [],
@@ -510,6 +510,36 @@ describe('EditPanel artist pairs', () => {
             expect(payload.mb_release_id).toBe('')
             expect(payload.mb_release_group_id).toBe('')
             expect('album' in payload).toBe(false)
+        })
+    })
+
+    describe('grouping field', () => {
+        it('renders the grouping input with the track value', () => {
+            const { wrapper } = mountPanel([mkTrack({ grouping: 'Doctor Who' })])
+            expect(wrapper.text()).toContain('Grouping')
+            expect(
+                (wrapper.find('input.field-grouping').element as HTMLInputElement).value
+            ).toBe('Doctor Who')
+        })
+
+        it('stages grouping only when edited, and can clear it', async () => {
+            const track = mkTrack({ grouping: 'Old' })
+            const { wrapper, session } = mountPanel([track])
+            await wrapper.find('input.field-disc-subtitle').setValue('CD 1')
+            expect('grouping' in stagedPatch(session, track)).toBe(false)
+            await wrapper.find('input.field-grouping').setValue('')
+            expect(stagedPatch(session, track).grouping).toBe('')
+        })
+
+        it('mass-edits grouping across a multi-track selection', async () => {
+            const a = mkTrack({ path: 'a.mp3', grouping: 'X' })
+            const b = mkTrack({ path: 'b.mp3', grouping: 'Y' })
+            const { wrapper, session } = mountPanel([a, b])
+            const input = wrapper.find('input.field-grouping')
+            expect((input.element as HTMLInputElement).value).toBe('')
+            await input.setValue('Saga')
+            expect(stagedPatch(session, a).grouping).toBe('Saga')
+            expect(stagedPatch(session, b).grouping).toBe('Saga')
         })
     })
 

@@ -20,8 +20,8 @@ func TestLibraryColumnDefaults(t *testing.T) {
 	if err := db.First(&got, lib.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(got.Views, model.LibraryViews()) {
-		t.Fatalf("expected views %v, got %v", model.LibraryViews(), got.Views)
+	if !slices.Equal(got.Views, model.DefaultLibraryViews()) {
+		t.Fatalf("expected views %v, got %v", model.DefaultLibraryViews(), got.Views)
 	}
 	if got.DefaultView != model.ViewDiscover {
 		t.Fatalf("expected default_view %q, got %q", model.ViewDiscover, got.DefaultView)
