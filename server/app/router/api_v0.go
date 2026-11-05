@@ -17,6 +17,7 @@ import (
 	taskHandler "github.com/andresbott/aether/app/router/handlers/tasks"
 	tokensHandler "github.com/andresbott/aether/app/router/handlers/tokens"
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
+	wishlistHandler "github.com/andresbott/aether/app/router/handlers/wishlist"
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/coverart"
@@ -282,11 +283,15 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 			ih.Routes(r)
 		}
 
+		// One MusicBrainz client for the artist pickers and the wishlist, so
+		// the two share its one-request-per-second throttle.
+		musicBrainz := artistimage.NewMusicBrainzSearch(userAgent)
+
 		ah := &artistsHandler.Handler{
 			Store:    h.store,
 			Assets:   h.assets,
 			Fetcher:  h.artistFetcher,
-			Search:   artistimage.NewMusicBrainzSearch(userAgent),
+			Search:   musicBrainz,
 			Problems: h.problems,
 		}
 		// Guard the assignment: a nil *artist.ImageService assigned to the
@@ -296,6 +301,8 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 			ah.Images = h.artistImages
 		}
 		ah.Routes(r)
+
+		(&wishlistHandler.Handler{Store: h.store, Search: musicBrainz, Problems: h.problems}).Routes(r)
 	}
 
 	r.PathPrefix("").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

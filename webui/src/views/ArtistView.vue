@@ -364,6 +364,17 @@ const onQueue = async (): Promise<void> => {
         </div>
 
         <ContentScaffold v-else-if="artist" title="" show-back @back="router.back()">
+            <template v-if="isAdmin" #actions>
+                <EditActionBar
+                    v-model:editing="editing"
+                    :can-delete="false"
+                    :save-disabled="!dirty"
+                    :saving="updateCover.isPending.value || setImageFromSearch.isPending.value"
+                    :dirty="dirty"
+                    @save="saveEdit"
+                    @cancel="cancelEdit"
+                />
+            </template>
             <div class="artist-scroll">
                 <HeroHeader
                     class="detail-hero"
@@ -378,18 +389,6 @@ const onQueue = async (): Promise<void> => {
                     @cover-select="onCoverSelect"
                     @cover-remove="onRemoveCover"
                 >
-                    <template v-if="isAdmin" #edit-actions>
-                        <EditActionBar
-                            v-model:editing="editing"
-                            :can-delete="false"
-                            :save-disabled="!dirty"
-                            :saving="updateCover.isPending.value || setImageFromSearch.isPending.value"
-                            :dirty="dirty"
-                            @save="saveEdit"
-                            @cancel="cancelEdit"
-                        />
-                    </template>
-
                     <template #cover-actions>
                         <Button
                             v-if="managementApi"

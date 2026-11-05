@@ -212,6 +212,16 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
     color: var(--app-accent);
 }
 
+/* A destructive action (EditActionBar's Delete) keeps its danger ink in the
+   squared chip — in the accent it would read as one more harmless control. */
+.scaffold-actions > :deep(.p-button-icon-only.p-button-danger),
+.scaffold-actions > :deep(.p-button-icon-only.p-button-danger:hover) {
+    color: var(--app-danger);
+}
+.scaffold-actions > :deep(.p-button-icon-only.p-button-danger:hover) {
+    background: color-mix(in srgb, var(--app-danger) 12%, var(--app-surface-2));
+}
+
 .scaffold-overflow-panel {
     display: flex;
     flex-direction: column;

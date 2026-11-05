@@ -108,7 +108,9 @@ $bp-desktop-min: 1024px;
     --app-surface: #141b24;
     --app-surface-2: #1a222e;
     --app-bg-subtle: #1c2632;
-    --app-border: #232d3a;
+    /* A step above --app-bg-subtle, so a panel's or a table's edge still shows
+       on the canvas (it was all but invisible: ~1.2:1 on the surfaces). */
+    --app-border: #2c3747;
     /* Dark counterpart: a dark veil, not a white one — a white scrim over a cover
        in dark mode would glare and invert the panel's contrast. */
     --app-cover-scrim: rgba(20, 27, 36, 0.8);
@@ -119,7 +121,10 @@ $bp-desktop-min: 1024px;
         var(--app-text-primary)
     );
     --app-text-primary: #d7dee6;
-    --app-text-secondary: #7b8794;
+    /* AA (4.5:1) on every dark ground up to --app-bg-subtle and the hover
+       tints — the old #7b8794 fell to ~4.2:1 on cards and filled chips.
+       themeContrast.spec.ts guards it. */
+    --app-text-secondary: #8b97a4;
     --app-accent: #2fd3ef;
     --app-accent-hover: #57e0f7;
     --app-accent-soft: rgba(47, 211, 239, 0.16);
@@ -130,10 +135,10 @@ $bp-desktop-min: 1024px;
     --app-hover: rgba(47, 211, 239, 0.09);
     --app-nav-bg: #0a0e13;
     --app-nav-text: #d7dee6;
-    --app-nav-text-dim: #6a7681;
+    --app-nav-text-dim: #7f8b98;
     --app-player-bg: #080b10;
     --app-player-text: #d7dee6;
-    --app-player-dim: #6a7681;
+    --app-player-dim: #7f8b98;
     --app-player-track: rgba(255, 255, 255, 0.14);
     --app-player-range: #7b8794;
 }

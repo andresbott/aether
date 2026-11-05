@@ -26,7 +26,8 @@ first one mandatory:
    conformance table and a new-view checklist. `QueueView` is the one
    tolerated hand-rolled header — do not create a third.
 2. **`docs/architecture/unified-edit-experience.md`** — editable detail views
-   use `EditActionBar` (pencil → Delete/Save/Cancel, confirm-first dialog
+   use `EditActionBar` in the top bar, not the hero (Delete + pencil →
+   Delete/Save/Cancel, confirm-first dialog
    ordering via one global SCSS rule, Esc semantics, `dirty` prop).
 3. **`docs/architecture/unified-play-experience.md`** — read-mode
    Play/Queue/Favorite live in `HeroActions` inside `HeroHeader`, never in the
@@ -1005,6 +1006,18 @@ Inter variable font. One deliberate global dialog-footer rule in `_main.scss`
 Error text uses `--app-danger` (defined per theme in
 `assets/scss/_variables.scss`): PrimeVue's `--p-red-*` do not flip with the
 theme and no single red passes AA on both grounds.
+
+**Dark mode has two ink sources.** The app's `.dark-mode` tokens and the
+PrimeVue preset's dark `surface` scale in `theme.js`. Aura reads that scale
+light to dark: 0–400 are inks (`text.mutedColor`, placeholders, float labels
+and icons are surface.400–500), and 600–950 are grounds (borders, hovers,
+panels, form fields). Keep it monotonic. It was once dark from 100 on, and
+every muted PrimeVue ink (unselected `SelectButton` options, `Tag`s,
+placeholders) went near-black on near-black. Its grounds are pinned to the
+app's layers (900 = `--app-surface`, 950 = `--app-background`). Its 400 is
+`--app-text-secondary`, which, like the nav/player dim inks, holds AA on every
+dark ground. `assets/scss/__tests__/themeContrast.spec.ts` guards all of this.
+If you change a dark token, run it.
 
 **Hidden themes (easter egg).** `_hidden-themes.scss` holds two unlockable
 palettes — Winamp, CRT. They are token-only repaints layered over

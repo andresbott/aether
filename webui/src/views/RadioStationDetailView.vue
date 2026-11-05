@@ -308,8 +308,7 @@ onUnmounted(() => {
 
         <ContentScaffold v-else :title="title" show-back @back="router.back()">
             <template #actions>
-                <!-- Create-mode helper (prefills the form from radio-browser.info);
-                     not the Edit control, so it stays in the top bar. -->
+                <!-- Create-mode helper (prefills the form from radio-browser.info). -->
                 <Button
                     v-if="create && isAdmin && managementApi"
                     class="discover-station"
@@ -319,6 +318,20 @@ onUnmounted(() => {
                     v-tooltip.bottom="'Discover'"
                     aria-label="Discover"
                     @click="searchVisible = true"
+                />
+                <EditActionBar
+                    v-if="isAdmin"
+                    v-model:editing="editing"
+                    :can-delete="!create"
+                    :save-disabled="!valid"
+                    :saving="submitting"
+                    :save-tooltip="create ? 'Create' : 'Save'"
+                    :dirty="dirty"
+                    delete-header="Delete station?"
+                    :delete-message="`Delete station &quot;${station?.name}&quot;? This cannot be undone.`"
+                    @save="onSubmit"
+                    @cancel="onCancel"
+                    @delete="onDelete"
                 />
             </template>
 
@@ -334,21 +347,6 @@ onUnmounted(() => {
                     @cover-select="onCoverSelect"
                     @cover-remove="onRemoveCover"
                 >
-                    <template v-if="isAdmin" #edit-actions>
-                        <EditActionBar
-                            v-model:editing="editing"
-                            :can-delete="!create"
-                            :save-disabled="!valid"
-                            :saving="submitting"
-                            :save-tooltip="create ? 'Create' : 'Save'"
-                            :dirty="dirty"
-                            delete-header="Delete station?"
-                            :delete-message="`Delete station &quot;${station?.name}&quot;? This cannot be undone.`"
-                            @save="onSubmit"
-                            @cancel="onCancel"
-                            @delete="onDelete"
-                        />
-                    </template>
                     <template v-if="isAdmin && !create" #cover-actions>
                         <Button label="Generate" icon="ms-auto-awesome" outlined @click="showGenerate = true" />
                     </template>

@@ -6,18 +6,23 @@ affordance. This is the registry of that behavior; the implementation lives in
 
 ## The affordance
 
-- **Read mode:** the view's own header actions (Play, Star, Add to Queue, …) plus a
-  **pencil** icon button (`pi pi-pencil`, no text, tooltip "Edit"). Clicking it enters
-  edit mode.
+It sits in the **top bar** — `ContentScaffold`'s `#actions`, right of Back — never in the
+hero band: on the busy, cover-tinted hero a ghost pencil was easy to miss (radio stations
+especially), and the top bar is where every other view keeps its controls.
+
+- **Read mode:** the view's own top-bar extras (`#read-actions`), then — on a view whose
+  entity can be deleted — **Delete**, then a **pencil** icon button (`ms-edit`, no text,
+  tooltip "Edit"). Clicking the pencil enters edit mode; Delete removes the item straight
+  from read mode, so deleting never takes a trip through edit mode.
 - **Edit mode:** three **icon-only** buttons with tooltips, in the order **Delete, Save,
-  Cancel** (left to right), and the read-mode actions are hidden. Delete is deliberately
-  placed far left — the pencil is the rightmost read-mode button, so entering edit mode must
-  not drop the destructive action under the cursor; Cancel (the safe action) takes that
-  rightmost spot instead:
-  - **Delete** — `pi pi-trash`, `severity="danger"`, tooltip "Delete".
-  - **Save** — `pi pi-check`, tooltip "Save" (or "Create" when creating a new item).
-  - **Cancel** — `pi pi-times`, tooltip "Cancel".
-- **Delete** opens a confirmation dialog ordered **confirm | cancel** (confirm on the
+  Cancel** (left to right), and the read-mode extras are hidden. Delete is one element in
+  both modes and always leftmost: the pencil is the rightmost read-mode button, so entering
+  edit mode must not drop the destructive action under the cursor; Cancel (the safe action)
+  takes that rightmost spot instead:
+  - **Delete** — `ms-delete`, `severity="danger"`, tooltip "Delete".
+  - **Save** — `ms-check`, tooltip "Save" (or "Create" when creating a new item).
+  - **Cancel** — `ms-close`, tooltip "Cancel".
+- **Delete** (either mode) opens a confirmation dialog ordered **confirm | cancel** (confirm on the
   left, styled danger). Confirming performs the delete; cancelling closes the dialog.
 - **Esc** exits edit mode (discard staged edits and leave). Because Esc is easy to fumble,
   it **verifies unsaved changes first**: when the view is `dirty` it shows a
@@ -36,6 +41,8 @@ affordance. This is the registry of that behavior; the implementation lives in
     confirms). The **view** owns state and decides when to leave edit mode (a save may be
     async or fail), so the bar never flips `editing` itself except via the pencil.
   - Slot `#read-actions` holds view-specific read-mode buttons; hidden in edit mode.
+  - `HeroHeader` has no edit slot: the hero carries the identity, the cover flip and the
+    read-mode Play/Queue/Favorite pill (`unified-play-experience.md`), nothing else.
   - Stable test/hook classes: `.edit-action-edit`, `.edit-action-save`,
     `.edit-action-cancel`, `.edit-action-delete`.
 - **Confirm-first ordering** is a single global rule in
@@ -56,13 +63,16 @@ A view shows only the buttons that apply:
 | View | Route | Editable | Delete? | Notes |
 |------|-------|----------|---------|-------|
 | Radio station | `/radio/:id`, `/radio/new` | name, stream, homepage, cover | yes | Create mode (`/radio/new`) starts in edit mode, `canDelete=false`, Save reads "Create", Cancel returns to `/radio`. |
-| Playlist | `/playlist/:id` | name, description, cover, tracks | yes | Track reordering is always-on; identity/cover/track edits persist together on Save. |
+| Playlist | `/playlist/:id` | name, description, cover, tracks | yes | Owner only. Track reordering is always-on; identity/cover/track edits persist together on Save. |
 | Artist | `/artist/:id` | cover only | no | `canDelete=false`. Cover edits are **staged** and applied on Save. |
-| Album | `/album/:id` | — | — | **Not editable** (album data derives from file metadata); no pencil. |
+| Album | `/album/:id` | cover only | no | Admin only. Tags derive from file metadata (the metadata editor's job); the manual cover is staged and applied on Save. |
+| Genre | `/genre/:name` | cover only | no | Admin only, like Album. |
+| Wishlist entry | `/wishlist/:id` | description (a MusicBrainz pick); type, title, description (added by hand) | yes | Delete removes the entry from the wishlist. |
 
 Rules for a new editable detail view:
 
-1. Import `EditActionBar` and place it in `ContentScaffold`'s `#actions`, read-mode extras
+1. Import `EditActionBar` and place it in `ContentScaffold`'s `#actions` (gate the whole
+   `#actions` template on who may edit — `isAdmin`, a playlist's owner), read-mode extras
    in `#read-actions`.
 2. Stage edits locally; gate Save with a `dirty`/`valid` computed via `save-disabled`, and
    pass the in-flight mutation state via `saving`.

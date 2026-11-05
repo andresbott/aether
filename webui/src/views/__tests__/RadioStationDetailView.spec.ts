@@ -54,7 +54,7 @@ vi.mock('vue-router', () => ({
 const ScaffoldStub = {
     name: 'ContentScaffold',
     props: ['title', 'summary'],
-    template: '<div><slot name="actions" /><slot /></div>'
+    template: '<div><div class="scaffold-actions"><slot name="actions" /></div><slot /></div>'
 }
 const SearchDialogStub = {
     name: 'StationSearchDialog',
@@ -285,6 +285,20 @@ describe('RadioStationDetailView', () => {
     it('edit mode: Delete (confirmed) removes the station and returns to /radio', async () => {
         const w = mountView({ id: 's1' })
         await w.find('.edit-action-edit').trigger('click')
+        await w.find('.edit-action-delete').trigger('click')
+        expect(deleteMutate).toHaveBeenCalledWith('s1', expect.anything())
+        expect(push).toHaveBeenCalledWith({ name: 'radio' })
+    })
+
+    it('edit chrome sits in the top bar, not in the hero', () => {
+        const w = mountView({ id: 's1' })
+        expect(w.find('.scaffold-actions .edit-action-edit').exists()).toBe(true)
+        expect(w.find('.scaffold-actions .edit-action-delete').exists()).toBe(true)
+        expect(w.find('.hero-header .edit-action-edit').exists()).toBe(false)
+    })
+
+    it('read mode: Delete (confirmed) removes the station without entering edit mode', async () => {
+        const w = mountView({ id: 's1' })
         await w.find('.edit-action-delete').trigger('click')
         expect(deleteMutate).toHaveBeenCalledWith('s1', expect.anything())
         expect(push).toHaveBeenCalledWith({ name: 'radio' })

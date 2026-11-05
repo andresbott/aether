@@ -187,6 +187,12 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	album.Year = meta.Year
 	album.Compilation = meta.Compilation
 	album.ReleaseTypes = meta.ReleaseTypes
+	// Only a track that carries the tag may set it: in a partly tagged album an
+	// untagged track must not blank the id the others agree on, or the album
+	// would flap in and out of the wishlist depending on scan order.
+	if meta.MBReleaseGroupID != "" {
+		album.MBReleaseGroupID = meta.MBReleaseGroupID
+	}
 	album.HasEmbeddedCover = meta.HasCover
 
 	// Detect external cover. Always re-detect for art in THIS directory (so

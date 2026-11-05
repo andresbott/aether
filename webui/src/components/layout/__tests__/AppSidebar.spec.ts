@@ -21,6 +21,10 @@ vi.mock('@/store/uiStore', () => ({
     })
 }))
 const toastAdd = vi.fn()
+// The wishlist entry is gated on an admin with a management session.
+const isAdmin = ref(true)
+const managementApi = ref(true)
+vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ isAdmin, managementApi }) }))
 vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: toastAdd }) }))
 
 // Only the queue length matters here — the brand picks its destination from it.
@@ -49,6 +53,8 @@ const mountSidebar = () =>
 
 beforeEach(() => {
     collapsed.value = false
+    isAdmin.value = true
+    managementApi.value = true
     hiddenUnlocked.value = false
     queue.value = []
     push.mockClear()
@@ -71,6 +77,32 @@ describe('AppSidebar footer nav', () => {
         collapsed.value = true
         await w.vm.$nextTick()
         expect(w.find('user-menu-stub').attributes('collapsed')).toBe('true')
+    })
+})
+
+describe('AppSidebar wishlist entry', () => {
+    const labels = (w: ReturnType<typeof mountSidebar>) => w.findAll('.nav-label').map((n) => n.text())
+
+    it('lists Wishlist right below Radio for an admin', () => {
+        const names = labels(mountSidebar())
+        expect(names.indexOf('Wishlist')).toBe(names.indexOf('Radio') + 1)
+    })
+
+    it('navigates to the wishlist', async () => {
+        const w = mountSidebar()
+        const entry = w.findAll('.nav-item').find((n) => n.text() === 'Wishlist')
+        await entry!.trigger('click')
+        expect(push).toHaveBeenCalledWith('/wishlist')
+    })
+
+    it('is hidden from a non-admin, whose /api/v0 calls would only 403', () => {
+        isAdmin.value = false
+        expect(labels(mountSidebar())).not.toContain('Wishlist')
+    })
+
+    it('is hidden in a key session, which has no /api/v0', () => {
+        managementApi.value = false
+        expect(labels(mountSidebar())).not.toContain('Wishlist')
     })
 })
 

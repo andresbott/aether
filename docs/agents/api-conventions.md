@@ -216,11 +216,11 @@ traced 1:1 to the full-detail server log line for the same request. Dev mode
 (`Production` false, the default) keeps `ModeDev` — full detail, unchanged
 from before this option existed.
 
-**Uniform across all of `/api/v0`.** Eight handler packages call
+**Uniform across all of `/api/v0`.** Nine handler packages call
 `h.Problems.Write`/`.WriteValidation`/`.WriteUpstream` directly for every
 error today: `auth`, `metadata` (its three handler structs — tags, pictures,
 identify — each carry their own `Problems` field), `tokens`, `libraries`,
-`artists`, `radiobrowser`, `users`, `tasks`. The per-package
+`artists`, `radiobrowser`, `users`, `tasks`, `wishlist`. The per-package
 `writeError`/`writeErr` shims that once wrapped the old `httperr` package are
 gone; every call site names `h.Problems.<Method>` directly (or takes the
 `*problemjson.Writer` as an explicit parameter, conventionally named `pw`,

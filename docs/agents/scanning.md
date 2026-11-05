@@ -138,6 +138,19 @@ Writing the marker in `RelinkTrack` would instead invent a new way to keep a
 row alive that no reconcile ever confirmed. Anything else that starts touching
 tracks mid-scan still has to advance it.
 
+**After the pass: the wishlist.** Once `scan`/`scan-full` (and `reindex`,
+below) finish, the task calls `store.ReconcileWishlist` (`app/tasks/wishlist.go`):
+every wishlist entry is re-matched by MBID — artists on `mb_artist_id`, albums on
+`albums.mb_release_group_id`, songs on `tracks.mb_recording_id` — and found / lost
+counts are logged. It is deferred, so it also runs after a failed or cancelled
+pass (which may already have rewritten rows the list points at); a failure is a
+`WARN`, never a failed task. The match is case-insensitive (`LOWER()`): the
+catalog keeps MBIDs as the tags spell them, since album and artist asset keys
+are built from them. `MBReleaseGroupID` is not part of the
+album identity; `reconcileTrack` sets it from any track carrying the tag (one that
+lacks it never blanks it), so an incremental scan only fills it for files it
+re-reads — a full scan stamps the whole catalog.
+
 ## Targeted re-index (`internal/scanner/rescan.go`, `app/tasks/reindex.go`)
 
 `Scanner.RescanPaths(ctx, scanFolder, absPaths)` re-indexes an explicit list

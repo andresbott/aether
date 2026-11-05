@@ -53,19 +53,38 @@ const CustomTheme = definePreset(Aura, {
                     hoverColor: '{primary.300}',
                     activeColor: '{primary.200}'
                 },
+                // Aura reads the dark surface scale light-to-dark: 0–400 are
+                // INKS (text.mutedColor, placeholders, float labels, icons are
+                // surface.400–500) and 600–950 are GROUNDS (borders 600–700,
+                // hovers 800, panels 900, form fields 950). The scale must stay
+                // monotonic: a dark 100–500 (as this preset once had) turns every
+                // muted ink — a SelectButton's unselected options, a Tag, an
+                // input placeholder — near-black on near-black. The grounds are
+                // pinned to the app's own dark tokens (_variables.scss .dark-mode)
+                // so PrimeVue panels sit on the same layers as the rest of the UI;
+                // 400 is the app's secondary ink (AA on every dark ground), and
+                // themeContrast.spec.ts guards both.
                 surface: {
                     0: '#ffffff',
-                    50: '#f9fafb',
-                    100: '#374151',
-                    200: '#333a47',
-                    300: '#2f3541',
-                    400: '#2b303b',
-                    500: '#272c35',
-                    600: '#1f2937',
-                    700: '#1a202c',
-                    800: '#151a23',
-                    900: '#10141b',
-                    950: '#0b0e13'
+                    50: '#f1f4f7',
+                    100: '#d7dee6',
+                    200: '#bcc6d0',
+                    300: '#a3aebb',
+                    400: '#8b97a4',
+                    500: '#6f7b88',
+                    600: '#4a5566',
+                    700: '#2c3747',
+                    800: '#1c2632',
+                    900: '#141b24',
+                    950: '#0d1117'
+                },
+                // Aura's dark text is pure white (surface.0); the app's ink is
+                // the softer --app-text-primary, so PrimeVue text matches it.
+                text: {
+                    color: '{surface.100}',
+                    hoverColor: '{surface.50}',
+                    mutedColor: '{surface.400}',
+                    hoverMutedColor: '{surface.300}'
                 }
             }
         }

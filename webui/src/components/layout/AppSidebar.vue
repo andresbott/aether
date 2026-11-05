@@ -6,6 +6,7 @@ import { useUiStore } from '@/store/uiStore'
 import { useCatalogView, useMusicFolders } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useTheme } from '@/composables/useTheme'
+import { useAuth } from '@/composables/useAuth'
 import UserMenu from '@/components/layout/UserMenu.vue'
 import BrandMark from '@/components/common/BrandMark.vue'
 import LibraryIcon from '@/components/common/LibraryIcon.vue'
@@ -125,12 +126,18 @@ const landingViews = computed(() => {
     return out
 })
 
-// Past the spacer below the Library block.
-const bottomItems: NavItem[] = [
+// Past the spacer below the Library block. The wishlist rides on the admin-only
+// /api/v0, so it is listed only for an admin with a management session (a key
+// session has no /api/v0 at all).
+const { isAdmin, managementApi } = useAuth()
+const bottomItems = computed<NavItem[]>(() => [
     { label: 'Playlists', icon: 'ms-queue-music', route: '/playlists', routeName: 'playlists', shortcut: 'playlists' },
     { label: 'Genres', icon: 'ms-genres', route: '/genres', routeName: 'genres', shortcut: 'genres' },
-    { label: 'Radio', icon: 'ms-radio', route: '/radio', routeName: 'radio', shortcut: 'radio' }
-]
+    { label: 'Radio', icon: 'ms-radio', route: '/radio', routeName: 'radio', shortcut: 'radio' },
+    ...(isAdmin.value && managementApi.value
+        ? [{ label: 'Wishlist', icon: 'ms-bookmark-heart', route: '/wishlist', routeName: 'wishlist' }]
+        : [])
+])
 
 // The mode segment of the current path; undefined on a bare path.
 const modeParam = computed<LibraryView | undefined>(() => {
@@ -429,6 +436,9 @@ onBeforeUnmount(resetEgg)
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* overflow:hidden drops the flex item's automatic min-height to 0, so a nav
+       taller than the window (it scrolls) squeezed the label to a sliver. */
+    flex-shrink: 0;
 }
 
 .sidebar-header {

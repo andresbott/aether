@@ -22,6 +22,7 @@ func Migrate(db *gorm.DB) error {
 		&InternetRadioStation{},
 		&PlayQueue{},
 		&PlayQueueEntry{},
+		&WishlistItem{},
 	)
 	if err != nil {
 		return err
@@ -39,6 +40,13 @@ func Migrate(db *gorm.DB) error {
 	// collide — they represent distinct playlists without durable keys.
 	if !migrator.HasIndex(&Playlist{}, "idx_playlist_uuid") {
 		if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_playlist_uuid ON playlists(uuid) WHERE uuid != ''").Error; err != nil {
+			return err
+		}
+	}
+	// Partial unique index for wishlist identity: an MBID is listed once per
+	// kind, while entries added by hand (no MBID) never collide.
+	if !migrator.HasIndex(&WishlistItem{}, "idx_wishlist_item") {
+		if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_wishlist_item ON wishlist_items(kind, mbid) WHERE mbid != ''").Error; err != nil {
 			return err
 		}
 	}
