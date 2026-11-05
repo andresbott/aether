@@ -37,6 +37,9 @@ var ScanFullTaskDef = TaskDef{
 func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, full bool) func(ctx context.Context, log *slog.Logger, prog taskrunner.Progress) error {
 	sc := scanner.New(cfg, s, tagReader)
 	return func(ctx context.Context, log *slog.Logger, prog taskrunner.Progress) error {
+		// Deferred so it also runs after a failed or cancelled pass: either may
+		// already have rewritten catalog rows the wishlist points at.
+		defer reconcileWishlist(s, log)
 		mode := "incremental"
 		if full {
 			mode = "full"

@@ -39,6 +39,8 @@ var ReindexTaskDef = TaskDef{
 func NewReindexTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader) func(ctx context.Context, log *slog.Logger, p ReindexParams) error {
 	sc := scanner.New(cfg, s, tagReader)
 	return func(ctx context.Context, log *slog.Logger, p ReindexParams) error {
+		// Deferred so it also runs after a failed or cancelled pass (see scan.go).
+		defer reconcileWishlist(s, log)
 		log.Info("starting metadata re-index",
 			slog.String("scan_folder", p.ScanFolder),
 			slog.Int("paths", len(p.Paths)))

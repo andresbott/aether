@@ -131,7 +131,11 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   the generated avatar the artist's image comes from — a server filesystem
   detail, not a Subsonic field), artist image candidate listing + pick from the
   image providers (`/artists/image-candidates`, `/artists/{id}/image-from-search`
-  — see [scanning.md](scanning.md)), radio-browser import proxy, health.
+  — see [scanning.md](scanning.md)), radio-browser import proxy, the wishlist
+  (`/wishlist` CRUD + `GET /wishlist/search`, `handlers/wishlist` — a
+  server-wide list of music to acquire, picked from MusicBrainz; kept here, not
+  on `/rest`, by the owner's choice, since no Subsonic client has a use for
+  it), health.
 
 ## Key domain types (internal/model)
 
@@ -168,6 +172,20 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   not a foreign key — see [scanning.md](scanning.md)); `Suffix` is the
   lowercase extension. `Album`/`Artist`/`Genre` link via join tables
   (`AlbumArtist`, `TrackArtist`, `TrackGenre`, `AlbumGenre`).
+- `WishlistItem` — a MusicBrainz id (`Kind` artist / album / song, unique
+  with `MBID`) plus a snapshot of the search result it was picked from and a
+  free-text `Note`. Server-wide, no owner. `MatchID` (+ `MatchAlbumID` for a
+  song) is the catalog row carrying the same MBID — `artists.mb_artist_id`,
+  `albums.mb_release_group_id` (an album entry is a release **group**, so any
+  edition counts), `tracks.mb_recording_id` — or 0; `MatchedAt` is when it was
+  first found. An entry added by hand has an empty `MBID` (its `Note` is its
+  description) and is never matched; `(kind, mbid)` is unique only among
+  entries with an MBID — the partial index `idx_wishlist_item`, created in
+  `Migrate` like `idx_playlist_uuid`. `store.ReconcileWishlist` re-matches the whole list at the end
+  of every `scan`, `scan-full` and `reindex` (`app/tasks/wishlist.go`, logged,
+  never fatal) because catalog ids are not stable across scans; an add matches
+  its new entries at once. The single MusicBrainz client in `attachApiV0` is
+  shared by the artists and wishlist handlers so both sit behind one throttle.
 - `*Norm` columns (e.g. `TitleNorm`, `NameNorm`) hold
   `internal/unidecode.Normalize` output (lowercased ASCII transliteration) —
   used for identity and alphabetical indexing. Always populate them when

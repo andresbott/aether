@@ -73,31 +73,35 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-    <template v-if="!editing">
-        <slot name="read-actions" />
-        <Button
-            class="edit-action-edit"
-            icon="ms-edit"
-            text
-            rounded
-            v-tooltip.bottom="'Edit'"
-            @click="emit('update:editing', true)"
-        />
-    </template>
+    <!-- Read mode: [read-actions] Delete, Edit. Edit mode: Delete, Save, Cancel.
+         Delete is ONE element in both modes, always left of the rest, so entering
+         edit mode never drops the destructive action under the cursor: the pencil
+         (rightmost in read mode) gives its spot to Cancel, the safe action. Delete
+         sits in read mode too, so removing an item does not take a trip through
+         edit mode; it still asks first (confirmDelete). -->
+    <slot v-if="!editing" name="read-actions" />
+    <Button
+        v-if="canDelete"
+        class="edit-action-delete"
+        icon="ms-delete"
+        text
+        rounded
+        severity="danger"
+        v-tooltip.bottom="'Delete'"
+        aria-label="Delete"
+        @click="confirmDelete"
+    />
+    <Button
+        v-if="!editing"
+        class="edit-action-edit"
+        icon="ms-edit"
+        text
+        rounded
+        v-tooltip.bottom="'Edit'"
+        aria-label="Edit"
+        @click="emit('update:editing', true)"
+    />
     <template v-else>
-        <!-- Order: Delete, Save, Cancel. Delete sits far left so it is NOT under the
-             cursor when entering edit mode (the pencil is the rightmost read-mode
-             button); Cancel, the safe action, takes that spot instead. -->
-        <Button
-            v-if="canDelete"
-            class="edit-action-delete"
-            icon="ms-delete"
-            text
-            rounded
-            severity="danger"
-            v-tooltip.bottom="'Delete'"
-            @click="confirmDelete"
-        />
         <Button
             class="edit-action-save"
             :icon="saveIcon"
@@ -106,6 +110,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             :disabled="saveDisabled"
             :loading="saving"
             v-tooltip.bottom="saveTooltip"
+            :aria-label="saveTooltip"
             @click="emit('save')"
         />
         <Button
@@ -114,6 +119,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
             text
             rounded
             v-tooltip.bottom="'Cancel'"
+            aria-label="Cancel"
             @click="emit('cancel')"
         />
     </template>

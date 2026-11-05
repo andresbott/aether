@@ -298,6 +298,17 @@ watch(editing, (isEditing) => {
         </div>
 
         <ContentScaffold v-else-if="album" title="" show-back @back="router.back()">
+            <template v-if="isAdmin" #actions>
+                <EditActionBar
+                    v-model:editing="editing"
+                    :can-delete="false"
+                    :save-disabled="!dirty"
+                    :saving="updateCover.isPending.value"
+                    :dirty="dirty"
+                    @save="saveEdit"
+                    @cancel="cancelEdit"
+                />
+            </template>
             <div class="album-scroll">
                 <HeroHeader
                     class="detail-hero"
@@ -314,17 +325,6 @@ watch(editing, (isEditing) => {
                     @cover-dragstart="onCoverDragStart"
                     @cover-dragend="albumDrag.end"
                 >
-                    <template v-if="isAdmin" #edit-actions>
-                        <EditActionBar
-                            v-model:editing="editing"
-                            :can-delete="false"
-                            :save-disabled="!dirty"
-                            :saving="updateCover.isPending.value"
-                            :dirty="dirty"
-                            @save="saveEdit"
-                            @cancel="cancelEdit"
-                        />
-                    </template>
                     <template v-if="isAdmin" #cover-actions>
                         <Button label="Generate" icon="ms-auto-awesome" outlined @click="showGenerate = true" />
                     </template>

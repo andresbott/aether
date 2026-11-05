@@ -14,7 +14,7 @@ vi.mock('@/views/LoginView.vue', () => ({
     default: { name: 'LoginView', template: '<div class="login-view" />' }
 }))
 
-const route = reactive<{ meta: { layout?: string } }>({ meta: {} })
+const route = reactive<{ meta: { layout?: string; adminOnly?: boolean } }>({ meta: {} })
 const replace = vi.fn()
 vi.mock('vue-router', () => ({
     useRoute: () => route,
@@ -96,6 +96,22 @@ describe('App admin redirect', () => {
         isLoading.value = false
         await nextTick()
         expect(replace).toHaveBeenCalledWith('/')
+    })
+
+    // The wishlist renders in the music layout but rides on /api/v0.
+    it('sends a non-admin landing on an adminOnly music route home', async () => {
+        route.meta = { adminOnly: true }
+        mount(App)
+        await nextTick()
+        expect(replace).toHaveBeenCalledWith('/')
+    })
+
+    it('leaves an admin with the management API on an adminOnly route', async () => {
+        route.meta = { adminOnly: true }
+        isAdmin.value = true
+        mount(App)
+        await nextTick()
+        expect(replace).not.toHaveBeenCalled()
     })
 
     it('never redirects non-admins on ordinary routes', async () => {

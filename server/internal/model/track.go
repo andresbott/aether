@@ -28,7 +28,7 @@ type Track struct {
 	Year          int
 	Duration      int
 	Bitrate       int
-	MBRecordingID string
+	MBRecordingID string `gorm:"index"`
 	// AudioHash is a metadata-invariant hash of the file's audio payload
 	// (libs/audiohash). It survives a tag rewrite and changes only when the
 	// audio does, which is what lets the scanner recognise a file that was

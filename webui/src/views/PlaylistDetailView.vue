@@ -420,6 +420,19 @@ onUnmounted(() => {
         </div>
 
         <ContentScaffold v-else-if="playlist" title="" show-back @back="router.back()">
+            <template v-if="isOwner" #actions>
+                <EditActionBar
+                    v-model:editing="editing"
+                    :save-disabled="savePending || !valid"
+                    :saving="savePending"
+                    :dirty="dirty"
+                    delete-header="Delete playlist?"
+                    :delete-message="`Delete playlist &quot;${playlist.name}&quot;? This cannot be undone.`"
+                    @save="saveEdit"
+                    @cancel="cancelEdit"
+                    @delete="handleDelete"
+                />
+            </template>
             <div class="playlist-scroll">
                 <HeroHeader
                     class="detail-hero"
@@ -430,20 +443,6 @@ onUnmounted(() => {
                     @cover-select="onCoverSelect"
                     @cover-remove="onRemoveCover"
                 >
-                    <template #edit-actions>
-                        <EditActionBar
-                            v-if="isOwner"
-                            v-model:editing="editing"
-                            :save-disabled="savePending || !valid"
-                            :saving="savePending"
-                            :dirty="dirty"
-                            delete-header="Delete playlist?"
-                            :delete-message="`Delete playlist &quot;${playlist.name}&quot;? This cannot be undone.`"
-                            @save="saveEdit"
-                            @cancel="cancelEdit"
-                            @delete="handleDelete"
-                        />
-                    </template>
                     <template v-if="isOwner" #cover-actions>
                         <Button label="Generate" icon="ms-auto-awesome" outlined @click="showGenerate = true" />
                     </template>

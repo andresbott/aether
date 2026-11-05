@@ -31,6 +31,9 @@ vi.mock('@/composables/useTheme', () => ({
         cycleHiddenTheme: vi.fn(() => ({ label: 'X' }))
     })
 }))
+// A non-admin: these layouts are about the library block, and the admin-only
+// Wishlist entry (AppSidebar.spec.ts) would only lengthen every one of them.
+vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ isAdmin: ref(false), managementApi: ref(true) }) }))
 vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 
 import AppSidebar from '@/components/layout/AppSidebar.vue'

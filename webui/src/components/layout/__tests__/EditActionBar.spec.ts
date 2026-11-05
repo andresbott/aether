@@ -34,6 +34,25 @@ describe('EditActionBar', () => {
         expect(w.find('.edit-action-save').exists()).toBe(false)
     })
 
+    it('read mode: offers Delete left of the pencil, without entering edit mode', async () => {
+        const w = mountBar({ editing: false })
+        const order = w
+            .findAll('button')
+            .map((b) => b.classes().find((c) => c.startsWith('edit-action-')))
+        expect(order).toEqual(['edit-action-delete', 'edit-action-edit'])
+        await w.find('.edit-action-delete').trigger('click')
+        // Still confirms first (the mock accepts), and never flips into edit mode.
+        expect(requireFn).toHaveBeenCalledTimes(1)
+        expect(w.emitted('delete')).toHaveLength(1)
+        expect(w.emitted('update:editing')).toBeUndefined()
+    })
+
+    it('read mode: no Delete when canDelete is false', () => {
+        const w = mountBar({ editing: false, canDelete: false })
+        expect(w.find('.edit-action-delete').exists()).toBe(false)
+        expect(w.find('.edit-action-edit').exists()).toBe(true)
+    })
+
     it('edit mode: renders buttons in order Delete, Save, Cancel', () => {
         // Delete must sit far left so it is not under the cursor (the pencil is the
         // rightmost read-mode button); Cancel takes the rightmost spot.

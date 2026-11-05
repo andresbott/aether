@@ -124,6 +124,25 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
+        path: '/wishlist',
+        name: 'wishlist',
+        component: () => import('@/views/WishlistView.vue'),
+        meta: { flush: true, adminOnly: true }
+    },
+    {
+        path: '/wishlist/new',
+        name: 'wishlist-new',
+        component: () => import('@/views/WishlistAddView.vue'),
+        meta: { flush: true, adminOnly: true }
+    },
+    {
+        path: '/wishlist/:id(\\d+)',
+        name: 'wishlist-item',
+        component: () => import('@/views/WishlistItemView.vue'),
+        props: true,
+        meta: { flush: true, adminOnly: true }
+    },
+    {
         // A top-level route, but rendered in the admin-only settings layout so
         // the App.vue redirect (meta.layout === 'settings') still guards it. It
         // is reached from the sidebar UserMenu, not the Settings side-nav.

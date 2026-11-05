@@ -17,6 +17,9 @@ declare module 'vue-router' {
         // `main-content--flush` on <main>; the padding it drops lives on
         // `.main-content` in styles/_main.scss.
         flush?: boolean
+        // A view in the music layout that rides on the admin-only /api/v0 (the
+        // wishlist): redirected away like the settings area.
+        adminOnly?: boolean
     }
 }
 
@@ -43,7 +46,7 @@ useTrayBridge()
 // the server first, and for an API key where a password cannot sign in.
 const { isLoading, needsLogin, needsServer, needsApiKey, isAdmin, managementApi } = useAuth()
 
-// The /settings area is administration only, over /api/v0: a non-admin who
+// The /settings area (and any `adminOnly` route) is administration only, over /api/v0: a non-admin who
 // lands there (a typed URL — nothing in their UI links to it) is sent home, and
 // so is an admin whose session has no /api/v0 (a key session). Watched rather
 // than a router guard because the verdict comes from the async bootstrap:
@@ -53,7 +56,8 @@ const { isLoading, needsLogin, needsServer, needsApiKey, isAdmin, managementApi 
 const router = useRouter()
 watchEffect(() => {
     if (isLoading.value || needsLogin.value) return
-    if (route.meta.layout === 'settings' && !(isAdmin.value && managementApi.value)) {
+    const adminRoute = route.meta.layout === 'settings' || route.meta.adminOnly === true
+    if (adminRoute && !(isAdmin.value && managementApi.value)) {
         router.replace('/')
     }
 })

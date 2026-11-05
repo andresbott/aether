@@ -100,13 +100,6 @@ const onSelect = (event: { files: File[] }): void => {
 
         <div class="hero-pad">
             <div class="hero-inner content-col">
-                <!-- Edit lives in the hero now (it was in the top bar): the host
-                     passes its EditActionBar here — a pencil in read mode, then
-                     Delete/Save/Cancel while editing, frosted onto the band. -->
-                <div v-if="$slots['edit-actions']" class="hero-edit">
-                    <slot name="edit-actions" />
-                </div>
-
                 <div
                     class="hero-cover"
                     :class="{
@@ -201,7 +194,9 @@ const onSelect = (event: { files: File[] }): void => {
                     <span v-if="eyebrow" class="eyebrow">{{ eyebrow }}</span>
                     <div class="read-only"><slot name="read" /></div>
                     <div class="edit-only"><slot name="edit" /></div>
-                    <div v-if="!editing" class="hero-actions-slot"><slot name="actions" /></div>
+                    <!-- No pill at all when the host passes no actions (a
+                         wishlist entry added by hand has none). -->
+                    <div v-if="!editing && $slots.actions" class="hero-actions-slot"><slot name="actions" /></div>
                 </div>
             </div>
         </div>
@@ -274,16 +269,6 @@ const onSelect = (event: { files: File[] }): void => {
     gap: 2rem;
     padding-block: 2.4rem;
     align-items: center;
-}
-
-.hero-edit {
-    position: absolute;
-    top: 1.35rem;
-    right: var(--app-content-gutter);
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    gap: 0.15rem;
 }
 
 /* --- Cover with a 3D flip (front = image, back = edit controls). ---
@@ -446,8 +431,6 @@ const onSelect = (event: { files: File[] }): void => {
     flex-direction: column;
     gap: 0.6rem;
     justify-content: center;
-    /* Keep long names/meta clear of the absolutely-positioned Edit control. */
-    padding-right: 2.75rem;
 }
 .eyebrow {
     font-size: 0.72rem;
@@ -470,14 +453,10 @@ const onSelect = (event: { files: File[] }): void => {
     flex-direction: column;
     gap: 0.6rem;
 }
-/* In edit mode the Save/Cancel/Delete trio is absolutely placed top-right, so it
-   cannot push the identity column. Top-align the row and clear the trio's height
-   so a tall edit form (playlist description, radio URLs) never slides under it. */
+/* A tall edit form (playlist description, radio URLs) reads from the top of the
+   cover rather than floating centred beside it. */
 .hero-header.editing .hero-inner {
     align-items: start;
-}
-.hero-header.editing .hero-info {
-    padding-top: 3rem;
 }
 
 /* Shared typography for slotted identity content (pierces into the slots). All
@@ -561,28 +540,6 @@ const onSelect = (event: { files: File[] }): void => {
     color: #ffffff;
 }
 
-/* The Edit affordance, frosted onto the band. Read mode is a single pencil given
-   a faint frosted chip so it reads as a control on the busy backdrop; edit mode
-   is Delete/Save/Cancel with light ink (Delete keeps a lifted danger red). */
-.hero-edit :deep(.p-button.p-button-text) {
-    color: #e2edf4;
-}
-.hero-edit :deep(.p-button.p-button-text:hover) {
-    background: rgba(255, 255, 255, 0.16);
-    color: #ffffff;
-}
-.hero-edit :deep(.edit-action-edit) {
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(6px);
-}
-.hero-edit :deep(.edit-action-delete) {
-    color: #ff9aa6;
-}
-.hero-edit :deep(.edit-action-delete:hover) {
-    background: rgba(255, 120, 130, 0.18);
-    color: #ffffff;
-}
-
 /* Phone: the side-by-side hero becomes a centered stack (spec §3.2), the way
    every mobile music app presents a detail page. 767.98px = $bp-phone-max
    - 0.02px (breakpoints.spec.ts guards the token). */
@@ -603,16 +560,11 @@ const onSelect = (event: { files: File[] }): void => {
 
     .hero-info {
         align-items: center;
-        padding-right: 0;
     }
 
     /* Centered stack on phones: the pill centers with the rest of the identity. */
     .hero-actions-slot {
         align-self: center;
-    }
-
-    .hero-edit {
-        top: 0.75rem;
     }
 
     :deep(.hero-name) {

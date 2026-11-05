@@ -22,6 +22,7 @@ import {
     useRadioStations
 } from '@/composables/useSubsonicQueries'
 import { useViewport } from '@/composables/useViewport'
+import { useWishlist } from '@/composables/useWishlist'
 import { BROWSE_SHELF_SIZE } from '@/lib/browseShelf'
 import { isDesktopApp } from '@/lib/host'
 
@@ -115,6 +116,18 @@ const radioShelf = computed(() =>
 const showPlaylists = computed(() => playlistShelf.value.length > 0 || playlistsError.value)
 const showGenres = computed(() => genreShelf.value.length > 0 || genresError.value)
 const showRadio = computed(() => radioShelf.value.length > 0 || stationsError.value)
+
+// The wishlist rides on the admin-only /api/v0, so its section is an admin's
+// only. Its entries have no cover until a scan finds them, so the section is a
+// heading, a one-line count and "See all" rather than a strip of cards.
+const showWishlist = computed(() => isAdmin.value && managementApi.value)
+const { data: wishlist, isError: wishlistError } = useWishlist(showWishlist)
+const wishlistSummary = computed(() => {
+    const all = wishlist.value ?? []
+    if (all.length === 0) return 'Nothing on your wishlist yet'
+    const found = all.filter((it) => it.in_library).length
+    return `${all.length} ${all.length === 1 ? 'item' : 'items'} · ${found} in library`
+})
 
 // Same entries and order as UserMenu's popup, so the two account surfaces read
 // alike: User settings → Admin (admins with the management API only) → About →
@@ -253,6 +266,18 @@ const toggleAccountMenu = (event: Event): void => accountMenu.value?.toggle(even
                         <RadioStationCard :station="item.station" />
                     </template>
                 </BrowseShelf>
+
+                <BrowseShelf
+                    v-if="showWishlist"
+                    title="Wishlist"
+                    icon="ms-bookmark-heart"
+                    :to="{ name: 'wishlist' }"
+                    :items="[]"
+                    :error="wishlistError"
+                    error-text="Could not load the wishlist"
+                    :empty-text="wishlistSummary"
+                    class="wishlist-shelf"
+                />
             </div>
         </div>
     </ContentScaffold>

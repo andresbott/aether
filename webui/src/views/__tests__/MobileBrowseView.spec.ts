@@ -47,6 +47,15 @@ const switchServer = vi.fn()
 const isAdmin = ref(false)
 const canSignOut = ref(true)
 const managementApi = ref(true)
+const wishlist = ref<Array<{ id: number; in_library: boolean }> | undefined>([])
+const wishlistError = ref(false)
+const wishlistEnabled = vi.fn()
+vi.mock('@/composables/useWishlist', () => ({
+    useWishlist: (enabled: unknown) => {
+        wishlistEnabled(enabled)
+        return { data: wishlist, isError: wishlistError }
+    }
+}))
 vi.mock('@/composables/useAuth', () => ({
     useAuth: () => ({
         isAdmin,
@@ -154,6 +163,9 @@ beforeEach(() => {
     isAdmin.value = false
     canSignOut.value = true
     managementApi.value = true
+    wishlist.value = []
+    wishlistError.value = false
+    wishlistEnabled.mockReset()
 })
 
 describe('MobileBrowseView sections', () => {
@@ -271,6 +283,37 @@ describe('MobileBrowseView empty sections', () => {
     // empty rather than leaving the page blank.
     it('keeps the Library shelf even with nothing in it', () => {
         expect(sectionTitles(mountView())).toContain('Library')
+    })
+})
+
+describe('MobileBrowseView wishlist section', () => {
+    it('is an admin-only section after Radio, linking to the wishlist', () => {
+        fillSections()
+        isAdmin.value = true
+        const w = mountView()
+        expect(sectionTitles(w).slice(-2)).toEqual(['Radio', 'Wishlist'])
+        expect(shelfByTitle(w, 'Wishlist').props('to')).toEqual({ name: 'wishlist' })
+    })
+
+    it('summarizes the list instead of a strip of cards', () => {
+        isAdmin.value = true
+        wishlist.value = [
+            { id: 1, in_library: true },
+            { id: 2, in_library: false }
+        ]
+        const shelf = shelfByTitle(mountView(), 'Wishlist')
+        expect(shelf.props('items')).toEqual([])
+        expect(shelf.props('emptyText')).toBe('2 items · 1 in library')
+    })
+
+    it('is left out for a non-admin and in a key session, without a request', () => {
+        expect(sectionTitles(mountView())).not.toContain('Wishlist')
+        const gate = wishlistEnabled.mock.calls[0][0] as { value: boolean }
+        expect(gate.value).toBe(false)
+
+        isAdmin.value = true
+        managementApi.value = false
+        expect(sectionTitles(mountView())).not.toContain('Wishlist')
     })
 })
 

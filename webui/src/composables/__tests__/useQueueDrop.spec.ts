@@ -113,6 +113,59 @@ describe('useQueueDrop', () => {
         expect(onInsert).not.toHaveBeenCalled()
     })
 
+    describe('append zone', () => {
+        const stoppable = (types: string[]) => {
+            const e = dropEvent(types) as DragEvent & {
+                preventDefault: ReturnType<typeof vi.fn>
+                stopPropagation: ReturnType<typeof vi.fn>
+            }
+            ;(e as unknown as { stopPropagation: () => void }).stopPropagation = vi.fn()
+            return e
+        }
+
+        it('claims the dragover, hides the line indicator and lights up', () => {
+            const d = make()
+            d.indicatorTop.value = 42
+            const e = stoppable([ALBUM_DRAG_MIME])
+            d.onEndDragOver(e)
+            expect(e.preventDefault).toHaveBeenCalled()
+            expect(e.stopPropagation).toHaveBeenCalled()
+            expect(d.indicatorTop.value).toBeNull()
+            expect(d.endHover.value).toBe(true)
+            d.onEndDragLeave()
+            expect(d.endHover.value).toBe(false)
+        })
+
+        it('ignores a drag that is not into the queue', () => {
+            const d = make()
+            const e = stoppable(['text/plain'])
+            d.onEndDragOver(e)
+            expect(e.preventDefault).not.toHaveBeenCalled()
+            expect(d.endHover.value).toBe(false)
+        })
+
+        it('appends after the last track whatever the pointer position', async () => {
+            // Rows at known positions with the pointer above the first one: the
+            // body's own drop would insert at 0; the zone still appends.
+            const rowsBody = document.createElement('div')
+            ;['0', '1', '2'].forEach((i) => {
+                const row = document.createElement('div')
+                row.dataset.queueIndex = i
+                row.getBoundingClientRect = () =>
+                    ({ top: 100 + Number(i) * 40, bottom: 140 + Number(i) * 40 }) as DOMRect
+                rowsBody.appendChild(row)
+            })
+            const d = useQueueDrop({ bodyRef: ref(rowsBody), onInsert })
+            getAlbum.mockResolvedValue({ id: 'al1', name: 'LP', song: [{ id: 'X', title: 'X' }] })
+            const e = stoppable([ALBUM_DRAG_MIME])
+            await d.onEndDrop(e)
+            expect(e.stopPropagation).toHaveBeenCalled()
+            expect(insertIntoQueue).toHaveBeenCalledWith([{ id: 'X', title: 'X' }], 3)
+            expect(onInsert).toHaveBeenCalledTimes(1)
+            expect(useAlbumDragData().albumDragPayload.value).toBeNull()
+        })
+    })
+
     describe('songs drag', () => {
         const dragged: Song[] = [{ id: 'X' } as Song, { id: 'Y' } as Song]
 

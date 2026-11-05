@@ -28,6 +28,7 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
 vi.mock('@/store/uiStore', () => ({
     useUiStore: () => ({ sidebarCollapsed: false, toggleSidebar: vi.fn() })
 }))
+vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ isAdmin: ref(true), managementApi: ref(true) }) }))
 vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ queue: ref([]) }) }))
 vi.mock('@/composables/useTheme', () => ({

@@ -18,7 +18,8 @@ import { sortAlbumsNewestFirst } from '@/utils/artistPlayback'
  * artist drag resolves its albums' songs, sorting albums newest-first; a songs drag
  * carries them in its payload. `onInsert` fires only when tracks are actually added
  * (the caller uses it to clear the edit-mode row selection, whose indices the insert
- * would otherwise invalidate).
+ * would otherwise invalidate). The `onEnd*` handlers back the append zone the
+ * queue shows during a drag: a drop there always lands after the last track.
  */
 export function useQueueDrop(options: { bodyRef: Ref<HTMLElement | null>; onInsert?: () => void }) {
     const { bodyRef, onInsert } = options
@@ -94,14 +95,46 @@ export function useQueueDrop(options: { bodyRef: Ref<HTMLElement | null>; onInse
         if (!body || !isQueueDrag(e)) return
         e.preventDefault()
         indicatorTop.value = null
+        const rows = collectRows(body)
+        await insertDragged(computeInsertIndex(rows, e.clientY, player.queue.value.length))
+    }
+
+    // The append zone: a target pinned to the bottom of the queue for the length
+    // of a drag, so adding to the END of a long queue needs no scrolling to its
+    // last row. It owns its own events (stopped, so the body's position-based
+    // handlers never see them) and always inserts at the queue's length.
+    const endHover = ref(false)
+
+    const onEndDragOver = (e: DragEvent): void => {
+        if (!isQueueDrag(e)) return
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+        indicatorTop.value = null
+        endHover.value = true
+    }
+
+    const onEndDragLeave = (): void => {
+        endHover.value = false
+    }
+
+    const onEndDrop = async (e: DragEvent): Promise<void> => {
+        if (!isQueueDrag(e)) return
+        e.preventDefault()
+        e.stopPropagation()
+        endHover.value = false
+        indicatorTop.value = null
+        await insertDragged(player.queue.value.length)
+    }
+
+    // Resolves whatever is being dragged into songs and inserts them at `target`.
+    const insertDragged = async (target: number): Promise<void> => {
         const songs = songsDragPayload.value
         const album = albumDragPayload.value
         const artist = artistDragPayload.value
         clearSongsDrag()
         clearAlbumDrag()
         clearArtistDrag()
-        const rows = collectRows(body)
-        const target = computeInsertIndex(rows, e.clientY, player.queue.value.length)
 
         // A songs drag carries its tracks directly — insert them without a fetch.
         if (songs) {
@@ -182,5 +215,16 @@ export function useQueueDrop(options: { bodyRef: Ref<HTMLElement | null>; onInse
         }
     }
 
-    return { indicatorTop, indicatorCount, dragActive, onDragOver, onDragLeave, onDrop }
+    return {
+        indicatorTop,
+        indicatorCount,
+        dragActive,
+        onDragOver,
+        onDragLeave,
+        onDrop,
+        endHover,
+        onEndDragOver,
+        onEndDragLeave,
+        onEndDrop
+    }
 }

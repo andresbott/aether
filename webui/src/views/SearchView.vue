@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import InputText from 'primevue/inputtext'
 import SelectButton from 'primevue/selectbutton'
-import Button from 'primevue/button'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+import SearchField from '@/components/common/SearchField.vue'
 import HeroSelectionBar from '@/components/layout/HeroSelectionBar.vue'
 import ArtistCard from '@/components/library/ArtistCard.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
@@ -251,35 +250,16 @@ watch(query, () => clearSelection())
 
         <div class="search-page">
             <div class="search-hero">
-                <span class="search-input-wrapper">
-                    <i class="ms-search search-icon"></i>
-                    <InputText
-                        v-model="query"
-                        placeholder="Search artists, albums, genres, songs..."
-                        class="search-input"
-                        :class="{ 'has-reset': !isPristine }"
-                        autofocus
-                    />
-                    <!-- Clears the term AND the type filters, so it stays useful
-                         when only a filter was changed; hidden when there is
-                         nothing to clear rather than sitting there disabled.
-                         The positioning lives on this span, not on the Button:
-                         PrimeVue's ripple directive writes `position: relative`
-                         as an INLINE style, which no stylesheet rule can beat,
-                         so an absolutely-positioned Button silently lays out in
-                         the flex flow and juts past the input's right edge. -->
-                    <span v-if="!isPristine" class="reset-search-slot">
-                        <Button
-                            class="reset-search"
-                            icon="ms-close"
-                            text
-                            rounded
-                            v-tooltip.bottom="'Reset search'"
-                            aria-label="Reset search"
-                            @click="resetSearch"
-                        />
-                    </span>
-                </span>
+                <!-- Its reset clears the term AND the type filters, so it stays
+                     useful when only a filter was changed; hidden when there is
+                     nothing to clear rather than sitting there disabled. -->
+                <SearchField
+                    v-model="query"
+                    placeholder="Search artists, albums, genres, songs..."
+                    :resettable="!isPristine"
+                    autofocus
+                    @reset="resetSearch"
+                />
                 <SelectButton
                     v-model="scope"
                     :options="scopeOptions"
@@ -429,49 +409,6 @@ watch(query, () => clearSelection())
     /* Recipe A: center the search box on the same axis as the content column,
        which sits left of the results' scrollbar. */
     padding-right: calc(var(--sb-w, 0px) + var(--app-content-gutter));
-}
-
-.search-input-wrapper {
-    position: relative;
-    display: flex;
-    align-items: center;
-    width: 100%;
-    max-width: 640px;
-}
-
-.search-icon {
-    position: absolute;
-    left: 1.25rem;
-    font-size: 1.1rem;
-    color: var(--app-text-secondary);
-    pointer-events: none;
-}
-
-.search-input {
-    width: 100%;
-    font-size: 1.1rem;
-    padding: 0.85rem 1.5rem 0.85rem 3.25rem;
-    border-radius: 9999px;
-}
-
-/* Keep the term clear of the reset button, which only exists while it can act. */
-.search-input.has-reset {
-    padding-right: 3.25rem;
-}
-
-/* Overlay the button on the input's right edge. This must sit on the wrapper
-   span rather than the Button — see the template comment. */
-.reset-search-slot {
-    position: absolute;
-    right: 0.5rem;
-    display: flex;
-    align-items: center;
-}
-
-.reset-search {
-    width: 2.25rem;
-    height: 2.25rem;
-    color: var(--app-text-secondary);
 }
 
 /* Wraps on narrow viewports rather than overflowing the hero. */

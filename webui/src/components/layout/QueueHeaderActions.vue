@@ -1,36 +1,29 @@
 <script setup lang="ts">
 import Button from 'primevue/button'
-import ButtonGroup from 'primevue/buttongroup'
 
 // The queue's three header actions (edit / save / clear), rendered in one of two
 // shapes from a single set of buttons:
 //
-//  • Toolbar (the full Now Playing header and the queue side panel): a single
-//    segmented ButtonGroup — bordered, shared dividers, no gaps — so the trio
-//    reads as one control. Matches the app's existing "button group" language
-//    (the List/Grid + tabs group, .as-button-group in _main.scss).
+//  • Toolbar (the full Now Playing header and the queue side panel): three
+//    separate square buttons, styled like every other header control — the
+//    segmented look is reserved for mutually exclusive choices (List/Grid, tabs),
+//    which these are not. Edit is a toggle, so it looks like the standalone
+//    favorites / public filters (grey, accent tint when on); save and clear are
+//    one-shot actions, so they carry the accent like the views' lone "+" button
+//    (ContentScaffold's lone-icon rule).
 //  • ⋮ overflow menu (QueuePanel on phones, `labels`): a plain column of labeled
-//    text rows. A horizontal segmented group would not read as a menu, and
-//    tooltips don't exist on touch, so the actions are spelled out instead.
-//
-// Buttons keep the default size/severity in the group; the side panel passes
-// size="small" to fit its tighter header.
+//    text rows. Tooltips don't exist on touch, so the actions are spelled out.
 defineProps<{ editMode: boolean; disabled: boolean; size?: 'small'; labels?: boolean }>()
 defineEmits<{ (e: 'toggle-edit'): void; (e: 'save'): void; (e: 'clear'): void }>()
 </script>
 
 <template>
-    <component
-        :is="labels ? 'div' : ButtonGroup"
-        :class="labels ? 'queue-actions-menu' : 'queue-actions-group'"
-    >
+    <div :class="labels ? 'queue-actions-menu' : 'queue-actions-toolbar'">
         <Button
             class="queue-action-edit"
             icon="ms-edit"
             :text="labels"
             :rounded="labels"
-            :outlined="!labels"
-            :severity="labels ? undefined : 'secondary'"
             :size="size"
             :class="{ 'is-active': editMode, 'is-labeled': labels }"
             :label="labels ? (editMode ? 'Done editing' : 'Edit queue') : undefined"
@@ -45,8 +38,6 @@ defineEmits<{ (e: 'toggle-edit'): void; (e: 'save'): void; (e: 'clear'): void }>
             icon="ms-save"
             :text="labels"
             :rounded="labels"
-            :outlined="!labels"
-            :severity="labels ? undefined : 'secondary'"
             :size="size"
             :class="{ 'is-labeled': labels }"
             :label="labels ? 'Save as playlist' : undefined"
@@ -57,11 +48,9 @@ defineEmits<{ (e: 'toggle-edit'): void; (e: 'save'): void; (e: 'clear'): void }>
         />
         <Button
             class="queue-action-clear"
-            icon="ms-ink-eraser"
+            icon="ms-close"
             :text="labels"
             :rounded="labels"
-            :outlined="!labels"
-            :severity="labels ? undefined : 'secondary'"
             :size="size"
             :class="{ 'is-labeled': labels }"
             :label="labels ? 'Clear queue' : undefined"
@@ -70,7 +59,7 @@ defineEmits<{ (e: 'toggle-edit'): void; (e: 'save'): void; (e: 'clear'): void }>
             v-tooltip.bottom="labels ? undefined : 'Clear queue'"
             @click="$emit('clear')"
         />
-    </component>
+    </div>
 </template>
 
 <style scoped>
@@ -91,80 +80,66 @@ defineEmits<{ (e: 'toggle-edit'): void; (e: 'save'): void; (e: 'clear'): void }>
     width: 100%;
 }
 
-/* The pencil is a toggle (unlike the one-shot header actions elsewhere), so
-   edit mode gets a soft accent fill to read as "pressed". */
-.queue-action-edit.is-active {
+/* The pencil is a toggle (unlike the one-shot actions), so edit mode gets a
+   soft accent fill to read as "pressed". */
+.queue-action-edit.is-labeled.is-active {
     background: var(--app-accent-soft);
 }
 
-/* --- Toolbar variant (segmented button group) --- */
+/* --- Toolbar variant (separate header buttons) --- */
 
-/* PrimeVue's ButtonGroup ships no styling in this preset (it only sets the
-   class), so the segmented look is built here to match the app's other header
-   groups (.as-button-group: List/Grid, tabs) — same 2.125rem cells, grey
-   inactive icons, accent only on the active one. ContentScaffold's lone-icon
-   accent treatment deliberately skips grouped buttons, so the group owns its
-   full look. inline-flex is also what joins the trio: it drops the inline-block
-   whitespace that otherwise gaps the buttons apart. */
-.queue-actions-group {
-    display: inline-flex;
-    align-items: stretch;
+/* Same spacing as ContentScaffold's .scaffold-actions row. */
+.queue-actions-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
-/* A neutral segmented control on the header surface: grey inactive cells,
-   bordered like the SelectButton groups beside it. */
-.queue-actions-group :deep(.p-button) {
+/* The shared header-control cell: the 2.125rem bordered square on the header
+   surface that the .as-button-group toggles and ContentScaffold's lone "+" use.
+   Duplicated here (not inherited) because the buttons sit inside this wrapper,
+   not directly in .scaffold-actions, and the side panel has no scaffold. */
+.queue-actions-toolbar .p-button {
+    width: 2.125rem;
     height: 2.125rem;
-    padding: 0 0.9rem;
+    padding: 0;
     background: var(--app-surface-2);
     border: 1px solid var(--app-border);
     border-radius: 6px;
-    color: var(--app-text-secondary);
+    color: var(--app-accent);
 }
 
-.queue-actions-group :deep(.p-button:not(:disabled):hover) {
-    background: color-mix(in srgb, var(--app-accent) 7%, var(--app-surface-2));
-    border-color: var(--app-border);
-    color: var(--app-text-primary);
-}
-
-/* Match the segmented tabs' icon size (0.95rem), and follow the cell colour. */
-.queue-actions-group :deep(.p-button-icon) {
-    font-size: 0.95rem;
-    color: inherit;
-}
-
-/* Square the touching corners and overlap the shared 1px border (margin-left
-   -1px) so adjacent cells read as one divider, not a gap or a double line. The
-   outer ends keep the button's own radius. */
-.queue-actions-group :deep(.p-button:not(:first-child)) {
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-    margin-left: -1px;
-}
-
-.queue-actions-group :deep(.p-button:not(:last-child)) {
-    border-top-right-radius: 0;
-    border-bottom-right-radius: 0;
-}
-
-/* Lift the hovered / active cell so its full border sits above the neighbour it
-   overlaps, instead of being clipped by the -1px margin. */
-.queue-actions-group :deep(.p-button:not(:disabled):hover),
-.queue-actions-group :deep(.queue-action-edit.is-active) {
-    position: relative;
-    z-index: 1;
-}
-
-/* The edit toggle is the one cell that can be "on": it carries the same soft
-   accent tint + accent text the segmented tabs use for their active option. */
-.queue-actions-group :deep(.queue-action-edit.is-active) {
+.queue-actions-toolbar .p-button:not(:disabled):hover {
     background: color-mix(in srgb, var(--app-accent) 12%, var(--app-surface-2));
     border-color: var(--app-border);
     color: var(--app-accent);
 }
 
-.queue-actions-group :deep(.queue-action-edit.is-active:not(:disabled):hover) {
+/* Same icon size as the header toggles (0.95rem), following the button colour. */
+.queue-actions-toolbar :deep(.p-button-icon) {
+    font-size: 0.95rem;
+    color: inherit;
+}
+
+/* Edit is a toggle: grey while off, like the favorites / public filters,
+   with their 7% hover tint… */
+.queue-actions-toolbar .queue-action-edit {
+    color: var(--app-text-secondary);
+}
+
+.queue-actions-toolbar .queue-action-edit:not(:disabled):hover {
+    background: color-mix(in srgb, var(--app-accent) 7%, var(--app-surface-2));
+    color: var(--app-text-primary);
+}
+
+/* …and their checked look while on: accent tint + accent icon. */
+.queue-actions-toolbar .queue-action-edit.is-active {
+    background: color-mix(in srgb, var(--app-accent) 12%, var(--app-surface-2));
+    color: var(--app-accent);
+}
+
+.queue-actions-toolbar .queue-action-edit.is-active:not(:disabled):hover {
     background: color-mix(in srgb, var(--app-accent) 20%, var(--app-surface-2));
+    color: var(--app-accent);
 }
 </style>

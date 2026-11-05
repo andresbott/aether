@@ -60,6 +60,8 @@ tags:
     description: Radio station search and favicon proxy via the Radio Browser API (admin).
   - name: settings
     description: General server settings (admin).
+  - name: wishlist
+    description: Music the server does not have yet, picked from MusicBrainz and matched against the catalog after every scan (admin).
 security:
   - sessionCookie: []
 
@@ -1907,6 +1909,175 @@ paths:
         '502': { $ref: '#/components/responses/UpstreamError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
         '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+  /wishlist:
+    get:
+      operationId: listWishlist
+      summary: List every wishlist entry, newest first.
+      description: >
+        Admin. Unpaginated. The wishlist is server-wide, not per user. Each
+        entry's `in_library` / `match_id` / `match_album_id` / `found_at`
+        reflect the last catalog match: every scan, full scan and metadata
+        re-index re-matches the whole list once it finishes.
+      tags: [wishlist]
+      responses:
+        '200':
+          description: Every wishlist entry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WishlistItemList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      operationId: addWishlistItems
+      summary: Add MusicBrainz picks to the wishlist.
+      description: >
+        Admin. Idempotent per (`kind`, `mbid`): a pick already on the list is
+        answered with the stored entry, its snapshot and note untouched, so
+        the answer is always 200 and lists one entry per request item, in
+        request order. New entries are matched against the catalog at once,
+        so a pick already in the library comes back with `in_library: true`.
+        An item without an `mbid` is an entry added by hand: always a new
+        entry, never matched.
+
+        Every problem in `items` is itemised at its own pointer in one 422 —
+        `/items/<i>/kind` (not artist/album/song), `/items/<i>/mbid` (neither
+        empty nor a MusicBrainz identifier), `/items/<i>/title` (blank), any
+        snapshot field over 500 characters and `/items/<i>/note` over 2000 —
+        except an empty or over-50 `items`
+        list, answered at `/items` alone. Malformed JSON answers 400.
+      tags: [wishlist]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WishlistAddRequest' }
+      responses:
+        '200':
+          description: The stored entries, in request order.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WishlistItemList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /wishlist/search:
+    get:
+      operationId: searchWishlist
+      summary: Search MusicBrainz for wishlist candidates.
+      description: >
+        Admin. Safe and idempotent. Searches MusicBrainz artists, release
+        groups (albums, across their editions) or recordings (songs) by
+        `kind`, and marks each result already on the wishlist
+        (`wishlist_id`) or already in the catalog (`in_library` plus the
+        match ids). Throttled to MusicBrainz's one request per second.
+        An invalid `kind`, a `q` under 2 or over 200 characters and an
+        out-of-range `limit` are itemised together in one 422 (pointers
+        `/kind`, `/q`, `/limit`). An
+        upstream failure answers 429/502/504 with a sentence naming
+        MusicBrainz.
+      tags: [wishlist]
+      parameters:
+        - name: kind
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/WishlistKind' }
+        - name: q
+          in: query
+          required: true
+          description: >
+            Free text — a title, a name, or both ("in utero nirvana"; the
+            album and song searches weigh the artist credit). 2–200 characters.
+          schema: { type: string, minLength: 2, maxLength: 200 }
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of results, 1–25, default 15.
+          schema: { type: integer, minimum: 1, maximum: 25 }
+      responses:
+        '200':
+          description: The MusicBrainz results, in MusicBrainz's relevance order.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WishlistSearchResults' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+  /wishlist/{id}:
+    get:
+      operationId: getWishlistItem
+      summary: Fetch one wishlist entry.
+      description: Admin.
+      tags: [wishlist]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The entry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WishlistItem' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      operationId: updateWishlistItem
+      summary: Edit a wishlist entry.
+      description: >
+        Admin. A partial update: an absent field is left as is. `note` (the
+        description) may change on any entry. `title` and `kind` may change
+        only on an entry added by hand (empty `mbid`) — on a MusicBrainz
+        pick they are its MusicBrainz snapshot, and sending either answers
+        422 at that pointer, changing nothing. A body naming no field, a
+        `note` over 2000 characters, a blank or over-500 `title` and an
+        unknown `kind` are itemised together in one 422; malformed JSON
+        answers 400 and a body over 1 MiB 413.
+      tags: [wishlist]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WishlistUpdateRequest' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WishlistItem' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      operationId: deleteWishlistItem
+      summary: Remove a wishlist entry.
+      description: Admin. Touches nothing in the catalog.
+      tags: [wishlist]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Deleted. No body.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
   /tasks:
     get:
@@ -4237,6 +4408,123 @@ components:
           type: string
           description: 'Human-readable current step, e.g. "Extracting metadata: Artist/Album/01.flac".'
       required: [done, total]
+
+    WishlistKind:
+      type: string
+      enum: [artist, album, song]
+      description: >
+        What a wishlist entry names on MusicBrainz, and so what the catalog
+        match uses: an artist (`artists.mb_artist_id`), a release group —
+        the album across its editions (`albums.mb_release_group_id`) — or a
+        recording (`tracks.mb_recording_id`).
+    WishlistSnapshot:
+      type: object
+      description: >
+        The MusicBrainz result a wishlist entry is added from, kept so the
+        list renders without a MusicBrainz round-trip. `album` is set for
+        songs only; `type` is the artist type ("Group") or the release
+        group's types ("Album · Live"); `date` is the life-span begin or
+        the first release date.
+      properties:
+        kind: { $ref: '#/components/schemas/WishlistKind' }
+        mbid:
+          type: string
+          pattern: '^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?$'
+          description: >
+            The MusicBrainz id; empty for an entry added by hand, which has
+            none and is therefore never matched against the catalog.
+        title: { type: string, maxLength: 500 }
+        artist: { type: string, maxLength: 500 }
+        album: { type: string, maxLength: 500 }
+        date: { type: string, maxLength: 500 }
+        type: { type: string, maxLength: 500 }
+        disambiguation: { type: string, maxLength: 500 }
+      required: [kind, title]
+    WishlistMatchFields:
+      type: object
+      description: >
+        Where an MBID is in the catalog. `match_id` is the artist, album or
+        track id by kind (numeric, not a Subsonic id); `match_album_id` is a
+        song's album. Both are absent while `in_library` is false.
+      properties:
+        in_library: { type: boolean }
+        match_id: { type: integer, format: int64, minimum: 1 }
+        match_album_id: { type: integer, format: int64, minimum: 1 }
+      required: [in_library]
+    WishlistItem:
+      allOf:
+        - $ref: '#/components/schemas/WishlistSnapshot'
+        - $ref: '#/components/schemas/WishlistMatchFields'
+        - type: object
+          properties:
+            id: { type: integer, format: int64, minimum: 1 }
+            note: { type: string, maxLength: 2000 }
+            found_at:
+              type: [string, 'null']
+              format: date-time
+              description: >
+                When the current match was first seen; null while not in the
+                library. A match that only moved to another catalog row keeps
+                its time.
+            created_at: { type: string, format: date-time }
+          required: [id, mbid, note, found_at, created_at, artist, album, date, type, disambiguation]
+    WishlistItemList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/WishlistItem' }
+      required: [items]
+    WishlistAddRequest:
+      type: object
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { $ref: '#/components/schemas/WishlistAddItem' }
+      required: [items]
+    WishlistAddItem:
+      allOf:
+        - $ref: '#/components/schemas/WishlistSnapshot'
+        - type: object
+          description: >
+            A MusicBrainz pick (with its `mbid`), or an entry added by hand
+            (no `mbid`: a title, a kind and the note as its description).
+          properties:
+            note: { type: string, maxLength: 2000 }
+    WishlistUpdateRequest:
+      type: object
+      description: >
+        A partial update; at least one field. `title` and `kind` are accepted
+        only for an entry added by hand.
+      properties:
+        note: { type: string, maxLength: 2000 }
+        title: { type: string, minLength: 1, maxLength: 500 }
+        kind: { $ref: '#/components/schemas/WishlistKind' }
+      minProperties: 1
+    WishlistSearchResult:
+      allOf:
+        - $ref: '#/components/schemas/WishlistSnapshot'
+        - $ref: '#/components/schemas/WishlistMatchFields'
+        - type: object
+          properties:
+            score:
+              type: integer
+              description: MusicBrainz's relevance score, 0–100.
+            wishlist_id:
+              type: integer
+              format: int64
+              minimum: 1
+              description: The entry already listing this result; absent when none does.
+          required: [score]
+    WishlistSearchResults:
+      type: object
+      properties:
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/WishlistSearchResult' }
+      required: [results]
 
   responses:
     BadRequest:

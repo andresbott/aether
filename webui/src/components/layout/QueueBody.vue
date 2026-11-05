@@ -22,7 +22,11 @@ const {
     dragActive: dropActive,
     onDragOver: onQueueDragOver,
     onDragLeave: onQueueDragLeave,
-    onDrop: onQueueDrop
+    onDrop: onQueueDrop,
+    endHover: dropEndHover,
+    onEndDragOver: onQueueEndDragOver,
+    onEndDragLeave: onQueueEndDragLeave,
+    onEndDrop: onQueueEndDrop
 } = useQueueDrop({ bodyRef: queueBodyRef, onInsert: () => editListRef.value?.clearSelection() })
 
 const trackCount = computed(() => player.queue.value.length)
@@ -237,6 +241,22 @@ onMounted(() => scrollCurrentIntoView('center'))
                 />
             </div>
         </template>
+
+        <!-- Append zone: shown for the length of a drag into the queue and pinned
+             to the bottom of the scroller (sticky), so a long queue can take an
+             album at its end without scrolling down to the last row. -->
+        <div
+            v-if="dropActive"
+            class="queue-drop-end"
+            :class="{ 'queue-drop-end--hover': dropEndHover }"
+            @dragover="onQueueEndDragOver"
+            @dragleave="onQueueEndDragLeave"
+            @drop="onQueueEndDrop"
+        >
+            <i class="ms-playlist-add" aria-hidden="true"></i>
+            <span>Add to end of queue</span>
+            <span v-if="dropIndicatorCount" class="queue-drop-end__count">+{{ dropIndicatorCount }}</span>
+        </div>
     </div>
 </template>
 
@@ -320,6 +340,60 @@ onMounted(() => scrollCurrentIntoView('center'))
     border-radius: 0.55rem;
     font-size: 0.7rem;
     font-weight: 700;
+}
+
+/* Sticky at the scroller's bottom edge: it rides along at the end of a short
+   queue and stays in view over a long one. Opaque (the host's ground — the
+   sidebar's surface, the page's background — under a tint) so the rows it floats over never show through its label. The children
+   take no pointer events, so moving across the label fires no dragleave. */
+.queue-drop-end {
+    position: sticky;
+    bottom: 0;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    margin: 0.5rem var(--app-content-gutter);
+    padding: 0.85rem 1rem;
+    border: 2px dashed var(--app-border);
+    border-radius: 8px;
+    background: linear-gradient(var(--app-accent-soft), var(--app-accent-soft)),
+        var(--queue-drop-end-ground, var(--app-surface));
+    color: var(--app-text-secondary);
+    font-size: 0.875rem;
+    font-weight: 600;
+    /* Lifts it off the rows it floats over in a long queue. */
+    box-shadow: 0 -6px 16px rgba(0, 0, 0, 0.18);
+    transition:
+        border-color 0.15s,
+        color 0.15s;
+}
+.queue-drop-end > * {
+    pointer-events: none;
+}
+.queue-drop-end i {
+    font-size: 1.25rem;
+}
+.queue-drop-end--hover {
+    border-color: var(--app-accent);
+    color: var(--app-accent);
+}
+.queue-drop-end__count {
+    padding: 0 6px;
+    height: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    background: var(--app-accent);
+    color: #ffffff;
+    border-radius: 0.55rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+/* On the Now Playing page the zone sits on the shared content column. */
+.queue-body--full .queue-drop-end {
+    --queue-drop-end-ground: var(--app-background);
+    margin-inline: max(var(--app-content-gutter), (100% - var(--app-content-max-width)) / 2);
 }
 
 /* Already-played tracks are faded. */
