@@ -1,6 +1,7 @@
 import axios, { type CreateAxiosDefaults } from 'axios'
 import { sessionExpired } from '@/lib/authState'
 import { httpFetch, isDesktopApp, serverUrl, sessionKind } from '@/lib/host'
+import { isNetworkFailure, retryDelays } from '@/lib/retry'
 
 const API_BASE_URL = import.meta.env.VITE_SERVER_URL_V0 || '/api/v0'
 
@@ -43,6 +44,39 @@ if (isDesktopApp()) {
         return config
     })
 }
+
+declare module 'axios' {
+    interface AxiosRequestConfig {
+        /**
+         * Marks a POST or PATCH as safe to send twice (a read carried in a body,
+         * the per-device token mint), so a network failure retries it like a
+         * GET. Every other non-idempotent request fails on the first error.
+         */
+        idempotent?: boolean
+        /** How many retries this request has had; set by the retry interceptor. */
+        retryCount?: number
+    }
+}
+
+// HTTP's idempotent methods: running one twice leaves the server as running it once.
+const IDEMPOTENT_METHODS = new Set(['get', 'head', 'options', 'put', 'delete'])
+
+// Registered before the 401 interceptor, so a request retried here into a 401
+// still reaches it. A retry re-sends through apiClient, so the desktop app's
+// base-URL interceptor runs again and the retry goes to the server set now.
+apiClient.interceptors.response.use(undefined, async (error) => {
+    const config = error?.config
+    if (!config || !isNetworkFailure(error)) return Promise.reject(error)
+    const method = (config.method ?? 'get').toLowerCase()
+    if (!IDEMPOTENT_METHODS.has(method) && !config.idempotent) return Promise.reject(error)
+    const attempt = config.retryCount ?? 0
+    const delays = retryDelays()
+    if (attempt >= delays.length || config.signal?.aborted) return Promise.reject(error)
+    const delay = delays[attempt] ?? 0
+    if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay))
+    if (config.signal?.aborted) return Promise.reject(error)
+    return apiClient.request({ ...config, retryCount: attempt + 1 })
+})
 
 // A 401 from any /api/v0 call means the session is gone (expired, or the
 // server restarted with fresh cookie keys) — flag it so the SPA renders the

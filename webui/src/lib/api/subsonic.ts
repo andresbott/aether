@@ -26,6 +26,25 @@ import type {
 } from '@/types/subsonic'
 import { ref } from 'vue'
 import { httpFetch, isDesktopApp, serverUrl } from '@/lib/host'
+import { isNetworkFailure, isTransientStatus, TransientHttpError, withRetry } from '@/lib/retry'
+
+/** What {@link SubsonicClient.checkSession} found. */
+export type SessionCheck = 'ok' | 'unreachable' | 'refused'
+
+// /rest calls that change something additively: run twice, they add the songs
+// twice, create a second playlist or station, or count the play twice. Every
+// other call reads, or sets state to a value, and is safe to repeat.
+const NOT_RETRYABLE = new Set([
+    'createPlaylist.view',
+    'updatePlaylist.view',
+    'createInternetRadioStation.view',
+    'scrobble.view'
+])
+
+function isRetryable(url: string): boolean {
+    const endpoint = new URL(url).pathname.split('/').pop() ?? ''
+    return !NOT_RETRYABLE.has(endpoint)
+}
 
 // The apiKey is REACTIVE on purpose. getCoverArtUrl/getStreamUrl are called
 // from component computeds, which bake the key into the URL they return; a
@@ -153,9 +172,25 @@ class SubsonicClient {
         return u.toString()
     }
 
+    /**
+     * One HTTP round trip, retried on a network failure or a gateway status
+     * (lib/retry.ts) — unless the endpoint must not run twice: a request that
+     * failed in flight may still have reached the server, and adding the same
+     * songs or creating the same playlist again is worse than an error.
+     */
+    private async send(url: string, init?: RequestInit): Promise<Response> {
+        const attempt = async (): Promise<Response> => {
+            const response = await httpFetch(url, init)
+            if (isTransientStatus(response.status)) throw new TransientHttpError(response.status)
+            return response
+        }
+        if (!isRetryable(url)) return attempt()
+        return withRetry(attempt, { signal: init?.signal })
+    }
+
     private async fetchJson(url: string, init?: RequestInit): Promise<any> {
         const generation = this.sessionGeneration
-        const response = await httpFetch(url, init)
+        const response = await this.send(url, init)
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`)
         }
@@ -173,7 +208,7 @@ class SubsonicClient {
             const result = await handleRestAuthFailure()
             if (result === 'ok') {
                 const retryUrl = this.rebuildWithFreshKey(url)
-                const retry = await httpFetch(retryUrl, init)
+                const retry = await this.send(retryUrl, init)
                 if (!retry.ok) {
                     throw new Error(`HTTP error! status: ${retry.status}`)
                 }
@@ -203,6 +238,24 @@ class SubsonicClient {
             return true
         } catch {
             return false
+        }
+    }
+
+    /**
+     * The cheapest round trip that proves the session works: a ping. A refused
+     * key on it takes the usual path in fetchJson — re-mint and retry in a
+     * cookie session — so 'ok' also means any expired key has been replaced.
+     * - 'ok': the server answered and accepted the credential
+     * - 'unreachable': no answer (or only a gateway's), after the retries
+     * - 'refused': the server answered and the session is not usable
+     */
+    async checkSession(): Promise<SessionCheck> {
+        if (!this.isConfigured()) return 'refused'
+        try {
+            await this.request('ping.view')
+            return 'ok'
+        } catch (err) {
+            return isNetworkFailure(err) ? 'unreachable' : 'refused'
         }
     }
 

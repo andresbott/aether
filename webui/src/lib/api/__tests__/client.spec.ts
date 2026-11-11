@@ -226,3 +226,68 @@ describe('apiClient in the browser', () => {
         expect(sessionExpired.value).toBe(true)
     })
 })
+
+// A dropped request is retried when sending it twice is harmless: HTTP's
+// idempotent methods, and a POST that says so. Anything the server answered is
+// final, and so is a POST that would create something twice.
+describe('apiClient transport retries', () => {
+    const dropped = () => Promise.reject(new TypeError('Failed to fetch'))
+
+    it('retries a GET the network dropped', async () => {
+        const host = fakeHost(true, SERVER)
+        host.httpFetch.mockImplementationOnce(dropped).mockResolvedValue(jsonResponse({ ok: 1 }))
+        const { apiClient } = await loadClient(host)
+
+        const { data } = await apiClient.get('/version')
+
+        expect(data).toEqual({ ok: 1 })
+        expect(host.httpFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('retries a gateway error on a GET', async () => {
+        const host = fakeHost(true, SERVER)
+        host.httpFetch
+            .mockResolvedValueOnce(jsonResponse({}, 503))
+            .mockResolvedValue(jsonResponse({ ok: 1 }))
+        const { apiClient } = await loadClient(host)
+
+        await expect(apiClient.get('/version')).resolves.toMatchObject({ data: { ok: 1 } })
+        expect(host.httpFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not retry an answer', async () => {
+        const host = fakeHost(true, SERVER)
+        host.httpFetch.mockResolvedValue(jsonResponse({ title: 'boom' }, 500))
+        const { apiClient } = await loadClient(host)
+
+        await expect(apiClient.get('/version')).rejects.toBeInstanceOf(AxiosError)
+        expect(host.httpFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not retry a POST', async () => {
+        const host = fakeHost(true, SERVER)
+        host.httpFetch.mockImplementation(dropped)
+        const { apiClient } = await loadClient(host)
+
+        await expect(apiClient.post('/wishlist', { items: [] })).rejects.toBeInstanceOf(AxiosError)
+        expect(host.httpFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('retries a POST marked idempotent', async () => {
+        const host = fakeHost(true, SERVER)
+        host.httpFetch.mockImplementationOnce(dropped).mockResolvedValue(jsonResponse({ token: 't' }))
+        const { apiClient } = await loadClient(host)
+
+        await apiClient.post('/auth/token', {}, { idempotent: true })
+        expect(host.httpFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('still flags a lost session when the retry answers 401', async () => {
+        const host = fakeHost(true, SERVER)
+        host.httpFetch.mockImplementationOnce(dropped).mockResolvedValue(jsonResponse({}, 401))
+        const { apiClient, sessionExpired } = await loadClient(host)
+
+        await expect(apiClient.get('/me')).rejects.toBeInstanceOf(AxiosError)
+        expect(sessionExpired.value).toBe(true)
+    })
+})

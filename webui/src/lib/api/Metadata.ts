@@ -66,10 +66,12 @@ export async function updateTracks(body: UpdateTracksRequest): Promise<UpdateTra
 // production reverse proxy's header buffer (HTTP 431) — the same fix as
 // getPictures below.
 export async function getRawTags(scanFolder: string, paths: string[]) {
-    const { data } = await apiClient.post<RawTagsResponse>('/metadata/tracks/raw-tags', {
-        scan_folder: scanFolder,
-        paths
-    })
+    const { data } = await apiClient.post<RawTagsResponse>(
+        '/metadata/tracks/raw-tags',
+        { scan_folder: scanFolder, paths },
+        // A read carried in a POST body: safe to retry.
+        { idempotent: true }
+    )
     return data
 }
 
@@ -149,10 +151,12 @@ export async function applyPicture(form: FormData) {
 // production reverse proxy's header buffer (HTTP 431). The image endpoint it
 // returns stays a GET, keyed on one resolved file instead of the selection.
 export async function getPictures(scanFolder: string, paths: string[]): Promise<PictureInfo[]> {
-    const { data } = await apiClient.post<PicturesResponse>('/metadata/pictures/inventory', {
-        scan_folder: scanFolder,
-        paths
-    })
+    const { data } = await apiClient.post<PicturesResponse>(
+        '/metadata/pictures/inventory',
+        { scan_folder: scanFolder, paths },
+        // A read carried in a POST body: safe to retry.
+        { idempotent: true }
+    )
     return data.pictures ?? []
 }
 

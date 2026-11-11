@@ -213,7 +213,11 @@ mirroring the tokenID oracle the `pat` library warns about.
 
 Mint-time sweep is per-device (see "One session per device" above);
 `GET /api/v0/auth/tokens` reports live spa tokens as `kind: "session"` and drops
-expired ones. A boot-mint that
+expired ones. A boot mint that gets no answer at all (`remintApiKey` →
+`unreachable`) is not a verdict on the session: it raises the connectivity
+banner, spends no retry budget, and the credential watcher mints again once
+the banner's probe finds the server (`onReconnect` in `useAuth.ts`) — the login
+gate's purge would empty the queue over a network blip. A boot mint that
 keeps failing for a non-401 reason surfaces the login gate, whose purge refetches
 `/me` and re-runs the mint watcher — so the SPA caps consecutive failed mints
 (`MAX_MINT_ATTEMPTS` in `webui/src/lib/subsonicSession.ts`) and then leaves the
