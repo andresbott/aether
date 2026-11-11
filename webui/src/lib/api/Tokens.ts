@@ -18,10 +18,13 @@ import type {
  * signed in from several first-party apps, each listed under its deviceName.
  */
 export async function mintSpaToken(): Promise<MintSpaTokenResponse> {
-    const { data } = await apiClient.post<MintSpaTokenResponse>('/auth/token', {
-        deviceId: getDeviceId(),
-        deviceName: getDeviceName()
-    })
+    // Safe to retry: a mint supersedes this device's previous token, so a
+    // duplicate that reached the server leaves one live token either way.
+    const { data } = await apiClient.post<MintSpaTokenResponse>(
+        '/auth/token',
+        { deviceId: getDeviceId(), deviceName: getDeviceName() },
+        { idempotent: true }
+    )
     return data
 }
 

@@ -4,6 +4,11 @@ import { mount } from '@vue/test-utils'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 import type { MeResponse } from '@/types/users'
+import { retryDelays } from '@/lib/retry'
+
+// A request the network fails is sent this many times: once, plus the
+// transport's retries (lib/retry.ts).
+const ATTEMPTS = 1 + retryDelays().length
 
 const { getMe, login, logout, clearQueue, stopSync, mintSpaToken } = vi.hoisted(() => ({
     getMe: vi.fn(),
@@ -475,6 +480,36 @@ describe('useAuth', () => {
             expect(mintSpaToken).toHaveBeenCalledTimes(1)
             expect(sessionExpired.value).toBe(true)
             expect(subsonicReady.value).toBe(false)
+        })
+
+        // A mint the network swallowed is not a refused session: no login gate
+        // (whose purge would empty the queue), the connectivity banner instead,
+        // and a fresh mint once the probe finds the server again.
+        it('waits for the network instead of logging out when the boot mint gets no answer', async () => {
+            const connectivity = await import('@/composables/useConnectivity')
+            const { isOffline } = connectivity.useConnectivity()
+            mintSpaToken.mockRejectedValueOnce(
+                Object.assign(new Error('Network Error'), { isAxiosError: true, code: 'ERR_NETWORK' })
+            )
+            mintSpaToken.mockResolvedValue({
+                token: 'aether_test_key',
+                tokenId: 'tid1',
+                expiresAt: '2999-01-01T00:00:00Z'
+            })
+            getMe.mockResolvedValue(meAlice)
+            withAuth()
+            await flushPromises()
+
+            expect(sessionExpired.value).toBe(false)
+            expect(subsonicReady.value).toBe(false)
+            expect(clearQueue).not.toHaveBeenCalled()
+            expect(isOffline.value).toBe(true)
+
+            connectivity.dismissBanner() // what the probe does once the server answers
+            await flushPromises()
+
+            expect(mintSpaToken).toHaveBeenCalledTimes(2)
+            expect(subsonicReady.value).toBe(true)
         })
 
         // The failure feedback loop: flipping sessionExpired opens the login
@@ -1456,7 +1491,7 @@ describe('useAuth', () => {
             await qc.invalidateQueries({ queryKey: userQueryKeys.restIdentity })
             await flushPromises()
 
-            expect(fetchMock).toHaveBeenCalledTimes(2)
+            expect(fetchMock).toHaveBeenCalledTimes(1 + ATTEMPTS)
             expect(auth.needsServer.value).toBe(false)
             expect(auth.currentUser.value).toEqual({ login: 'alice', role: 'user' })
         })
@@ -1506,7 +1541,7 @@ describe('useAuth', () => {
             const auth = withAuth()
             await flushPromises()
             expect(auth.needsServer.value).toBe(true)
-            expect(fetchMock).toHaveBeenCalledTimes(1)
+            expect(fetchMock).toHaveBeenCalledTimes(ATTEMPTS)
 
             // As setServerUrl(url, 'apiKey') leaves the host's refs for a different
             // server. The watchers flush before the login view calls serverSaved().
@@ -1516,7 +1551,7 @@ describe('useAuth', () => {
             auth.serverSaved()
             await flushPromises()
 
-            expect(fetchMock).toHaveBeenCalledTimes(1)
+            expect(fetchMock).toHaveBeenCalledTimes(ATTEMPTS)
             expect(auth.needsServer.value).toBe(false)
             expect(auth.needsApiKey.value).toBe(true)
             expect(subsonicReady.value).toBe(false)
@@ -1534,7 +1569,7 @@ describe('useAuth', () => {
             const auth = withAuth()
             await flushPromises()
             expect(auth.needsServer.value).toBe(true)
-            expect(fetchMock).toHaveBeenCalledTimes(1)
+            expect(fetchMock).toHaveBeenCalledTimes(ATTEMPTS)
 
             // The server is back.
             fetchMock.mockResolvedValue({
@@ -1544,7 +1579,7 @@ describe('useAuth', () => {
             auth.serverSaved()
             await flushPromises()
 
-            expect(fetchMock).toHaveBeenCalledTimes(2)
+            expect(fetchMock).toHaveBeenCalledTimes(ATTEMPTS + 1)
             expect(auth.needsServer.value).toBe(false)
             expect(auth.currentUser.value).toEqual({ login: 'alice', role: 'user' })
             expect(apiKey.value).toBe('aether_k3y')

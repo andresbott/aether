@@ -57,10 +57,10 @@ describe('AboutView', () => {
         expect(w.find('.scaffold-title h1').text()).toBe('About')
     })
 
-    it('orders the sections shortcuts, build, source, credits with no brand hero', () => {
+    it('orders the sections shortcuts, build, playback log, source, credits with no brand hero', () => {
         const w = mountView()
         const headers = w.findAll('.about-section h2').map((h) => h.text())
-        expect(headers).toEqual(['Keyboard shortcuts', 'Build', 'Source', 'Credits'])
+        expect(headers).toEqual(['Keyboard shortcuts', 'Build', 'Playback log', 'Source', 'Credits'])
         expect(w.find('.about-hero').exists()).toBe(false)
     })
 

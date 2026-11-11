@@ -32,10 +32,12 @@ describe('Tokens API', () => {
 
         const res = await Tokens.mintSpaToken()
 
-        expect(post).toHaveBeenCalledWith('/auth/token', {
-            deviceId: getDeviceId(),
-            deviceName: getDeviceName()
-        })
+        expect(post).toHaveBeenCalledWith(
+            '/auth/token',
+            { deviceId: getDeviceId(), deviceName: getDeviceName() },
+            // A mint supersedes this device's token: safe to retry.
+            { idempotent: true }
+        )
         expect(res.tokenId).toBe('tid1')
     })
 

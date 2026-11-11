@@ -110,11 +110,24 @@ describe('transparent re-mint', () => {
         expect(sessionExpired.value).toBe(true)
     })
 
-    it('returns failed for non-401 errors (409, 500, network)', async () => {
+    it('returns failed for other refusals (409, 500)', async () => {
         vi.mocked(TokensApi.mintSpaToken).mockRejectedValue({ response: { status: 409 } })
         const result = await remintApiKey()
         expect(result).toBe('failed')
         expect(sessionExpired.value).toBe(false)
+    })
+
+    // No answer says nothing about the session, and must not spend the budget
+    // that keeps a refusing server from looping the login gate.
+    it('returns unreachable when the mint got no answer, spending no budget', async () => {
+        vi.mocked(TokensApi.mintSpaToken).mockRejectedValue(
+            Object.assign(new Error('Network Error'), { isAxiosError: true, code: 'ERR_NETWORK' })
+        )
+        for (let i = 0; i < MAX_MINT_ATTEMPTS; i++) {
+            expect(await remintApiKey()).toBe('unreachable')
+        }
+        expect(sessionExpired.value).toBe(false)
+        expect(mintRetriesExhausted()).toBe(false)
     })
 
     it('discards a mint result when logout happens mid-flight', async () => {

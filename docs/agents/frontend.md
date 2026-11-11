@@ -138,6 +138,25 @@ When a view diverges from these registries, the registry wins.
   `isMeResponse` is what counts as Aether's `/me`: `getMe` rejects any other
   answer with `NotAetherMeError`, and the probe applies the same check.
 - `types/` — one file per API domain, mirroring backend response shapes.
+- `lib/retry.ts` + `composables/useConnectivity.ts` — **network failures heal
+  on their own.** Both clients retry a request that got no answer (or a
+  502/503/504) twice, 400 ms then 1.5 s: `subsonic.ts` `send()` for every
+  `/rest` call except the additive ones (`createPlaylist`, `updatePlaylist`,
+  `createInternetRadioStation`, `scrobble` — a dropped request may have
+  landed), `client.ts`'s first response interceptor for GET/HEAD/OPTIONS/PUT/
+  DELETE and a POST that passes `idempotent: true` (the per-device mint, the
+  reads carried in a body). Anything the server answered is final. Past that,
+  a failure raises the connectivity banner, and while it is up a probe —
+  `checkSession()` (a `/rest` ping, which re-mints an expired key on the way),
+  or `/api/v0/version` before the client is configured — runs on a 2 s → 30 s
+  backoff, at once on the browser's `online` event or when the page is shown
+  again (both are hints, never proof: a phone's are unreliable). Recovery runs
+  the `onReconnect` listeners: `main.ts` refetches every errored active query,
+  the credential watcher re-runs a mint the network swallowed, and the player
+  resumes a track that died with it. Queries and mutations run with
+  `networkMode: 'always'` — the default parks them as paused on `offline` until
+  an `online` that may never come, which was the "works again only after a
+  reload" bug.
 - `lib/apiError.ts` — **the only place a thrown API error becomes text.** Use
   `apiErrorMessage(err, fallback)` instead of re-deriving
   `err?.response?.data?.error ?? err.message`: it reads the server's
@@ -404,8 +423,9 @@ folder's, so a key session offers it only for an upload staged in that edit.
 `canSignOut` (a native or a key session) is what shows Log out. In a key
 session `client.ts` refuses to send at all, and a `/rest` error 40 or 44 sets
 `sessionExpired` instead of minting (`handleRestAuthFailure` in
-`lib/subsonicSession.ts`; `remintApiKey` answers `failed` without a verdict, so
-a media element error reports connectivity rather than signing out); the expiry
+`lib/subsonicSession.ts`; `remintApiKey` answers `failed` without a verdict, and
+the player's recovery asks a ping before it re-points, so a media element error
+alone never signs out); the expiry
 purge forgets the key (`clearApiKey`) before the usual scrub.
 
 `useMe` is disabled until a server is known (`enabled` — a disabled query is
@@ -825,8 +845,9 @@ the note that it blocks saving (above).
 
 **One `<audio>` element** (`new Audio()`, created once, never in the DOM) plays
 every track: a track change — `ended`, a skip, a pick — re-points its `src` and
-calls `play()`. Nothing is fetched ahead, so each change costs the next track's
-fetch and decode before it sounds; there is no gapless playback.
+calls `play()`. Nothing is buffered ahead (the warm-up below only wakes the
+connection), so each change costs the next track's fetch and decode before it
+sounds; there is no gapless playback.
 
 Two elements swapping roles — one playing while the other pre-buffered the next
 track — were tried for seamless transitions and removed (2026-10-25). Live
@@ -847,6 +868,47 @@ after its audio stops and anything awaited in between would wait for the user
 to come back. `usePlayer.trackChange.spec.ts` pins both: its fake element
 refuses `play()` until a tap has started it, and the assertions run straight
 after the event, with no await.
+
+**Staying alive on a locked phone.** The track boundary is where a backgrounded
+phone stops playback: the next track is the first request in minutes, and it
+meets a dozing radio, a Wi-Fi ↔ mobile handover or an expired key. Four pieces
+cover it, all in `usePlayer.ts`:
+
+- **Intent, not element state.** `wantsPlayback` is set by `play()` and
+  cleared by any pause that is not a track's end (`el.ended` — the user's, or
+  the system's: headphones out, a call), by `clearQueue`, by the queue running
+  out, and by a refused session. Recovery and the watchdog act only on it, so
+  they never start sound nobody asked for.
+- **Recovery** (`recover` → `attemptRecovery`): an element `error`, a `play()`
+  rejected for anything but autoplay (`NotAllowedError` just stops wanting
+  playback — only a tap can help) or a stall is recovered in place, at its
+  position. Each attempt asks `subsonicClient.checkSession()` first: `ok` →
+  re-point at the fresh URL and resume from `loadedmetadata`; `unreachable` →
+  banner, then retry after 1 s, 2 s … 30 s, or at once on `onReconnect`;
+  `refused` → stop, the session handling owns it. A direct `streamUrl` (radio)
+  is re-pointed without asking. A track that keeps failing with a decode/format
+  error while the server answers is skipped after two re-points; a broken-off
+  transfer (`MEDIA_ERR_NETWORK`) or a stall never counts toward that. Any
+  track change cancels the recovery under way.
+- **Stall watchdog**: armed by `play()` and by `waiting`/`stalled`, disarmed by
+  progress. A position that has not moved for 15 s while playback is wanted is
+  recovered — a swallowed load does not always end in an error.
+- **Warm-up**: 30 s before a track ends, a `Range: bytes=0-65535` request for
+  the next one (through `httpFetch`, body drained and dropped) wakes the radio
+  and the connection while the page is still busy playing. An answer that is
+  not audio (a refused key's Subsonic error) or none at all runs
+  `checkSession()`, so the next URL is built with a good key, or the banner is
+  already up. It is not pre-buffering: the element still fetches the track
+  itself, and the single-element rule above stands.
+
+**Playback log** (`lib/playbackLog.ts`): the last 300 player and page-lifecycle
+events — loads, `playing`, `ended`, errors with their `MediaError` code,
+`waiting`/`stalled`, recovery attempts and session checks, warm-ups, the page
+hidden/shown/frozen/resumed, browser online/offline — persisted to
+localStorage (`aether:playbackLog`), shown newest first on About
+(`PlaybackLogPanel`, with Copy and Clear). A locked phone leaves no other
+trace. **Never log a URL**: stream URLs carry the `apiKey`; entries name track
+ids only.
 
 `loadTrack` seeds `duration` from the catalog's length until the element reports
 the stream's own, so the timeline and the lock screen read right while the next

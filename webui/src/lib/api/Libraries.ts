@@ -58,7 +58,12 @@ export async function browseFolders(
 }
 
 export async function previewLibrary(filters: LibraryFilter[], signal?: AbortSignal): Promise<LibraryPreview> {
-    const { data } = await apiClient.post<LibraryPreview>('/libraries/preview', { filters }, { signal })
+    // A read whose filters ride in the body: safe to retry.
+    const { data } = await apiClient.post<LibraryPreview>(
+        '/libraries/preview',
+        { filters },
+        { signal, idempotent: true }
+    )
     return data
 }
 

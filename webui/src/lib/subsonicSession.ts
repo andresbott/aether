@@ -8,6 +8,7 @@ import { subsonicClient } from '@/lib/api/subsonic'
 import { mintSpaToken } from '@/lib/api/Tokens'
 import { sessionExpired } from '@/lib/authState'
 import { clearSession, sessionKind, setSession } from '@/lib/host'
+import { isNetworkFailure } from '@/lib/retry'
 
 /** /rest calls may fire: auth "none", or a token is installed. App.vue gates on it. */
 export const subsonicReady = ref(false)
@@ -22,9 +23,9 @@ export const spaTokenId = ref<string | null>(null)
 // an expiry on a session that is already over. The reset also lets go of the
 // mint still out, so the next session mints for itself instead of joining a
 // discarded one.
-let mintInFlight: Promise<'ok' | 'session-gone' | 'failed'> | null = null
+let mintInFlight: Promise<MintResult> | null = null
 
-type MintResult = 'ok' | 'session-gone' | 'failed'
+export type MintResult = 'ok' | 'session-gone' | 'failed' | 'unreachable'
 
 /**
  * The current session's generation, bumped by every resetSubsonicSession — the
@@ -65,8 +66,11 @@ export function resetMintAttempts(): void {
  * Mint a fresh spa token and install it on the subsonic client.
  * - 'ok': minted and installed
  * - 'session-gone': mint answered 401 (sessionExpired is flipped)
- * - 'failed': other failure (409 ErrTooManyTokens, 500, network blip), or a
- *   mint whose session was reset while it was out, whatever it answered
+ * - 'unreachable': no answer, even after the transport's retries — says
+ *   nothing about the session, and spends no retry budget
+ * - 'failed': the server refused for another reason (409 ErrTooManyTokens,
+ *   500), or a mint whose session was reset while it was out, whatever it
+ *   answered
  */
 export function remintApiKey(): Promise<MintResult> {
     // A key session has nothing to mint and gives no verdict here: the player
@@ -106,8 +110,10 @@ export function remintApiKey(): Promise<MintResult> {
                     sessionExpired.value = true
                     return 'session-gone' as const
                 }
-                // Non-401 failures (409 ErrTooManyTokens, 500, network blip)
-                // leave the session state alone — the watcher will decide
+                // No answer at all is the network, not the session: the caller
+                // waits for the connection to come back rather than giving up.
+                if (isNetworkFailure(err)) return 'unreachable' as const
+                // Other refusals (409 ErrTooManyTokens, 500) leave the session state alone — the watcher will decide
                 // whether to surface the login gate or a retry affordance.
                 consecutiveMintFailures++
                 return 'failed' as const

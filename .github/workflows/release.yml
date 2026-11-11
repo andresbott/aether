@@ -161,6 +161,9 @@ jobs:
             target: x86_64-apple-darwin
             bundles: dmg
     runs-on: ${{ matrix.os }}
+    # A cold build takes ~10 min; the cap keeps a hung step (e.g. apt during a
+    # mirror/DNS outage) from holding the release for GitHub's 6-hour default.
+    timeout-minutes: 45
     defaults:
       run:
         # One set of steps for all three OSes (Windows defaults to PowerShell).
@@ -172,9 +175,10 @@ jobs:
       # Same list as player.yml plus patchelf for the AppImage.
       - name: Install system dependencies (linux)
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+          sudo apt-get -o Acquire::Retries=3 update
+          sudo apt-get -o Acquire::Retries=3 install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
             libasound2-dev libdbus-1-dev patchelf
 

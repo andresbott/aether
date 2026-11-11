@@ -1,6 +1,9 @@
 import { ref, computed, watch } from 'vue'
 import type { Song, PlayerState } from '@/types/subsonic'
-import { subsonicClient } from '@/lib/api/subsonic'
+import { subsonicClient, type SessionCheck } from '@/lib/api/subsonic'
+import { httpFetch } from '@/lib/host'
+import { installPlaybackLifecycleLog, logPlayback } from '@/lib/playbackLog'
+import { onReconnect, reportNetworkError } from '@/composables/useConnectivity'
 import { saveToLocalStorage, loadFromLocalStorage } from '@/utils/localStorage'
 import { reorderQueue } from '@/utils/queueReorder'
 import {
@@ -55,10 +58,12 @@ const SCROBBLE_MIN_DURATION = 30
 const SCROBBLE_CAP_SECONDS = 240
 let scrobbledTrackId: string | null = null
 
-// One stream-recovery attempt per loaded track: an expired apiKey kills the
-// src URL, which surfaces as an element error, not a JSON response. Re-mint
-// once and re-point; a second failure is a real playback error.
-let streamRetriedTrackId: string | null = null
+// Whether the user wants sound: set by play(), cleared by a pause — theirs, or
+// one the system made (headphones unplugged, a call) — by clearing the queue,
+// and by the queue running out. Recovery and the stall watchdog act only while
+// it is set, so they never start audio nobody asked for. Distinct from
+// isPlaying, which follows the element and is false while a track loads.
+let wantsPlayback = false
 
 const maybeScrobble = (el: HTMLAudioElement): void => {
     const track = currentTrack.value
@@ -71,32 +76,164 @@ const maybeScrobble = (el: HTMLAudioElement): void => {
     void subsonicClient.scrobble(track.id)
 }
 
-const recoverStream = async (el: HTMLAudioElement): Promise<void> => {
+const getTrackUrl = (track: Song | null): string | null => {
+    if (!track) return null
+    if (track.streamUrl) return track.streamUrl
+    if (!subsonicClient.isConfigured()) return null
+    return subsonicClient.getStreamUrl(track.id)
+}
+
+// ---- Stream recovery --------------------------------------------------------
+//
+// A track that fails to load — an element error, a play() the browser rejected
+// for a reason other than autoplay, or a load the stall watchdog gave up on — is
+// recovered in place, at its position. A phone that slept for minutes is the
+// usual cause: the next track is the first request in a while, and it meets a
+// dozing radio, a Wi-Fi ↔ mobile handover or an expired key. Each attempt first
+// asks the server with a cheap ping (subsonicClient.checkSession), which also
+// re-mints an expired key, and only then re-points the element:
+// - the server answers → re-point at the fresh URL and resume;
+// - no answer → raise the connectivity banner and try again after a backoff,
+//   or as soon as the connectivity probe sees the server again (onReconnect);
+// - the session is refused → stop; the session handling owns that.
+// A track that keeps failing while the server answers is unplayable, and is
+// skipped rather than retried forever.
+
+// Waits before the second and later attempts; the first runs at once.
+const RECOVERY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000]
+// Re-points that failed again although the server answered.
+const MAX_FAILURES_WHILE_REACHABLE = 2
+
+interface Recovery {
+    trackId: string
+    reason: string
+    attempts: number
+    failuresWhileReachable: number
+    // Where to resume: the position the failure interrupted, kept across
+    // attempts (a fresh src reads 0 until its metadata loads).
+    position: number
+    timer: ReturnType<typeof setTimeout> | null
+    running: boolean
+    // The last check found no server: a reconnect is worth acting on.
+    waitingForNetwork: boolean
+}
+
+let recovery: Recovery | null = null
+
+const cancelRecovery = (): void => {
+    if (recovery?.timer) clearTimeout(recovery.timer)
+    recovery = null
+}
+
+const recover = (el: HTMLAudioElement, reason: string): void => {
     const track = currentTrack.value
     if (!track) {
         // Nothing is playing (e.g. the queue was cleared): a media error here is
         // a deliberate stop, not a connectivity failure. Stay silent.
         return
     }
-    if (streamRetriedTrackId === track.id) {
-        // Already retried this track once and it failed again — a real stream
-        // failure. Report it so the connectivity banner surfaces.
-        const { reportNetworkError } = await import('@/composables/useConnectivity')
-        reportNetworkError()
-        return
-    }
-    streamRetriedTrackId = track.id
-    const { remintApiKey } = await import('@/lib/subsonicSession')
-    const result = await remintApiKey()
-    if (result !== 'ok') {
-        // Dead session or failed re-mint — report connectivity failure.
-        const { reportNetworkError } = await import('@/composables/useConnectivity')
-        reportNetworkError()
-        return
-    }
-    const wasPlaying = isPlaying.value
     const position = el.currentTime || 0
-    el.src = subsonicClient.getStreamUrl(track.id)
+    if (!recovery || recovery.trackId !== track.id) {
+        cancelRecovery()
+        recovery = {
+            trackId: track.id,
+            reason,
+            attempts: 0,
+            failuresWhileReachable: 0,
+            position,
+            timer: null,
+            running: false,
+            waitingForNetwork: false
+        }
+    } else {
+        recovery.reason = reason
+        if (position > 0) recovery.position = position
+    }
+    // One attempt at a time: an error and a rejected play() for the same load
+    // arrive together.
+    if (recovery.running || recovery.timer) return
+    if (recovery.attempts === 0) {
+        void attemptRecovery(el)
+        return
+    }
+    scheduleRecovery(el)
+}
+
+const scheduleRecovery = (el: HTMLAudioElement): void => {
+    const r = recovery
+    if (!r || r.timer || r.running) return
+    const index = r.attempts - 1
+    if (index >= RECOVERY_DELAYS_MS.length) {
+        // Out of timed attempts. A reconnect can still bring the track back
+        // while the user wants it (see onReconnect below).
+        logPlayback('recover-gave-up', `${r.trackId} after ${r.attempts} attempts`)
+        return
+    }
+    r.timer = setTimeout(() => {
+        r.timer = null
+        if (recovery === r) void attemptRecovery(el)
+    }, RECOVERY_DELAYS_MS[index])
+}
+
+// checkSession turns every failure into an answer; this keeps an unexpected
+// throw from leaving a recovery marked as running forever.
+const checkSession = async (): Promise<SessionCheck> => {
+    try {
+        return await subsonicClient.checkSession()
+    } catch {
+        return 'unreachable'
+    }
+}
+
+const attemptRecovery = async (el: HTMLAudioElement): Promise<void> => {
+    const r = recovery
+    if (!r) return
+    r.running = true
+    r.attempts++
+    logPlayback('recover', `${r.trackId} attempt ${r.attempts} (${r.reason})`)
+    const track = currentTrack.value
+    // A direct stream URL (a radio station) is not this server's: re-point it
+    // without asking.
+    const status = track?.streamUrl ? 'ok' : await checkSession()
+    r.running = false
+    // A track change or a cleared queue overtook the check.
+    if (recovery !== r || currentTrack.value?.id !== r.trackId) return
+    logPlayback('session-check', status)
+    if (status === 'unreachable') {
+        r.waitingForNetwork = true
+        reportNetworkError()
+        scheduleRecovery(el)
+        return
+    }
+    r.waitingForNetwork = false
+    if (status === 'refused') {
+        // A dead session: in a cookie session the re-mint already failed with a
+        // 401 and the login gate is coming; a refused key opens the key card.
+        // Nothing to retry until then, so the watchdog stands down too.
+        cancelRecovery()
+        wantsPlayback = false
+        disarmStallWatchdog()
+        return
+    }
+    // Only a decode or format error says the track itself is bad; a broken-off
+    // transfer or a stall on a slow link is the network's, and is retried.
+    if (r.attempts > 1 && r.reason === 'error') r.failuresWhileReachable++
+    if (r.failuresWhileReachable >= MAX_FAILURES_WHILE_REACHABLE) {
+        logPlayback('skip-unplayable', r.trackId)
+        cancelRecovery()
+        if (wantsPlayback && playNextFn) playNextFn()
+        return
+    }
+    repoint(el, r.position)
+}
+
+// Re-point the element at the current track's URL (with whatever key is
+// installed now) and resume at `position`.
+const repoint = (el: HTMLAudioElement, position: number): void => {
+    const url = getTrackUrl(currentTrack.value)
+    if (!url) return
+    el.src = url
+    el.volume = volume.value
     // A fresh src resets the element to "no metadata", where assigning
     // currentTime is dropped (or throws InvalidStateError). Restore the position
     // once the new stream is seekable, then pick playback back up.
@@ -108,20 +245,125 @@ const recoverStream = async (el: HTMLAudioElement): Promise<void> => {
                 // Non-seekable stream: resume from the start rather than fail.
             }
         }
-        if (wasPlaying) {
-            void el.play()
-        }
+        if (wantsPlayback) startPlayback(el)
     }
     el.addEventListener('loadedmetadata', resume, { once: true })
     el.load()
+    // A re-point that never gets as far as metadata is a stall too.
+    if (wantsPlayback) armStallWatchdog(el, 'reload')
+}
+
+// ---- Stall watchdog ---------------------------------------------------------
+//
+// A load the network swallows does not always end in an error: the element can
+// sit in 'waiting' forever. While the user wants sound, a position that has not
+// moved for STALL_TIMEOUT_MS after the element said it was waiting (or after a
+// play() call) is treated as a failed load and recovered.
+const STALL_TIMEOUT_MS = 15_000
+let stallTimer: ReturnType<typeof setTimeout> | null = null
+let stallMark = 0
+
+const disarmStallWatchdog = (): void => {
+    if (stallTimer) clearTimeout(stallTimer)
+    stallTimer = null
+}
+
+const armStallWatchdog = (el: HTMLAudioElement, why: string): void => {
+    if (!wantsPlayback || !currentTrack.value || stallTimer) return
+    stallMark = el.currentTime || 0
+    stallTimer = setTimeout(() => {
+        stallTimer = null
+        if (!wantsPlayback || !currentTrack.value) return
+        if (!el.paused && (el.currentTime || 0) > stallMark + 0.5) return
+        logPlayback('stall-timeout', `${currentTrack.value.id} (${why})`)
+        recover(el, 'stall')
+    }, STALL_TIMEOUT_MS)
+}
+
+// ---- Starting playback ------------------------------------------------------
+
+const startPlayback = (el: HTMLAudioElement): void => {
+    wantsPlayback = true
+    armStallWatchdog(el, 'start')
+    el.play().catch((err: { name?: string; message?: string }) => {
+        // A newer src or pause() interrupted this play() — not a failure.
+        if (err?.name === 'AbortError') return
+        logPlayback('play-rejected', err?.name ?? 'unknown')
+        if (err?.name === 'NotAllowedError') {
+            // Autoplay policy: nothing here can start sound until the user taps
+            // play. Stop wanting it, so the watchdog does not retry in a loop.
+            wantsPlayback = false
+            disarmStallWatchdog()
+            return
+        }
+        console.error('Failed to play:', err)
+        recover(el, 'play-rejected')
+    })
+}
+
+// ---- Warming the next track -------------------------------------------------
+//
+// Near the end of a track, ask the server for the first bytes of the next one.
+// It wakes the radio and the connection while the page is still busy playing,
+// and finds a dead key or a dead network before the handoff needs them: the
+// check re-mints an expired key, so the next track's URL is built with a good
+// one. The answer is thrown away; the element fetches the track itself.
+const WARM_AHEAD_SECONDS = 30
+const WARM_RANGE = 'bytes=0-65535'
+let warmedForTrackId: string | null = null
+
+const maybeWarmNext = (el: HTMLAudioElement): void => {
+    const track = currentTrack.value
+    if (!wantsPlayback || !track || warmedForTrackId === track.id || track.streamUrl) return
+    const total = el.duration || track.duration || 0
+    if (!total || !isFinite(total) || total - (el.currentTime || 0) > WARM_AHEAD_SECONDS) return
+    warmedForTrackId = track.id
+    const nextIndex = resolveStep(1)
+    const next = nextIndex === null ? null : queue.value[nextIndex]
+    if (!next || next.streamUrl || !subsonicClient.isConfigured()) return
+    void warmUp(next.id)
+}
+
+const warmUp = async (id: string): Promise<void> => {
+    try {
+        const response = await httpFetch(subsonicClient.getStreamUrl(id), {
+            headers: { Range: WARM_RANGE }
+        })
+        const type = response.headers.get('content-type') ?? ''
+        // Drain the body so the connection can be reused.
+        await response.arrayBuffer().catch(() => undefined)
+        // A refused key answers a Subsonic error document, not audio.
+        if (response.ok && !type.includes('json') && !type.includes('xml')) {
+            logPlayback('warm-next', `${id} ok`)
+            return
+        }
+        logPlayback('warm-next', `${id} refused (${response.status})`)
+    } catch {
+        logPlayback('warm-next', `${id} no answer`)
+    }
+    const status = await checkSession()
+    logPlayback('session-check', status)
+    if (status === 'unreachable') reportNetworkError()
 }
 
 const initAudio = (): void => {
     if (audio) return
+    installPlaybackLifecycleLog()
     const el = new Audio()
     el.addEventListener('timeupdate', () => {
-        currentTime.value = el.currentTime || 0
+        const now = el.currentTime || 0
+        currentTime.value = now
         maybeScrobble(el)
+        if (stallTimer && now > stallMark + 0.5) disarmStallWatchdog()
+        // Well past where it was recovered: the track is healthy again.
+        if (
+            recovery &&
+            recovery.trackId === currentTrack.value?.id &&
+            now > recovery.position + 5
+        ) {
+            cancelRecovery()
+        }
+        maybeWarmNext(el)
     })
     el.addEventListener('durationchange', () => {
         duration.value = el.duration || 0
@@ -130,28 +372,55 @@ const initAudio = (): void => {
     // suspend a background page soon after its audio stops, so anything awaited
     // in between would wait for the user to come back to it.
     el.addEventListener('ended', () => {
+        logPlayback('ended', currentTrack.value?.id)
         if (playNextFn) playNextFn()
     })
     el.addEventListener('play', () => {
         isPlaying.value = true
     })
+    el.addEventListener('playing', () => {
+        logPlayback('playing', currentTrack.value?.id)
+    })
     el.addEventListener('pause', () => {
         isPlaying.value = false
+        // The pause a track's end brings is not the user's: the next track is
+        // about to start. Any other pause — the user's, or one the system made
+        // (headphones unplugged, a call) — means they no longer want sound. A
+        // pause event that arrives after play() was called again (queued by a
+        // src change, say) is stale: the element is not paused any more.
+        if (el.ended || !el.paused) return
+        wantsPlayback = false
+        disarmStallWatchdog()
+        logPlayback('paused', currentTrack.value?.id)
     })
+    const onWaiting = (event: Event): void => {
+        logPlayback(event.type, currentTrack.value?.id)
+        armStallWatchdog(el, event.type)
+    }
+    el.addEventListener('waiting', onWaiting)
+    el.addEventListener('stalled', onWaiting)
     el.addEventListener('error', () => {
         // An error on a sourceless element is a deliberate stop (clearQueue
         // empties the src), not a stream failure — never alarm the user for it.
-        if (!el.src) return
-        void recoverStream(el)
+        if (!el.src || !currentTrack.value) return
+        const code = el.error?.code
+        logPlayback('error', `${currentTrack.value.id} code ${code ?? '?'}`)
+        // MEDIA_ERR_NETWORK: the transfer broke off, the file is fine.
+        recover(el, code === 2 ? 'network' : 'error')
+    })
+    // The server is back after an outage: a track that died with the network,
+    // or is still waiting out a backoff, gets a fresh attempt now.
+    onReconnect(() => {
+        if (!wantsPlayback || !currentTrack.value) return
+        const r = recovery
+        if (!r || r.trackId !== currentTrack.value.id || r.running) return
+        if (!r.waitingForNetwork) return
+        logPlayback('reconnected', r.trackId)
+        if (r.timer) clearTimeout(r.timer)
+        r.timer = null
+        void attemptRecovery(el)
     })
     audio = el
-}
-
-const getTrackUrl = (track: Song | null): string | null => {
-    if (!track) return null
-    if (track.streamUrl) return track.streamUrl
-    if (!subsonicClient.isConfigured()) return null
-    return subsonicClient.getStreamUrl(track.id)
 }
 
 // Draw a fresh random order over the queue, starting at the given track so the
@@ -304,14 +573,12 @@ export function usePlayer() {
             loadTrack(0)
         }
         if (!audio || !audio.src) return
-        audio.play().catch((err) => {
-            if (err.name !== 'AbortError') {
-                console.error('Failed to play:', err)
-            }
-        })
+        startPlayback(audio)
     }
 
     const pause = (): void => {
+        wantsPlayback = false
+        disarmStallWatchdog()
         audio?.pause()
         isPlaying.value = false
     }
@@ -333,7 +600,11 @@ export function usePlayer() {
         // the timeline — and a phone's lock screen — reads right while it loads.
         duration.value = currentTrack.value?.duration ?? 0
         scrobbledTrackId = null
-        streamRetriedTrackId = null
+        // A new load: whatever was being recovered or watched belonged to the
+        // track before.
+        cancelRecovery()
+        disarmStallWatchdog()
+        logPlayback('load', currentTrack.value?.id)
         const url = getTrackUrl(currentTrack.value)
         if (url && audio) {
             audio.src = url
@@ -516,7 +787,7 @@ export function usePlayer() {
         // logout purge clears the queue, and the next session's first track must
         // start with a fresh scrobble and stream-recovery budget.
         scrobbledTrackId = null
-        streamRetriedTrackId = null
+        cancelRecovery()
         pause()
         if (audio) audio.src = ''
     }

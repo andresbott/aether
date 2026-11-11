@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+import PlaybackLogPanel from '@/components/about/PlaybackLogPanel.vue'
 import { useVersion } from '@/composables/useVersion'
 import { useViewport } from '@/composables/useViewport'
 import { appVersion, isDesktopApp, serverUrl } from '@/lib/host'
@@ -105,6 +106,11 @@ const buildTime = computed(() => serverVersion.value?.build_time || '')
                             <dd>{{ buildTime }}</dd>
                         </div>
                     </dl>
+                </section>
+
+                <section class="about-section">
+                    <h2>Playback log</h2>
+                    <PlaybackLogPanel />
                 </section>
 
                 <section class="about-section">

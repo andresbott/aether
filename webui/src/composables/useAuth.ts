@@ -1,9 +1,10 @@
-import { computed, effectScope, nextTick, watch } from 'vue'
+import { computed, effectScope, nextTick, ref, watch } from 'vue'
 import { useMutation, useQueryClient, type QueryClient } from '@tanstack/vue-query'
 import * as AuthApi from '@/lib/api/Auth'
 import { useMe, useRestIdentity, userQueryKeys } from '@/composables/useUsers'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSync } from '@/composables/useQueueSync'
+import { onReconnect, reportNetworkError } from '@/composables/useConnectivity'
 import { explicitLogout, lastServerUrl, sessionExpired } from '@/lib/authState'
 import { DEVICE_ID_KEY } from '@/lib/deviceIdentity'
 import {
@@ -142,8 +143,16 @@ export function useAuth() {
             // authenticated modes (native, proxy-header) an established
             // identity mints the spa token first. Runs again after login
             // (invalidateQueries refetches /me) and after a key is saved.
+            // A boot mint the network swallowed is tried again once the
+            // connection is back (useConnectivity's probe finds the server):
+            // bumping this re-runs the credential watcher.
+            const mintRetry = ref(0)
+            onReconnect(() => {
+                if (!subsonicReady.value) mintRetry.value++
+            })
+
             watch(
-                [me.data, sessionExpired, sessionKind, apiKey],
+                [me.data, sessionExpired, sessionKind, apiKey, mintRetry],
                 async ([data, expired, kind, key], [, , previousKind, previousKey]) => {
                     // A key session that is left — the server step saved a cookie
                     // server, or the kind was switched — or that loses the key it
@@ -191,6 +200,14 @@ export function useAuth() {
                             // server chosen since, without login, would never
                             // render). That one has watcher runs of its own.
                             if (sessionGeneration() !== generation) return
+                            // No answer: not the session's fault. Raise the
+                            // connectivity banner, whose probe re-runs this
+                            // watcher once the server answers — the login gate
+                            // (and its purge of the queue) is for real refusals.
+                            if (result === 'unreachable') {
+                                reportNetworkError()
+                                return
+                            }
                             // A boot-mint failure for any non-401 reason (409
                             // ErrTooManyTokens, 500, network blip) would leave
                             // subsonicReady=false and sessionExpired=false,
